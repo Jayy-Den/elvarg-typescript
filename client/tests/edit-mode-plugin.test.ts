@@ -195,6 +195,15 @@ assert.deepEqual(calls.at(-1), ["openInterface", 161]);
 assert.equal(plugin.getState().interfaces.selected, 161);
 assert.equal(plugin.getState().interfaces.widgets[0].text, "hp");
 
+// Switching the plugin off also hands the camera back, even if world-click
+// capture was never turned on.
+plugin.setConfig({ enabled: true, active: false });
+calls.length = 0;
+plugin.setFreeCamera(true);
+plugin.setConfig({ enabled: false });
+assert.deepEqual(calls.at(-1), ["freeCamera", false]);
+assert.equal(plugin.getState().freeCamera, false);
+
 // Disabled by default, and never active without being enabled.
 const fresh = new EditModePlugin();
 assert.equal(fresh.getConfig().enabled, false);

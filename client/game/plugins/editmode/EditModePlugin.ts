@@ -412,13 +412,17 @@ export class EditModePlugin {
 
     private syncListeners(): void {
         const shouldCapture = this.config.enabled && this.config.active && this.host !== undefined;
-        if (shouldCapture === this.capturing) return;
-        this.capturing = shouldCapture;
 
+        // Checked before the change guard: switching the plugin off entirely
+        // never toggles capture, and would otherwise strand the camera off the
+        // player with the panel gone.
         if (!shouldCapture && this.freeCamera) {
             this.host?.setFreeCamera(false);
             this.freeCamera = false;
         }
+
+        if (shouldCapture === this.capturing) return;
+        this.capturing = shouldCapture;
 
         if (typeof window === "undefined") return;
         if (shouldCapture) {
