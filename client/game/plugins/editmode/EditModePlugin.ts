@@ -71,7 +71,9 @@ export class EditModePlugin {
 
     constructor(persistence?: EditModePluginPersistence) {
         this.persistence = persistence;
-        this.config = this.sanitizeConfig(persistence?.load());
+        // Never restore an armed session: a plugin that eats clicks from the
+        // first frame is impossible to diagnose from the UI.
+        this.config = this.sanitizeConfig({ ...persistence?.load(), active: false });
         this.state = {
             config: this.config,
             search: this.search,
@@ -413,8 +415,23 @@ export class EditModePlugin {
         }
     }
 
+    /** Whether canvas clicks and shortcuts are being intercepted right now. */
+    handlesCanvasInput(): boolean {
+        return this.capturing && this.hasEditableScene();
+    }
+
+    /**
+     * There is only something to edit once a scene is on screen. Without this
+     * the armed plugin swallows every canvas click, which on the login screen
+     * means the buttons and form stop responding entirely.
+     */
+    private hasEditableScene(): boolean {
+        return this.scenePreview || this.host?.isLoggedIn() === true;
+    }
+
     private readonly onMouseDown = (event: MouseEvent): void => {
         if (event.button !== 0 || event.target !== this.host?.getCanvas()) return;
+        if (!this.hasEditableScene()) return;
         event.preventDefault();
         event.stopPropagation();
         this.applyAtPointer();
@@ -423,6 +440,9 @@ export class EditModePlugin {
     private readonly onKeyDown = (event: KeyboardEvent): void => {
         const target = event.target as HTMLElement | null;
         if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        // The login form is drawn on the canvas, so its typing would otherwise
+        // lose every "x" to the rotate shortcut.
+        if (!this.hasEditableScene()) return;
         if (event.key === "x" || event.key === "X") {
             event.preventDefault();
             this.rotate();

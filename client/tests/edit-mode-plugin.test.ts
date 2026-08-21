@@ -199,6 +199,25 @@ assert.deepEqual(calls.at(-1), ["openInterface", 161]);
 assert.equal(plugin.getState().interfaces.selected, 161);
 assert.equal(plugin.getState().interfaces.widgets[0].text, "hp");
 
+// Armed on the login screen: clicks and keys must pass through to the client,
+// there is no scene to edit yet. (host.isLoggedIn() is false in this fake.)
+plugin.setConfig({ enabled: true, active: true });
+calls.length = 0;
+plugin.setConfig({ tool: "place", placeKind: "loc", locId: 1276 });
+plugin.applyAtPointer();
+assert.equal(calls.length, 1, "applyAtPointer stays callable from the panel");
+calls.length = 0;
+assert.equal(plugin.handlesCanvasInput(), false, "no canvas capture without a scene");
+plugin.clearEdits();
+plugin.setConfig({ active: false, tool: "select", placeKind: "npc" });
+
+// A restored session never starts armed.
+const restoredArmed = new EditModePlugin({
+    load: () => ({ enabled: true, active: true }),
+    save: () => {},
+});
+assert.equal(restoredArmed.getConfig().active, false);
+
 // Entering the preview arms the tools, so Esc has something to exit.
 plugin.setConfig({ enabled: true, active: false });
 plugin.setScenePreview(true);
