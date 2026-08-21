@@ -1,4 +1,3 @@
-import { EDIT_MODE_SIDEBAR_PLUGIN } from "../plugins/editmode/SidebarPlugin";
 import { GROUND_ITEMS_SIDEBAR_PLUGIN } from "../plugins/grounditems/SidebarPlugin";
 import { INTERACT_HIGHLIGHT_SIDEBAR_PLUGIN } from "../plugins/interacthighlight/SidebarPlugin";
 import { NOTES_SIDEBAR_PLUGIN } from "../plugins/notes/SidebarPlugin";
@@ -20,8 +19,6 @@ export interface ClientSidebarEntryData {
 }
 
 export interface SidebarPluginVisibilityOptions {
-    /** Dev-only editor; hidden unless the plugin loaded and is switched on. */
-    editModeEnabled?: boolean;
     groundItemsEnabled?: boolean;
     interactHighlightEnabled?: boolean;
     notesEnabled?: boolean;
@@ -34,7 +31,6 @@ const DEFAULT_CLIENT_SIDEBAR_PLUGINS: ReadonlyArray<ClientSidebarPluginDefinitio
     TILE_MARKERS_SIDEBAR_PLUGIN,
     INTERACT_HIGHLIGHT_SIDEBAR_PLUGIN,
     NOTES_SIDEBAR_PLUGIN,
-    EDIT_MODE_SIDEBAR_PLUGIN,
 ]);
 
 function toEntryDefinition(
@@ -53,9 +49,6 @@ function toEntryDefinition(
 }
 
 function isPluginVisible(pluginId: string, options: SidebarPluginVisibilityOptions): boolean {
-    if (pluginId === "edit_mode") {
-        return options.editModeEnabled === true;
-    }
     if (pluginId === "ground_items") {
         return options.groundItemsEnabled !== false;
     }

@@ -10,8 +10,8 @@ const SEARCH_RESULT_LIMIT = 60;
 /** North-up, looking down ~49deg: the title-screen preset sits off-axis and reads as skewed. */
 const EDITOR_CAMERA_YAW = 0;
 const EDITOR_CAMERA_PITCH = 280;
-/** Tiles the camera sits above the ground when it jumps to a tile (RS up is -Y). */
-const CAMERA_JUMP_HEIGHT = 10;
+/** Tiles the camera pulls back along its view ray when framing a tile. */
+const EDITOR_CAMERA_DISTANCE = 22;
 const WIDGET_SUMMARY_LIMIT = 200;
 /** Types decoded per frame while indexing, so the client keeps rendering. */
 const INDEX_CHUNK = 2000;
@@ -137,28 +137,21 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         setScenePreview: (enabled) => {
             client.scenePreviewEnabled = enabled;
             if (!enabled) return;
-            // The logged-out camera still holds the title-screen angles, which
-            // read as a skewed world once the scene is drawn behind it.
-            client.camera.snapToYaw(EDITOR_CAMERA_YAW);
-            client.camera.snapToPitch(EDITOR_CAMERA_PITCH);
+            // Logged out the camera still holds the title-screen angles and sits
+            // 26 tiles up with nothing framed, which reads as a skewed world.
+            frameCameraOnTile(
+                client,
+                {
+                    tileX: Math.round(client.camera.getPosX()),
+                    tileY: Math.round(client.camera.getPosZ()),
+                    plane: 0,
+                },
+                true,
+            );
         },
         isLoggedIn: () => client.isLoggedIn(),
         jumpCameraToTile: (tile) => {
-            const renderer = client.renderer as unknown as
-                | { sampleHeightAtExactPlane?: (x: number, z: number, plane: number) => number }
-                | undefined;
-            const height = renderer?.sampleHeightAtExactPlane?.(
-                tile.tileX + 0.5,
-                tile.tileY + 0.5,
-                tile.plane,
-            );
-            client.camera.snapToPosition(
-                tile.tileX + 0.5,
-                typeof height === "number" && Number.isFinite(height)
-                    ? height - CAMERA_JUMP_HEIGHT
-                    : undefined,
-                tile.tileY + 0.5,
-            );
+            frameCameraOnTile(client, tile, false);
         },
         listInterfaceGroups: () => client.widgetManager?.getAvailableGroups() ?? [],
         openInterface: (groupId) => {
@@ -228,6 +221,33 @@ function reloadTile(renderer: TerrainHost, tile: EditModeTile): void {
     const mapId = renderer.getMapIdForWorldTile(tile.tileX, tile.tileY);
     renderer.pendingLocUpdates.add(mapId);
     renderer.scheduleLocReload(mapId >> 8, mapId & 0xff);
+}
+
+/**
+ * Puts the camera on the tile at ground level, then pulls it back along its own
+ * view ray so the tile sits mid-screen - the same shape as the follow camera's
+ * orbit, which is what makes the view read as a normal RS one.
+ */
+function frameCameraOnTile(client: OsrsClient, tile: EditModeTile, resetAngles: boolean): void {
+    const camera = client.camera;
+    if (resetAngles) {
+        camera.snapToYaw(EDITOR_CAMERA_YAW);
+        camera.snapToPitch(EDITOR_CAMERA_PITCH);
+    }
+
+    const centreX = tile.tileX + 0.5;
+    const centreZ = tile.tileY + 0.5;
+    const renderer = client.renderer as unknown as
+        | { sampleHeightAtExactPlane?: (x: number, z: number, plane: number) => number }
+        | undefined;
+    const height = renderer?.sampleHeightAtExactPlane?.(centreX, centreZ, tile.plane);
+
+    camera.snapToPosition(
+        centreX,
+        typeof height === "number" && Number.isFinite(height) ? height : undefined,
+        centreZ,
+    );
+    camera.move(0, 0, EDITOR_CAMERA_DISTANCE, true);
 }
 
 let nextEditorNpcServerId = EDITOR_NPC_SERVER_ID_BASE;

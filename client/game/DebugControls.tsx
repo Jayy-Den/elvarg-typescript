@@ -2,7 +2,7 @@ import FileSaver from "file-saver";
 import { vec3 } from "gl-matrix";
 import { Leva, button, buttonGroup, folder, useControls } from "leva";
 import { ButtonGroupOpts, Schema } from "leva/dist/declarations/src/types";
-import { memo, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useState } from "react";
 
 import { DownloadProgress } from "../rs/cache/CacheFiles";
 import { IndexType } from "../rs/cache/IndexType";
@@ -19,6 +19,12 @@ import {
 } from "./GameRenderers";
 import { OsrsClient } from "./OsrsClient";
 import { profiler } from "../render/PerformanceProfiler";
+
+// Dev-only: webpack folds this check away so the editor never ships in production.
+const EditModeControls =
+    process.env.NODE_ENV !== "production"
+        ? lazy(() => import("./plugins/editmode/EditModeControls"))
+        : undefined;
 
 interface OsrsClientControlsProps {
     renderer: GameRenderer;
@@ -613,6 +619,11 @@ export const DebugControls = memo(
 
         return (
             <div className={`leva-left${levaCollapsed ? " leva-collapsed" : ""}`}>
+                {EditModeControls && osrsClient.editModePlugin && (
+                    <Suspense fallback={null}>
+                        <EditModeControls osrsClient={osrsClient} />
+                    </Suspense>
+                )}
                 <Leva
                     titleBar={{ filter: false }}
                     collapsed={{

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { OsrsClient } from "../OsrsClient";
 import type { GroundItemsPluginConfig } from "../plugins/grounditems/types";
@@ -8,12 +8,6 @@ import "./SidebarShell.css";
 import type { SidebarStore } from "./SidebarStore";
 import type { ClientSidebarEntryData, SidebarPanelId } from "./entries";
 import type { SidebarRailIconRenderer } from "./pluginTypes";
-
-// Dev-only: webpack folds this check away so the editor chunk never ships in production.
-const EditModePanel =
-    process.env.NODE_ENV !== "production"
-        ? lazy(() => import("../plugins/editmode/EditModePanel"))
-        : undefined;
 
 function toColorInput(color: number): string {
     const hex = (Math.max(0, color | 0) & 0xffffff).toString(16).padStart(6, "0");
@@ -655,18 +649,6 @@ function PluginHubPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Element
         tileMarkersGetSnapshot,
     );
 
-    const editModePlugin = osrsClient.editModePlugin;
-    const editModeSubscribe = useCallback(
-        (listener: () => void) => editModePlugin?.subscribe(listener) ?? (() => {}),
-        [editModePlugin],
-    );
-    const editModeGetSnapshot = useCallback(() => editModePlugin?.getState(), [editModePlugin]);
-    const editModeState = useSyncExternalStore(
-        editModeSubscribe,
-        editModeGetSnapshot,
-        editModeGetSnapshot,
-    );
-
     const pluginToggles = useMemo<PluginHubToggle[]>(
         () => [
             {
@@ -705,19 +687,6 @@ function PluginHubPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Element
                     notesPlugin.setConfig({ enabled });
                 },
             },
-            ...(editModePlugin && editModeState
-                ? [
-                      {
-                          id: "edit_mode",
-                          name: "Edit Mode",
-                          description: "Dev-only loc placement and deletion in the world.",
-                          enabled: editModeState.config.enabled,
-                          setEnabled: (enabled: boolean) => {
-                              editModePlugin.setConfig({ enabled, active: enabled && editModeState.config.active });
-                          },
-                      },
-                  ]
-                : []),
             {
                 id: "remember_login",
                 name: "Remember Login",
@@ -729,8 +698,6 @@ function PluginHubPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Element
             },
         ],
         [
-            editModePlugin,
-            editModeState,
             groundItemsPlugin,
             groundItemsState.config.enabled,
             interactHighlightPlugin,
@@ -787,15 +754,6 @@ const DEFAULT_PANEL_RENDERERS: Record<string, SidebarPanelRenderer> = {
     interact_highlight: (ctx) => <InteractHighlightPanel osrsClient={ctx.osrsClient} />,
     tile_markers: (ctx) => <TileMarkersPanel osrsClient={ctx.osrsClient} />,
     notes: (ctx) => <SidebarNotesPanel osrsClient={ctx.osrsClient} />,
-    ...(EditModePanel
-        ? {
-              edit_mode: (ctx: SidebarPanelRenderContext) => (
-                  <Suspense fallback={<div className="rl-sidebar-panel-content" />}>
-                      <EditModePanel osrsClient={ctx.osrsClient} />
-                  </Suspense>
-              ),
-          }
-        : {}),
 };
 
 export function SidebarShell({

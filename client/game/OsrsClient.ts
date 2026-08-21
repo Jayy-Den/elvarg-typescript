@@ -375,7 +375,6 @@ export class OsrsClient {
 
     private syncSidebarPlugins(force = false): void {
         const visibility: Required<SidebarPluginVisibilityOptions> = {
-            editModeEnabled: this.editModePlugin?.getConfig().enabled ?? false,
             groundItemsEnabled: this.groundItemsPlugin.getConfig().enabled,
             interactHighlightEnabled: this.interactHighlightPlugin.getConfig().enabled,
             notesEnabled: this.notesPlugin.getConfig().enabled,
@@ -384,7 +383,6 @@ export class OsrsClient {
 
         if (
             !force &&
-            this.sidebarPluginVisibility.editModeEnabled === visibility.editModeEnabled &&
             this.sidebarPluginVisibility.groundItemsEnabled === visibility.groundItemsEnabled &&
             this.sidebarPluginVisibility.interactHighlightEnabled ===
                 visibility.interactHighlightEnabled &&
@@ -526,7 +524,6 @@ export class OsrsClient {
     readonly tileMarkersPlugin: TileMarkersPlugin;
     readonly tileHighlightManager: TileHighlightManager = new TileHighlightManager();
     private sidebarPluginVisibility: Required<SidebarPluginVisibilityOptions> = {
-        editModeEnabled: false,
         groundItemsEnabled: true,
         interactHighlightEnabled: true,
         notesEnabled: true,
