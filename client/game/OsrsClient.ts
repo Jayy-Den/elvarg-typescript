@@ -405,7 +405,15 @@ export class OsrsClient {
     private loadEditModePlugin(): void {
         void import("./plugins/editmode/install")
             .then(({ installEditMode }) => {
-                this.editModePlugin = installEditMode(this);
+                const plugin = installEditMode(this);
+                this.editModePlugin = plugin;
+                const syncEditMode = (): void => {
+                    // The welcome screen swaps "New User" for "Edit Mode".
+                    this.loginState.editModeAvailable = plugin.getConfig().enabled === true;
+                    this.syncSidebarPlugins();
+                };
+                plugin.subscribe(syncEditMode);
+                syncEditMode();
                 // Force a re-register so the sidebar re-renders now it exists.
                 this.syncSidebarPlugins(true);
             })
@@ -5289,6 +5297,12 @@ export class OsrsClient {
     ): "new_user" | "existing_user" | "login" | "cancel" | "connect" | undefined {
         switch (action.type) {
             case "new_user":
+                // Dev builds: this button is labelled "Edit Mode" instead.
+                if (this.editModePlugin?.getConfig().enabled === true) {
+                    this.editModePlugin.setScenePreview(true);
+                    this.loginState.virtualKeyboardVisible = false;
+                    return "new_user";
+                }
                 console.log("[Login] New user clicked - would open registration");
                 this.loginState.virtualKeyboardVisible = false;
                 return "new_user";

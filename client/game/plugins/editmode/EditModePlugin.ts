@@ -167,9 +167,17 @@ export class EditModePlugin {
         if (!host) return;
         host.setScenePreview(enabled);
         this.scenePreview = enabled;
-        if (enabled && !this.freeCamera) {
-            host.setFreeCamera(true);
-            this.freeCamera = true;
+        if (enabled) {
+            if (!this.freeCamera) {
+                host.setFreeCamera(true);
+                this.freeCamera = true;
+            }
+            if (!this.config.active) {
+                // Arm the tools so Esc leaves the preview, which is the only way
+                // back to the login screen when entering from its button.
+                this.setConfig({ active: true });
+                return;
+            }
         }
         this.commit();
     }

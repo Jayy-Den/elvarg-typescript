@@ -199,6 +199,13 @@ assert.deepEqual(calls.at(-1), ["openInterface", 161]);
 assert.equal(plugin.getState().interfaces.selected, 161);
 assert.equal(plugin.getState().interfaces.widgets[0].text, "hp");
 
+// Entering the preview arms the tools, so Esc has something to exit.
+plugin.setConfig({ enabled: true, active: false });
+plugin.setScenePreview(true);
+assert.equal(plugin.getConfig().active, true);
+plugin.setScenePreview(false);
+plugin.setConfig({ active: false });
+
 // The pre-login scene preview detaches the camera with it, and both are
 // handed back when edit mode stops.
 plugin.setConfig({ enabled: true, active: true });

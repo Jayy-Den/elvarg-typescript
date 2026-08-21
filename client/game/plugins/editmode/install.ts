@@ -7,6 +7,9 @@ import type { EditModePlaceKind, EditModeSearchResult, EditModeTile } from "./ty
 /** Synthetic server ids for editor NPCs, kept clear of the server's own range. */
 const EDITOR_NPC_SERVER_ID_BASE = 60000;
 const SEARCH_RESULT_LIMIT = 60;
+/** North-up, looking down ~49deg: the title-screen preset sits off-axis and reads as skewed. */
+const EDITOR_CAMERA_YAW = 0;
+const EDITOR_CAMERA_PITCH = 280;
 /** Tiles the camera sits above the ground when it jumps to a tile (RS up is -Y). */
 const CAMERA_JUMP_HEIGHT = 10;
 const WIDGET_SUMMARY_LIMIT = 200;
@@ -133,6 +136,11 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         },
         setScenePreview: (enabled) => {
             client.scenePreviewEnabled = enabled;
+            if (!enabled) return;
+            // The logged-out camera still holds the title-screen angles, which
+            // read as a skewed world once the scene is drawn behind it.
+            client.camera.snapToYaw(EDITOR_CAMERA_YAW);
+            client.camera.snapToPitch(EDITOR_CAMERA_PITCH);
         },
         isLoggedIn: () => client.isLoggedIn(),
         jumpCameraToTile: (tile) => {

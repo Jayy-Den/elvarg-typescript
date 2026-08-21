@@ -23,7 +23,7 @@ export function drawWelcomeScreen(host: LoginRendererHost, ctx: RenderContext, s
             ctx,
             layout.centerX - layout.buttonSpacing,
             layout.buttonY,
-            "New User",
+            state.editModeAvailable ? "Edit Mode" : "New User",
         );
         drawButton(host, 
             ctx,

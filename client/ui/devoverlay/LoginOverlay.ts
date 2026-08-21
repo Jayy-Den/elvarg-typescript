@@ -425,7 +425,7 @@ export class LoginOverlay implements Overlay {
             loginState.password.length
         }|${loginState.otp.length}|${loginState.currentLoginField}|${loginState.onMobile}|${
             loginState.virtualKeyboardVisible
-        }|${loginState.serverListOpen}|${loginState.serverName}|${loginRenderer.probing}|${
+        }|${loginState.serverListOpen}|${loginState.serverName}|${loginState.editModeAvailable}|${loginRenderer.probing}|${
             loginRenderer.probed
         }|${loginRenderer.serverList.map((s) => s.playerCount).join(",")}|${
             loginState.worldSelectOpen
