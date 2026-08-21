@@ -7,6 +7,8 @@ const TOOLS: ReadonlyArray<{ id: EditModeTool; label: string }> = [
     { id: "select", label: "Select" },
     { id: "place", label: "Place" },
     { id: "delete", label: "Delete" },
+    { id: "terrain", label: "Terrain" },
+    { id: "path", label: "Path" },
 ];
 
 const PLACE_KINDS: ReadonlyArray<{ id: EditModePlaceKind; label: string }> = [
@@ -75,7 +77,28 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                 ))}
             </div>
 
-            <div className="rl-sidebar-buttons">
+            {(config.tool === "terrain" || config.tool === "path") && (
+                <label className="rl-sidebar-field">
+                    <span>Floor overlay id</span>
+                    <input
+                        type="number"
+                        min={0}
+                        value={config.overlayId}
+                        onChange={(event) =>
+                            plugin.setConfig({ overlayId: Number(event.target.value) })
+                        }
+                    />
+                </label>
+            )}
+            {config.tool === "path" && (
+                <p className="rl-sidebar-panel-copy">
+                    {state.pathStart
+                        ? `Path from ${state.pathStart.tileX}, ${state.pathStart.tileY} - click the end tile (Esc cancels).`
+                        : "Click the first tile of the path."}
+                </p>
+            )}
+
+            <div className="rl-sidebar-buttons" hidden={config.tool !== "place"}>
                 {PLACE_KINDS.map((kind) => (
                     <button
                         key={kind.id}
@@ -88,7 +111,7 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                 ))}
             </div>
 
-            <label className="rl-sidebar-field">
+            <label className="rl-sidebar-field" hidden={config.tool !== "place"}>
                 <span>
                     {placingNpc ? "NPC" : "Loc"} id{activeName ? ` - ${activeName}` : ""}
                 </span>
@@ -106,7 +129,7 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                 />
             </label>
 
-            <label className="rl-sidebar-field">
+            <label className="rl-sidebar-field" hidden={config.tool !== "place"}>
                 <span>Search cache by name or id</span>
                 <input
                     type="search"
@@ -134,7 +157,10 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
             )}
 
             <div className="rl-sidebar-row">
-                <label className="rl-sidebar-field" hidden={placingNpc}>
+                <label
+                    className="rl-sidebar-field"
+                    hidden={placingNpc || config.tool !== "place"}
+                >
                     <span>Shape</span>
                     <select
                         value={config.shape}

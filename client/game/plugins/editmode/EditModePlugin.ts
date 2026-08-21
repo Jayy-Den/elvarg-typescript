@@ -1,4 +1,6 @@
+import { buildPathOverlays, createPathTiles } from "./PathGenerator";
 import {
+    DEFAULT_PATH_OVERLAY_ID,
     LOC_SHAPE_NORMAL,
     type EditModeEdit,
     type EditModeHost,
@@ -8,6 +10,7 @@ import {
     type EditModePluginState,
     type EditModeSearchResult,
     type EditModeSelection,
+    type EditModeTile,
     type EditModeTool,
 } from "./types";
 
@@ -22,10 +25,19 @@ const DEFAULT_CONFIG: EditModePluginConfig = Object.freeze({
     npcId: 0,
     shape: LOC_SHAPE_NORMAL,
     rotation: 0,
+    overlayId: DEFAULT_PATH_OVERLAY_ID,
     edits: [] as EditModeEdit[],
 });
 
-const TOOLS: ReadonlySet<string> = new Set<EditModeTool>(["select", "place", "delete"]);
+const TOOLS: ReadonlySet<string> = new Set<EditModeTool>([
+    "select",
+    "place",
+    "delete",
+    "terrain",
+    "path",
+]);
+/** Keeps a stray path click from repainting half the map square. */
+const MAX_PATH_TILES = 512;
 const PLACE_KINDS: ReadonlySet<string> = new Set<EditModePlaceKind>(["loc", "npc"]);
 
 /** Keys spawned NPCs by the edit that created them, so undo can despawn them. */
@@ -48,6 +60,7 @@ export class EditModePlugin {
     private state: EditModePluginState;
     private selection?: EditModeSelection;
     private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
+    private pathStart?: EditModeTile;
     private searchToken = 0;
     private readonly spawnedNpcs = new Map<string, number>();
     private version = 0;
@@ -163,7 +176,7 @@ export class EditModePlugin {
 
     clearEdits(): void {
         for (const edit of this.config.edits) {
-            if (edit.kind === "npc") this.revert(edit);
+            if (edit.kind === "npc" || edit.kind === "terrain") this.revert(edit);
         }
         this.setConfig({ edits: [] });
     }
@@ -176,6 +189,14 @@ export class EditModePlugin {
                 this.host?.despawnNpc(serverId);
                 this.spawnedNpcs.delete(key);
             }
+            return;
+        }
+        if (edit.kind === "terrain") {
+            this.host?.clearTerrainOverride({
+                tileX: edit.tileX,
+                tileY: edit.tileY,
+                plane: edit.plane,
+            });
             return;
         }
         if (edit.kind === "place") {
@@ -201,6 +222,16 @@ export class EditModePlugin {
             return;
         }
 
+        if (this.config.tool === "terrain") {
+            this.commitEdits([this.terrainEdit(tile, 0, 0)]);
+            return;
+        }
+
+        if (this.config.tool === "path") {
+            this.extendPath(tile);
+            return;
+        }
+
         const placingNpc = this.config.tool === "place" && this.config.placeKind === "npc";
         const edit: EditModeEdit = {
             kind: this.config.tool !== "place" ? "delete" : placingNpc ? "npc" : "place",
@@ -215,8 +246,67 @@ export class EditModePlugin {
             shape: this.config.shape,
             rotation: this.config.rotation,
         };
-        this.dispatch(edit);
-        this.setConfig({ edits: [...this.config.edits, edit] });
+        this.commitEdits([edit]);
+    }
+
+    /**
+     * First click sets the path start, second click paints the run between
+     * them - including the corner and edge overlays the shape needs.
+     */
+    private extendPath(tile: EditModeTile): void {
+        const start = this.pathStart;
+        if (!start || start.plane !== tile.plane) {
+            this.pathStart = tile;
+            this.commit();
+            return;
+        }
+
+        const tiles = createPathTiles(
+            { x: start.tileX, y: start.tileY },
+            { x: tile.tileX, y: tile.tileY },
+        ).slice(0, MAX_PATH_TILES);
+        const pathKeys = new Set(tiles.map((entry) => `${entry.x}:${entry.y}`));
+        // The overlays bleed one tile outwards for caps and corners.
+        const minX = Math.min(start.tileX, tile.tileX) - 1;
+        const maxX = Math.max(start.tileX, tile.tileX) + 1;
+        const minY = Math.min(start.tileY, tile.tileY) - 1;
+        const maxY = Math.max(start.tileY, tile.tileY) + 1;
+        const overlays = buildPathOverlays(
+            pathKeys,
+            pathKeys,
+            (x, y) => x >= minX && x <= maxX && y >= minY && y <= maxY,
+        );
+
+        this.pathStart = undefined;
+        this.commitEdits(
+            overlays.map((overlay) =>
+                this.terrainEdit(
+                    { tileX: overlay.x, tileY: overlay.y, plane: tile.plane },
+                    overlay.overlayShape,
+                    overlay.overlayRotation,
+                ),
+            ),
+        );
+    }
+
+    private terrainEdit(tile: EditModeTile, shape: number, rotation: number): EditModeEdit {
+        return {
+            kind: "terrain",
+            locId: this.config.overlayId,
+            tileX: tile.tileX,
+            tileY: tile.tileY,
+            plane: tile.plane,
+            shape,
+            rotation,
+        };
+    }
+
+    private commitEdits(edits: EditModeEdit[]): void {
+        if (edits.length === 0) return;
+        for (const edit of edits) {
+            this.dispatch(edit);
+        }
+        this.setConfig({ edits: [...this.config.edits, ...edits] });
     }
 
     private dispatch(edit: EditModeEdit): void {
@@ -233,6 +323,16 @@ export class EditModePlugin {
                 edit.rotation,
             );
             if (serverId !== undefined) this.spawnedNpcs.set(key, serverId);
+            return;
+        }
+
+        if (edit.kind === "terrain") {
+            host.setTerrainOverlay(
+                { tileX: edit.tileX, tileY: edit.tileY, plane: edit.plane },
+                edit.locId,
+                edit.shape,
+                edit.rotation,
+            );
             return;
         }
 
@@ -258,6 +358,11 @@ export class EditModePlugin {
             event.preventDefault();
             this.rotate();
         } else if (event.key === "Escape") {
+            if (this.pathStart) {
+                this.pathStart = undefined;
+                this.commit();
+                return;
+            }
             this.setConfig({ active: false });
         }
     };
@@ -290,13 +395,17 @@ export class EditModePlugin {
                 : DEFAULT_CONFIG.placeKind,
             locId: toInt(input?.locId, DEFAULT_CONFIG.locId, 0, 0xffff),
             npcId: toInt(input?.npcId, DEFAULT_CONFIG.npcId, 0, 0xffff),
+            overlayId: toInt(input?.overlayId, DEFAULT_CONFIG.overlayId, 0, 0xffff),
             shape: toInt(input?.shape, DEFAULT_CONFIG.shape, 0, 22),
             rotation: toInt(input?.rotation, DEFAULT_CONFIG.rotation, 0, 3),
             edits: edits
                 .filter(
                     (edit) =>
                         edit &&
-                        (edit.kind === "place" || edit.kind === "delete" || edit.kind === "npc"),
+                        (edit.kind === "place" ||
+                            edit.kind === "delete" ||
+                            edit.kind === "npc" ||
+                            edit.kind === "terrain"),
                 )
                 .map((edit) => ({
                     kind: edit.kind,
@@ -316,6 +425,7 @@ export class EditModePlugin {
             config: this.config,
             selection: this.selection,
             search: this.search,
+            pathStart: this.pathStart,
             version: this.version,
         };
         this.persistence?.save(this.config);

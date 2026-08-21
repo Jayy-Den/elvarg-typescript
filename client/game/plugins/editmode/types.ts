@@ -1,7 +1,10 @@
 /** Loc shape ids, mirrored from rs/config/loctype/LocModelType. */
 export const LOC_SHAPE_NORMAL = 10;
 
-export type EditModeTool = "select" | "place" | "delete";
+export type EditModeTool = "select" | "place" | "delete" | "terrain" | "path";
+
+/** OSRS dirt-path overlay; the id most hand-drawn paths use. */
+export const DEFAULT_PATH_OVERLAY_ID = 2;
 
 /** What the place tool drops: a cache loc or a cache NPC. */
 export type EditModePlaceKind = "loc" | "npc";
@@ -18,10 +21,10 @@ export interface EditModeTile {
 }
 
 export interface EditModeEdit extends EditModeTile {
-    kind: "place" | "delete" | "npc";
-    /** Loc id, NPC type id, or 0 for deletes. */
+    kind: "place" | "delete" | "npc" | "terrain";
+    /** Loc id, NPC type id, overlay id for terrain, or 0 for deletes. */
     locId: number;
-    /** Loc shape; unused for NPCs. */
+    /** Loc shape, or overlay shape for terrain; unused for NPCs. */
     shape: number;
     rotation: number;
 }
@@ -37,6 +40,8 @@ export interface EditModePluginConfig {
     npcId: number;
     shape: number;
     rotation: number;
+    /** Floor overlay the terrain and path tools paint with. */
+    overlayId: number;
     edits: EditModeEdit[];
 }
 
@@ -53,6 +58,8 @@ export interface EditModePluginState {
         loading: boolean;
         results: EditModeSearchResult[];
     };
+    /** First click of the path tool, waiting for its end tile. */
+    pathStart?: EditModeTile;
     version: number;
 }
 
@@ -83,4 +90,7 @@ export interface EditModeHost {
     /** Spawns a cache NPC client-side. Returns the synthetic server id used. */
     spawnNpc(npcTypeId: number, tile: EditModeTile, rotation: number): number | undefined;
     despawnNpc(serverId: number): void;
+    /** Paints a floor overlay on a tile and reloads the map square. */
+    setTerrainOverlay(tile: EditModeTile, overlay: number, shape: number, rotation: number): void;
+    clearTerrainOverride(tile: EditModeTile): void;
 }

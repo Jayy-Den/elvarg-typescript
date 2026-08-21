@@ -121,6 +121,22 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             return filterIndex(await getNameIndex(kind, loader), query);
         },
         spawnNpc: (npcTypeId, tile, rotation) => spawnEditorNpc(client, npcTypeId, tile, rotation),
+        setTerrainOverlay: (tile, overlay, shape, rotation) => {
+            const renderer = terrainHost(client);
+            if (!renderer) return;
+            renderer.terrainOverrides.set(`${tile.tileX},${tile.tileY},${tile.plane}`, {
+                overlay: overlay | 0,
+                shape: shape | 0,
+                rotation: rotation & 0x3,
+            });
+            reloadTile(renderer, tile);
+        },
+        clearTerrainOverride: (tile) => {
+            const renderer = terrainHost(client);
+            if (!renderer) return;
+            renderer.terrainOverrides.delete(`${tile.tileX},${tile.tileY},${tile.plane}`);
+            reloadTile(renderer, tile);
+        },
         despawnNpc: (serverId) => {
             // Dev-only: reuse the server despawn path rather than duplicating
             // the ECS/world-view teardown it performs.
@@ -131,6 +147,31 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     });
 
     return plugin;
+}
+
+/**
+ * Terrain edits go straight into the renderer's override map and then force a
+ * full map-square reload, the same route applyGamemodeWorldLocs takes.
+ */
+type TerrainHost = {
+    terrainOverrides: Map<
+        string,
+        { underlay?: number; overlay?: number; shape?: number; rotation?: number }
+    >;
+    pendingLocUpdates: Set<number>;
+    getMapIdForWorldTile(x: number, y: number): number;
+    scheduleLocReload(mapX: number, mapY: number): void;
+};
+
+function terrainHost(client: OsrsClient): TerrainHost | undefined {
+    const renderer = client.renderer as unknown as TerrainHost | undefined;
+    return renderer && renderer.terrainOverrides ? renderer : undefined;
+}
+
+function reloadTile(renderer: TerrainHost, tile: EditModeTile): void {
+    const mapId = renderer.getMapIdForWorldTile(tile.tileX, tile.tileY);
+    renderer.pendingLocUpdates.add(mapId);
+    renderer.scheduleLocReload(mapId >> 8, mapId & 0xff);
 }
 
 let nextEditorNpcServerId = EDITOR_NPC_SERVER_ID_BASE;

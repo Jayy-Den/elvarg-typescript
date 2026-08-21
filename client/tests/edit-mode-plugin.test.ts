@@ -38,6 +38,8 @@ plugin.attach({
     despawnNpc: (serverId) => calls.push(["despawnNpc", serverId]),
     onLocAddChange: (...args) => calls.push(["add", ...args]),
     onLocDel: (...args) => calls.push(["del", ...args]),
+    setTerrainOverlay: (...args) => calls.push(["terrain", ...args]),
+    clearTerrainOverride: (...args) => calls.push(["clearTerrain", ...args]),
 });
 
 // Select records what is under the pointer without touching the scene.
@@ -102,6 +104,62 @@ calls.length = 0;
 assert.equal(plugin.undo(), true);
 assert.deepEqual(calls, [["despawnNpc", 60000]]);
 assert.equal(saved?.edits.length, 0);
+
+// Terrain tool paints the configured overlay on the pointer tile.
+plugin.clearEdits();
+calls.length = 0;
+plugin.setConfig({ tool: "terrain", overlayId: 2 });
+plugin.applyAtPointer();
+assert.deepEqual(calls, [["terrain", { tileX: 3222, tileY: 3218, plane: 0 }, 2, 0, 0]]);
+
+// Path tool needs two clicks: the first only records the start.
+plugin.clearEdits();
+calls.length = 0;
+plugin.setConfig({ tool: "path" });
+plugin.applyAtPointer();
+assert.equal(calls.length, 0);
+assert.deepEqual(plugin.getState().pathStart, { tileX: 3222, tileY: 3218, plane: 0 });
+
+// Second click paints the run; the fake host always reports the same tile, so
+// drive the end tile through a host that walks three tiles east.
+const pathPlugin = new EditModePlugin();
+let pathPointer = { tileX: 10, tileY: 10, plane: 0 };
+const pathCalls: Call[] = [];
+pathPlugin.attach({
+    getCanvas: () => undefined,
+    getPointerTile: () => pathPointer,
+    getPointerLoc: () => undefined,
+    getLocName: () => "",
+    getNpcName: () => "",
+    search: async () => [],
+    spawnNpc: () => 1,
+    despawnNpc: () => {},
+    onLocAddChange: () => {},
+    onLocDel: () => {},
+    setTerrainOverlay: (tile, overlay, shape, rotation) =>
+        pathCalls.push(["terrain", tile.tileX, tile.tileY, overlay, shape, rotation]),
+    clearTerrainOverride: (tile) => pathCalls.push(["clearTerrain", tile.tileX, tile.tileY]),
+});
+pathPlugin.setConfig({ tool: "path", overlayId: 2 });
+pathPlugin.applyAtPointer();
+pathPointer = { tileX: 13, tileY: 10, plane: 0 };
+pathPlugin.applyAtPointer();
+
+const painted = pathCalls.filter((call) => call[0] === "terrain");
+const paintedTiles = painted.map((call) => `${call[1]},${call[2]}`);
+// The four tiles of the run, plus the end caps the generator adds.
+for (const tile of ["10,10", "11,10", "12,10", "13,10"]) {
+    assert.ok(paintedTiles.includes(tile), `expected ${tile} to be painted`);
+}
+assert.ok(painted.every((call) => call[3] === 2), "every tile uses the configured overlay");
+assert.equal(pathPlugin.getState().pathStart, undefined);
+
+// Undo removes the last painted tile and clears its override.
+pathCalls.length = 0;
+const paintedCount = pathPlugin.getConfig().edits.length;
+assert.equal(pathPlugin.undo(), true);
+assert.equal(pathPlugin.getConfig().edits.length, paintedCount - 1);
+assert.equal(pathCalls[0][0], "clearTerrain");
 
 // Disabled by default, and never active without being enabled.
 const fresh = new EditModePlugin();
