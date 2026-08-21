@@ -40,6 +40,7 @@ plugin.attach({
     onLocDel: (...args) => calls.push(["del", ...args]),
     setTerrainOverlay: (...args) => calls.push(["terrain", ...args]),
     clearTerrainOverride: (...args) => calls.push(["clearTerrain", ...args]),
+    setFreeCamera: (enabled) => calls.push(["freeCamera", enabled]),
 });
 
 // Select records what is under the pointer without touching the scene.
@@ -139,6 +140,7 @@ pathPlugin.attach({
     setTerrainOverlay: (tile, overlay, shape, rotation) =>
         pathCalls.push(["terrain", tile.tileX, tile.tileY, overlay, shape, rotation]),
     clearTerrainOverride: (tile) => pathCalls.push(["clearTerrain", tile.tileX, tile.tileY]),
+    setFreeCamera: () => {},
 });
 pathPlugin.setConfig({ tool: "path", overlayId: 2 });
 pathPlugin.applyAtPointer();
@@ -160,6 +162,15 @@ const paintedCount = pathPlugin.getConfig().edits.length;
 assert.equal(pathPlugin.undo(), true);
 assert.equal(pathPlugin.getConfig().edits.length, paintedCount - 1);
 assert.equal(pathCalls[0][0], "clearTerrain");
+
+// Leaving edit mode hands the camera back to the player.
+calls.length = 0;
+plugin.setConfig({ enabled: true, active: true });
+plugin.setFreeCamera(true);
+assert.deepEqual(calls.at(-1), ["freeCamera", true]);
+plugin.setConfig({ active: false });
+assert.deepEqual(calls.at(-1), ["freeCamera", false]);
+assert.equal(plugin.getState().freeCamera, false);
 
 // Disabled by default, and never active without being enabled.
 const fresh = new EditModePlugin();

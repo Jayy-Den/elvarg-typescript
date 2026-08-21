@@ -61,6 +61,7 @@ export class EditModePlugin {
     private selection?: EditModeSelection;
     private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
     private pathStart?: EditModeTile;
+    private freeCamera = false;
     private searchToken = 0;
     private readonly spawnedNpcs = new Map<string, number>();
     private version = 0;
@@ -68,7 +69,12 @@ export class EditModePlugin {
     constructor(persistence?: EditModePluginPersistence) {
         this.persistence = persistence;
         this.config = this.sanitizeConfig(persistence?.load());
-        this.state = { config: this.config, search: this.search, version: this.version };
+        this.state = {
+            config: this.config,
+            search: this.search,
+            freeCamera: this.freeCamera,
+            version: this.version,
+        };
     }
 
     subscribe(listener: EditModePluginListener): () => void {
@@ -138,6 +144,13 @@ export class EditModePlugin {
     /** Selects a search result as the id the place tool will drop. */
     useSearchResult(id: number): void {
         this.setConfig(this.config.placeKind === "npc" ? { npcId: id } : { locId: id });
+    }
+
+    /** Detaches or reattaches the camera from the player. */
+    setFreeCamera(enabled: boolean): void {
+        this.host?.setFreeCamera(enabled);
+        this.freeCamera = enabled;
+        this.commit();
     }
 
     rotate(): void {
@@ -354,7 +367,7 @@ export class EditModePlugin {
     private readonly onKeyDown = (event: KeyboardEvent): void => {
         const target = event.target as HTMLElement | null;
         if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-        if (event.key === "r" || event.key === "R") {
+        if (event.key === "x" || event.key === "X") {
             event.preventDefault();
             this.rotate();
         } else if (event.key === "Escape") {
@@ -368,11 +381,16 @@ export class EditModePlugin {
     };
 
     private syncListeners(): void {
-        if (typeof window === "undefined") return;
         const shouldCapture = this.config.enabled && this.config.active && this.host !== undefined;
         if (shouldCapture === this.capturing) return;
         this.capturing = shouldCapture;
 
+        if (!shouldCapture && this.freeCamera) {
+            this.host?.setFreeCamera(false);
+            this.freeCamera = false;
+        }
+
+        if (typeof window === "undefined") return;
         if (shouldCapture) {
             window.addEventListener("mousedown", this.onMouseDown, true);
             window.addEventListener("keydown", this.onKeyDown, true);
@@ -426,6 +444,7 @@ export class EditModePlugin {
             selection: this.selection,
             search: this.search,
             pathStart: this.pathStart,
+            freeCamera: this.freeCamera,
             version: this.version,
         };
         this.persistence?.save(this.config);

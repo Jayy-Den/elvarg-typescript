@@ -64,6 +64,15 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                 <span>Capture world clicks (Esc to exit)</span>
             </label>
 
+            <label className="rl-sidebar-check">
+                <input
+                    type="checkbox"
+                    checked={state.freeCamera}
+                    onChange={(event) => plugin.setFreeCamera(event.target.checked)}
+                />
+                <span>Free camera (WASD to fly, E/Q for height)</span>
+            </label>
+
             <div className="rl-sidebar-buttons">
                 {TOOLS.map((tool) => (
                     <button
@@ -174,7 +183,7 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                     </select>
                 </label>
                 <label className="rl-sidebar-field">
-                    <span>Rotation (R)</span>
+                    <span>Rotation (X)</span>
                     <select
                         value={config.rotation}
                         onChange={(event) =>

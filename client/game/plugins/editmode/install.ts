@@ -121,6 +121,13 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             return filterIndex(await getNameIndex(kind, loader), query);
         },
         spawnNpc: (npcTypeId, tile, rotation) => spawnEditorNpc(client, npcTypeId, tile, rotation),
+        setFreeCamera: (enabled) => {
+            // The client already flies the camera with WASD/QE whenever it is
+            // not following the player (GameRenderer.handleKeyInput).
+            // ponytail: map streaming still centres on the player, so flying
+            // past the loaded radius shows empty space.
+            client.followPlayerCamera = !enabled;
+        },
         setTerrainOverlay: (tile, overlay, shape, rotation) => {
             const renderer = terrainHost(client);
             if (!renderer) return;

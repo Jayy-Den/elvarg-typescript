@@ -60,6 +60,8 @@ export interface EditModePluginState {
     };
     /** First click of the path tool, waiting for its end tile. */
     pathStart?: EditModeTile;
+    /** Camera detached from the player, flown with WASD/QE. Never persisted. */
+    freeCamera: boolean;
     version: number;
 }
 
@@ -93,4 +95,5 @@ export interface EditModeHost {
     /** Paints a floor overlay on a tile and reloads the map square. */
     setTerrainOverlay(tile: EditModeTile, overlay: number, shape: number, rotation: number): void;
     clearTerrainOverride(tile: EditModeTile): void;
+    setFreeCamera(enabled: boolean): void;
 }
