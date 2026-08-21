@@ -41,6 +41,13 @@ plugin.attach({
     setTerrainOverlay: (...args) => calls.push(["terrain", ...args]),
     clearTerrainOverride: (...args) => calls.push(["clearTerrain", ...args]),
     setFreeCamera: (enabled) => calls.push(["freeCamera", enabled]),
+    jumpCameraToTile: (tile) => calls.push(["jump", tile]),
+    listInterfaceGroups: () => [548, 161, 162],
+    openInterface: (groupId) => calls.push(["openInterface", groupId]),
+    describeInterface: (groupId) =>
+        groupId === 161
+            ? [{ uid: 1, fileId: 0, type: 0, x: 0, y: 0, width: 100, height: 20, text: "hp" }]
+            : [],
 });
 
 // Select records what is under the pointer without touching the scene.
@@ -141,6 +148,10 @@ pathPlugin.attach({
         pathCalls.push(["terrain", tile.tileX, tile.tileY, overlay, shape, rotation]),
     clearTerrainOverride: (tile) => pathCalls.push(["clearTerrain", tile.tileX, tile.tileY]),
     setFreeCamera: () => {},
+    jumpCameraToTile: () => {},
+    listInterfaceGroups: () => [],
+    openInterface: () => {},
+    describeInterface: () => [],
 });
 pathPlugin.setConfig({ tool: "path", overlayId: 2 });
 pathPlugin.applyAtPointer();
@@ -171,6 +182,18 @@ assert.deepEqual(calls.at(-1), ["freeCamera", true]);
 plugin.setConfig({ active: false });
 assert.deepEqual(calls.at(-1), ["freeCamera", false]);
 assert.equal(plugin.getState().freeCamera, false);
+
+// Navigation and the interface browser go through the host.
+calls.length = 0;
+plugin.jumpToTile(3100, 3200, 1);
+assert.deepEqual(calls.at(-1), ["jump", { tileX: 3100, tileY: 3200, plane: 1 }]);
+
+plugin.refreshInterfaces();
+assert.deepEqual(plugin.getState().interfaces.groups, [161, 162, 548]);
+plugin.openInterface(161);
+assert.deepEqual(calls.at(-1), ["openInterface", 161]);
+assert.equal(plugin.getState().interfaces.selected, 161);
+assert.equal(plugin.getState().interfaces.widgets[0].text, "hp");
 
 // Disabled by default, and never active without being enabled.
 const fresh = new EditModePlugin();

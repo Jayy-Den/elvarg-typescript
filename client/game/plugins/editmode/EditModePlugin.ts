@@ -12,6 +12,7 @@ import {
     type EditModeSelection,
     type EditModeTile,
     type EditModeTool,
+    type EditModeWidgetSummary,
 } from "./types";
 
 type EditModePluginListener = () => void;
@@ -62,6 +63,7 @@ export class EditModePlugin {
     private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
     private pathStart?: EditModeTile;
     private freeCamera = false;
+    private interfaces: EditModePluginState["interfaces"] = { groups: [], widgets: [] };
     private searchToken = 0;
     private readonly spawnedNpcs = new Map<string, number>();
     private version = 0;
@@ -73,6 +75,7 @@ export class EditModePlugin {
             config: this.config,
             search: this.search,
             freeCamera: this.freeCamera,
+            interfaces: this.interfaces,
             version: this.version,
         };
     }
@@ -150,6 +153,33 @@ export class EditModePlugin {
     setFreeCamera(enabled: boolean): void {
         this.host?.setFreeCamera(enabled);
         this.freeCamera = enabled;
+        this.commit();
+    }
+
+    /** Moves the camera over a tile; handy once the camera is detached. */
+    jumpToTile(tileX: number, tileY: number, plane = 0): void {
+        this.host?.jumpCameraToTile({ tileX: tileX | 0, tileY: tileY | 0, plane: plane & 0x3 });
+    }
+
+    /** Refreshes the list of interface groups the cache has loaded. */
+    refreshInterfaces(): void {
+        const groups = (this.host?.listInterfaceGroups() ?? []).slice().sort((a, b) => a - b);
+        this.interfaces = { ...this.interfaces, groups };
+        this.commit();
+    }
+
+    /** Opens an interface group and lists its widgets. */
+    openInterface(groupId: number): void {
+        const host = this.host;
+        if (!host) return;
+        host.openInterface(groupId);
+        this.selectInterface(groupId);
+    }
+
+    /** Lists an interface group's widgets without opening it. */
+    selectInterface(groupId: number): void {
+        const widgets: EditModeWidgetSummary[] = this.host?.describeInterface(groupId) ?? [];
+        this.interfaces = { ...this.interfaces, selected: groupId, widgets };
         this.commit();
     }
 
@@ -445,6 +475,7 @@ export class EditModePlugin {
             search: this.search,
             pathStart: this.pathStart,
             freeCamera: this.freeCamera,
+            interfaces: this.interfaces,
             version: this.version,
         };
         this.persistence?.save(this.config);

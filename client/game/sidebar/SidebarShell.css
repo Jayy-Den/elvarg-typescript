@@ -521,3 +521,10 @@
     max-height: 220px;
     overflow-y: auto;
 }
+
+.rl-edit-mode-widget-row {
+    display: block;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11px;
+    opacity: 0.85;
+}

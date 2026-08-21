@@ -45,6 +45,17 @@ export interface EditModePluginConfig {
     edits: EditModeEdit[];
 }
 
+export interface EditModeWidgetSummary {
+    uid: number;
+    fileId: number;
+    type: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text?: string;
+}
+
 export interface EditModeSelection extends EditModeTile {
     locId: number;
     locName: string;
@@ -62,6 +73,11 @@ export interface EditModePluginState {
     pathStart?: EditModeTile;
     /** Camera detached from the player, flown with WASD/QE. Never persisted. */
     freeCamera: boolean;
+    interfaces: {
+        groups: number[];
+        selected?: number;
+        widgets: EditModeWidgetSummary[];
+    };
     version: number;
 }
 
@@ -96,4 +112,12 @@ export interface EditModeHost {
     setTerrainOverlay(tile: EditModeTile, overlay: number, shape: number, rotation: number): void;
     clearTerrainOverride(tile: EditModeTile): void;
     setFreeCamera(enabled: boolean): void;
+    /** Moves the camera over a world tile, for navigating while flying. */
+    jumpCameraToTile(tile: EditModeTile): void;
+    /** Interface groups the cache has loaded, for the interface browser. */
+    listInterfaceGroups(): number[];
+    /** Opens an interface group as the root interface. */
+    openInterface(groupId: number): void;
+    /** Widget summaries for an interface group. */
+    describeInterface(groupId: number): EditModeWidgetSummary[];
 }

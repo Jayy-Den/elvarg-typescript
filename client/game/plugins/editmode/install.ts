@@ -7,6 +7,9 @@ import type { EditModePlaceKind, EditModeSearchResult, EditModeTile } from "./ty
 /** Synthetic server ids for editor NPCs, kept clear of the server's own range. */
 const EDITOR_NPC_SERVER_ID_BASE = 60000;
 const SEARCH_RESULT_LIMIT = 60;
+/** Tiles the camera sits above the ground when it jumps to a tile (RS up is -Y). */
+const CAMERA_JUMP_HEIGHT = 10;
+const WIDGET_SUMMARY_LIMIT = 200;
 /** Types decoded per frame while indexing, so the client keeps rendering. */
 const INDEX_CHUNK = 2000;
 
@@ -128,6 +131,40 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             // past the loaded radius shows empty space.
             client.followPlayerCamera = !enabled;
         },
+        jumpCameraToTile: (tile) => {
+            const renderer = client.renderer as unknown as
+                | { sampleHeightAtExactPlane?: (x: number, z: number, plane: number) => number }
+                | undefined;
+            const height = renderer?.sampleHeightAtExactPlane?.(
+                tile.tileX + 0.5,
+                tile.tileY + 0.5,
+                tile.plane,
+            );
+            client.camera.snapToPosition(
+                tile.tileX + 0.5,
+                typeof height === "number" && Number.isFinite(height)
+                    ? height - CAMERA_JUMP_HEIGHT
+                    : undefined,
+                tile.tileY + 0.5,
+            );
+        },
+        listInterfaceGroups: () => client.widgetManager?.getAvailableGroups() ?? [],
+        openInterface: (groupId) => {
+            client.widgetManager?.setRootInterface(groupId | 0);
+        },
+        describeInterface: (groupId) =>
+            (client.widgetManager?.getWidgetsForGroup(groupId | 0) ?? [])
+                .slice(0, WIDGET_SUMMARY_LIMIT)
+                .map((widget) => ({
+                    uid: widget.uid | 0,
+                    fileId: widget.fileId | 0,
+                    type: widget.type ?? -1,
+                    x: widget.x | 0,
+                    y: widget.y | 0,
+                    width: widget.width | 0,
+                    height: widget.height | 0,
+                    text: widget.text,
+                })),
         setTerrainOverlay: (tile, overlay, shape, rotation) => {
             const renderer = terrainHost(client);
             if (!renderer) return;

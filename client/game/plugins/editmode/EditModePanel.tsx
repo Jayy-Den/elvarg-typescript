@@ -1,6 +1,7 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 import type { OsrsClient } from "../../OsrsClient";
+import type { EditModePlugin } from "./EditModePlugin";
 import { LOC_SHAPE_NORMAL, type EditModePlaceKind, type EditModeTool } from "./types";
 
 const TOOLS: ReadonlyArray<{ id: EditModeTool; label: string }> = [
@@ -222,10 +223,106 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                     Clear
                 </button>
             </div>
+            <NavigateSection plugin={plugin} />
+            <InterfaceSection plugin={plugin} />
+
             <p className="rl-sidebar-panel-copy">
                 {config.edits.length} stored edit{config.edits.length === 1 ? "" : "s"}. Clearing
                 forgets them; reload the page to restore deleted cache locs.
             </p>
         </div>
+    );
+}
+
+function NavigateSection({ plugin }: { plugin: EditModePlugin }): JSX.Element {
+    const [tile, setTile] = useState("3222, 3218");
+
+    return (
+        <>
+            <label className="rl-sidebar-field">
+                <span>Jump camera to tile (x, y[, plane])</span>
+                <input
+                    type="text"
+                    value={tile}
+                    onChange={(event) => setTile(event.target.value)}
+                    onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        const [x, y, plane] = tile.split(/[ ,]+/).map(Number);
+                        if (Number.isFinite(x) && Number.isFinite(y)) {
+                            plugin.jumpToTile(x, y, Number.isFinite(plane) ? plane : 0);
+                        }
+                    }}
+                />
+            </label>
+            <p className="rl-sidebar-panel-copy">
+                Press Enter to jump. Turn the free camera on first, or the follow camera pulls it
+                straight back to the player.
+            </p>
+        </>
+    );
+}
+
+function InterfaceSection({ plugin }: { plugin: EditModePlugin }): JSX.Element {
+    const subscribe = useCallback((listener: () => void) => plugin.subscribe(listener), [plugin]);
+    const getSnapshot = useCallback(() => plugin.getState(), [plugin]);
+    const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const [filter, setFilter] = useState("");
+
+    const groups = state.interfaces.groups.filter(
+        (groupId) => filter.trim().length === 0 || String(groupId).startsWith(filter.trim()),
+    );
+
+    return (
+        <>
+            <div className="rl-sidebar-panel-title">Interfaces</div>
+            <div className="rl-sidebar-buttons">
+                <button
+                    type="button"
+                    className="rl-sidebar-button"
+                    onClick={() => plugin.refreshInterfaces()}
+                >
+                    List loaded groups
+                </button>
+            </div>
+            {state.interfaces.groups.length > 0 && (
+                <label className="rl-sidebar-field">
+                    <span>Filter by group id</span>
+                    <input
+                        type="search"
+                        value={filter}
+                        onChange={(event) => setFilter(event.target.value)}
+                    />
+                </label>
+            )}
+            {groups.length > 0 && (
+                <div className="rl-sidebar-buttons rl-edit-mode-results">
+                    {groups.slice(0, 80).map((groupId) => (
+                        <button
+                            key={groupId}
+                            type="button"
+                            className={`rl-sidebar-button ${
+                                state.interfaces.selected === groupId ? "active" : ""
+                            }`}
+                            onClick={() => plugin.openInterface(groupId)}
+                        >
+                            Open {groupId}
+                        </button>
+                    ))}
+                </div>
+            )}
+            {state.interfaces.selected !== undefined && (
+                <p className="rl-sidebar-panel-copy">
+                    Group {state.interfaces.selected}: {state.interfaces.widgets.length} widgets.
+                    {state.interfaces.widgets.slice(0, 12).map((widget) => (
+                        <span key={widget.uid} className="rl-edit-mode-widget-row">
+                            {widget.fileId} type {widget.type} at {widget.x},{widget.y} ({
+                                widget.width
+                            }
+                            ×{widget.height}){widget.text ? ` "${widget.text.slice(0, 24)}"` : ""}
+                        </span>
+                    ))}
+                </p>
+            )}
+        </>
     );
 }
