@@ -15,11 +15,27 @@ const plugin = new EditModePlugin({
     },
 });
 
+const cacheNames = [
+    { id: 1276, name: "Tree" },
+    { id: 3, name: "Goblin" },
+    { id: 3106, name: "Goblin guard" },
+];
+
+let nextNpcServerId = 60000;
+
 plugin.attach({
     getCanvas: () => undefined,
     getPointerTile: () => ({ tileX: 3222, tileY: 3218, plane: 0 }),
     getPointerLoc: () => ({ locId: 1276, locName: "Tree" }),
     getLocName: (locId) => (locId === 1276 ? "Tree" : ""),
+    getNpcName: (npcTypeId) => (npcTypeId === 3 ? "Goblin" : ""),
+    search: async (_kind, query) =>
+        cacheNames.filter((entry) => entry.name.toLowerCase().includes(query.toLowerCase())),
+    spawnNpc: (npcTypeId, tile, rotation) => {
+        calls.push(["spawnNpc", npcTypeId, tile, rotation]);
+        return nextNpcServerId++;
+    },
+    despawnNpc: (serverId) => calls.push(["despawnNpc", serverId]),
     onLocAddChange: (...args) => calls.push(["add", ...args]),
     onLocDel: (...args) => calls.push(["del", ...args]),
 });
@@ -74,6 +90,19 @@ assert.equal(saved?.edits[0].locId, 0);
 plugin.clearEdits();
 assert.equal(saved?.edits.length, 0);
 
+// NPC placement spawns through the host and undo despawns the same id.
+calls.length = 0;
+plugin.setConfig({ tool: "place", placeKind: "npc", npcId: 3, rotation: 0 });
+plugin.applyAtPointer();
+assert.deepEqual(calls, [["spawnNpc", 3, { tileX: 3222, tileY: 3218, plane: 0 }, 0]]);
+assert.equal(saved?.edits[0].kind, "npc");
+assert.equal(saved?.edits[0].locId, 3);
+
+calls.length = 0;
+assert.equal(plugin.undo(), true);
+assert.deepEqual(calls, [["despawnNpc", 60000]]);
+assert.equal(saved?.edits.length, 0);
+
 // Disabled by default, and never active without being enabled.
 const fresh = new EditModePlugin();
 assert.equal(fresh.getConfig().enabled, false);
@@ -102,4 +131,24 @@ assert.deepEqual(restored.getConfig().edits[0], {
     rotation: 3,
 });
 
-console.log("Edit Mode plugin tests passed");
+// Search results feed the id the place tool uses.
+async function searchTests(): Promise<void> {
+    await new Promise<void>((resolve) => {
+        const unsubscribe = plugin.subscribe(() => {
+            if (plugin.getState().search.loading) return;
+            unsubscribe();
+            resolve();
+        });
+        plugin.searchCache("goblin");
+    });
+    assert.deepEqual(
+        plugin.getState().search.results.map((result) => result.id),
+        [3, 3106],
+    );
+    plugin.useSearchResult(3106);
+    assert.equal(plugin.getConfig().npcId, 3106);
+}
+
+void searchTests().then(() => {
+    console.log("Edit Mode plugin tests passed");
+});

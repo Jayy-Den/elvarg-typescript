@@ -2,9 +2,11 @@ import {
     LOC_SHAPE_NORMAL,
     type EditModeEdit,
     type EditModeHost,
+    type EditModePlaceKind,
     type EditModePluginConfig,
     type EditModePluginPersistence,
     type EditModePluginState,
+    type EditModeSearchResult,
     type EditModeSelection,
     type EditModeTool,
 } from "./types";
@@ -15,13 +17,21 @@ const DEFAULT_CONFIG: EditModePluginConfig = Object.freeze({
     enabled: false,
     active: false,
     tool: "select" as EditModeTool,
+    placeKind: "loc" as EditModePlaceKind,
     locId: 0,
+    npcId: 0,
     shape: LOC_SHAPE_NORMAL,
     rotation: 0,
     edits: [] as EditModeEdit[],
 });
 
 const TOOLS: ReadonlySet<string> = new Set<EditModeTool>(["select", "place", "delete"]);
+const PLACE_KINDS: ReadonlySet<string> = new Set<EditModePlaceKind>(["loc", "npc"]);
+
+/** Keys spawned NPCs by the edit that created them, so undo can despawn them. */
+function npcKey(edit: EditModeEdit): string {
+    return `${edit.tileX},${edit.tileY},${edit.plane},${edit.locId}`;
+}
 
 function toInt(value: unknown, fallback: number, min: number, max: number): number {
     const numeric = Math.floor(Number(value));
@@ -37,12 +47,15 @@ export class EditModePlugin {
     private config: EditModePluginConfig;
     private state: EditModePluginState;
     private selection?: EditModeSelection;
+    private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
+    private searchToken = 0;
+    private readonly spawnedNpcs = new Map<string, number>();
     private version = 0;
 
     constructor(persistence?: EditModePluginPersistence) {
         this.persistence = persistence;
         this.config = this.sanitizeConfig(persistence?.load());
-        this.state = { config: this.config, version: this.version };
+        this.state = { config: this.config, search: this.search, version: this.version };
     }
 
     subscribe(listener: EditModePluginListener): () => void {
@@ -78,6 +91,42 @@ export class EditModePlugin {
         }
     }
 
+    /** Cache name for an NPC type id, "" when the cache is not loaded yet. */
+    getNpcName(npcTypeId: number): string {
+        try {
+            return this.host?.getNpcName(npcTypeId) ?? "";
+        } catch {
+            return "";
+        }
+    }
+
+    /** Runs a cache name/id search for the current place kind. */
+    searchCache(query: string): void {
+        const host = this.host;
+        this.search = { query, loading: host !== undefined && query.trim().length > 0, results: [] };
+        this.commit();
+        if (!host || !this.search.loading) return;
+
+        const token = ++this.searchToken;
+        void host
+            .search(this.config.placeKind, query)
+            .then((results) => {
+                if (token !== this.searchToken) return;
+                this.search = { query, loading: false, results };
+                this.commit();
+            })
+            .catch(() => {
+                if (token !== this.searchToken) return;
+                this.search = { query, loading: false, results: [] };
+                this.commit();
+            });
+    }
+
+    /** Selects a search result as the id the place tool will drop. */
+    useSearchResult(id: number): void {
+        this.setConfig(this.config.placeKind === "npc" ? { npcId: id } : { locId: id });
+    }
+
     rotate(): void {
         this.setConfig({ rotation: (this.config.rotation + 1) & 0x3 });
     }
@@ -90,27 +139,53 @@ export class EditModePlugin {
     }
 
     /**
-     * Reverts the most recent placement. Deletes are not revertible - the loc
-     * suppression lives in the renderer's override map until the page reloads.
-     * ponytail: undo covers places only, wire a real override-clear if deletes need undo.
+     * Reverts the most recent loc placement or NPC spawn. Deletes are not
+     * revertible - the loc suppression lives in the renderer's override map
+     * until the page reloads.
+     * ponytail: undo skips deletes, wire a real override-clear if that bites.
      */
     undo(): boolean {
         const edits = this.config.edits;
-        const index = edits.map((edit) => edit.kind).lastIndexOf("place");
+        let index = -1;
+        for (let i = edits.length - 1; i >= 0; i--) {
+            if (edits[i].kind !== "delete") {
+                index = i;
+                break;
+            }
+        }
         if (index === -1) return false;
+
         const edit = edits[index];
-        this.host?.onLocDel(
-            { x: edit.tileX, y: edit.tileY },
-            edit.plane,
-            edit.shape,
-            edit.rotation,
-        );
+        this.revert(edit);
         this.setConfig({ edits: edits.filter((_, i) => i !== index) });
         return true;
     }
 
     clearEdits(): void {
+        for (const edit of this.config.edits) {
+            if (edit.kind === "npc") this.revert(edit);
+        }
         this.setConfig({ edits: [] });
+    }
+
+    private revert(edit: EditModeEdit): void {
+        if (edit.kind === "npc") {
+            const key = npcKey(edit);
+            const serverId = this.spawnedNpcs.get(key);
+            if (serverId !== undefined) {
+                this.host?.despawnNpc(serverId);
+                this.spawnedNpcs.delete(key);
+            }
+            return;
+        }
+        if (edit.kind === "place") {
+            this.host?.onLocDel(
+                { x: edit.tileX, y: edit.tileY },
+                edit.plane,
+                edit.shape,
+                edit.rotation,
+            );
+        }
     }
 
     /** Applies the active tool at the tile under the pointer. */
@@ -126,9 +201,14 @@ export class EditModePlugin {
             return;
         }
 
+        const placingNpc = this.config.tool === "place" && this.config.placeKind === "npc";
         const edit: EditModeEdit = {
-            kind: this.config.tool === "place" ? "place" : "delete",
-            locId: this.config.tool === "place" ? this.config.locId : 0,
+            kind: this.config.tool !== "place" ? "delete" : placingNpc ? "npc" : "place",
+            locId: placingNpc
+                ? this.config.npcId
+                : this.config.tool === "place"
+                  ? this.config.locId
+                  : 0,
             tileX: tile.tileX,
             tileY: tile.tileY,
             plane: tile.plane,
@@ -142,6 +222,20 @@ export class EditModePlugin {
     private dispatch(edit: EditModeEdit): void {
         const host = this.host;
         if (!host) return;
+
+        if (edit.kind === "npc") {
+            const key = npcKey(edit);
+            const existing = this.spawnedNpcs.get(key);
+            if (existing !== undefined) host.despawnNpc(existing);
+            const serverId = host.spawnNpc(
+                edit.locId,
+                { tileX: edit.tileX, tileY: edit.tileY, plane: edit.plane },
+                edit.rotation,
+            );
+            if (serverId !== undefined) this.spawnedNpcs.set(key, serverId);
+            return;
+        }
+
         const tile = { x: edit.tileX, y: edit.tileY };
         if (edit.kind === "place") {
             host.onLocAddChange(edit.locId, tile, edit.plane, edit.shape, edit.rotation);
@@ -191,11 +285,19 @@ export class EditModePlugin {
             enabled: input?.enabled ?? DEFAULT_CONFIG.enabled,
             active: (input?.enabled ?? DEFAULT_CONFIG.enabled) && (input?.active ?? false),
             tool: TOOLS.has(input?.tool as string) ? (input?.tool as EditModeTool) : "select",
+            placeKind: PLACE_KINDS.has(input?.placeKind as string)
+                ? (input?.placeKind as EditModePlaceKind)
+                : DEFAULT_CONFIG.placeKind,
             locId: toInt(input?.locId, DEFAULT_CONFIG.locId, 0, 0xffff),
+            npcId: toInt(input?.npcId, DEFAULT_CONFIG.npcId, 0, 0xffff),
             shape: toInt(input?.shape, DEFAULT_CONFIG.shape, 0, 22),
             rotation: toInt(input?.rotation, DEFAULT_CONFIG.rotation, 0, 3),
             edits: edits
-                .filter((edit) => edit && (edit.kind === "place" || edit.kind === "delete"))
+                .filter(
+                    (edit) =>
+                        edit &&
+                        (edit.kind === "place" || edit.kind === "delete" || edit.kind === "npc"),
+                )
                 .map((edit) => ({
                     kind: edit.kind,
                     locId: toInt(edit.locId, 0, 0, 0xffff),
@@ -210,7 +312,12 @@ export class EditModePlugin {
 
     private commit(): void {
         this.version++;
-        this.state = { config: this.config, selection: this.selection, version: this.version };
+        this.state = {
+            config: this.config,
+            selection: this.selection,
+            search: this.search,
+            version: this.version,
+        };
         this.persistence?.save(this.config);
         for (const listener of this.listeners) {
             try {

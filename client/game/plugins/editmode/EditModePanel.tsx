@@ -1,12 +1,17 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import type { OsrsClient } from "../../OsrsClient";
-import { LOC_SHAPE_NORMAL, type EditModeTool } from "./types";
+import { LOC_SHAPE_NORMAL, type EditModePlaceKind, type EditModeTool } from "./types";
 
 const TOOLS: ReadonlyArray<{ id: EditModeTool; label: string }> = [
     { id: "select", label: "Select" },
     { id: "place", label: "Place" },
     { id: "delete", label: "Delete" },
+];
+
+const PLACE_KINDS: ReadonlyArray<{ id: EditModePlaceKind; label: string }> = [
+    { id: "loc", label: "Loc" },
+    { id: "npc", label: "NPC" },
 ];
 
 // The shapes worth reaching for by hand; the rest are roof/decoration variants.
@@ -37,7 +42,9 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
     }
 
     const config = state.config;
-    const locName = plugin.getLocName(config.locId);
+    const placingNpc = config.placeKind === "npc";
+    const activeId = placingNpc ? config.npcId : config.locId;
+    const activeName = placingNpc ? plugin.getNpcName(config.npcId) : plugin.getLocName(config.locId);
 
     return (
         <div className="rl-sidebar-panel-content rl-sidebar-scrollable">
@@ -68,18 +75,66 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
                 ))}
             </div>
 
+            <div className="rl-sidebar-buttons">
+                {PLACE_KINDS.map((kind) => (
+                    <button
+                        key={kind.id}
+                        type="button"
+                        className={`rl-sidebar-button ${config.placeKind === kind.id ? "active" : ""}`}
+                        onClick={() => plugin.setConfig({ placeKind: kind.id })}
+                    >
+                        {kind.label}
+                    </button>
+                ))}
+            </div>
+
             <label className="rl-sidebar-field">
-                <span>Loc id{locName ? ` - ${locName}` : ""}</span>
+                <span>
+                    {placingNpc ? "NPC" : "Loc"} id{activeName ? ` - ${activeName}` : ""}
+                </span>
                 <input
                     type="number"
                     min={0}
-                    value={config.locId}
-                    onChange={(event) => plugin.setConfig({ locId: Number(event.target.value) })}
+                    value={activeId}
+                    onChange={(event) =>
+                        plugin.setConfig(
+                            placingNpc
+                                ? { npcId: Number(event.target.value) }
+                                : { locId: Number(event.target.value) },
+                        )
+                    }
                 />
             </label>
 
+            <label className="rl-sidebar-field">
+                <span>Search cache by name or id</span>
+                <input
+                    type="search"
+                    value={state.search.query}
+                    placeholder={placingNpc ? "e.g. goblin" : "e.g. yew tree"}
+                    onChange={(event) => plugin.searchCache(event.target.value)}
+                />
+            </label>
+            {state.search.loading && (
+                <p className="rl-sidebar-panel-copy">Indexing the cache…</p>
+            )}
+            {!state.search.loading && state.search.results.length > 0 && (
+                <div className="rl-sidebar-buttons rl-edit-mode-results">
+                    {state.search.results.map((result) => (
+                        <button
+                            key={result.id}
+                            type="button"
+                            className={`rl-sidebar-button ${activeId === result.id ? "active" : ""}`}
+                            onClick={() => plugin.useSearchResult(result.id)}
+                        >
+                            {result.name} ({result.id})
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <div className="rl-sidebar-row">
-                <label className="rl-sidebar-field">
+                <label className="rl-sidebar-field" hidden={placingNpc}>
                     <span>Shape</span>
                     <select
                         value={config.shape}

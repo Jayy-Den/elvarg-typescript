@@ -513,3 +513,11 @@
         padding: 0 10px 10px;
     }
 }
+
+/* Edit Mode (dev): cache search results stack instead of sitting in a row. */
+.rl-edit-mode-results {
+    flex-direction: column;
+    align-items: stretch;
+    max-height: 220px;
+    overflow-y: auto;
+}
