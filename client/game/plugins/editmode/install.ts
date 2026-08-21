@@ -7,11 +7,19 @@ import type { EditModePlaceKind, EditModeSearchResult, EditModeTile } from "./ty
 /** Synthetic server ids for editor NPCs, kept clear of the server's own range. */
 const EDITOR_NPC_SERVER_ID_BASE = 60000;
 const SEARCH_RESULT_LIMIT = 60;
-/** North-up, looking down ~49deg: the title-screen preset sits off-axis and reads as skewed. */
+/** North-up at the standard RS working angle: the title-screen preset sits off-axis and reads as skewed. */
 const EDITOR_CAMERA_YAW = 0;
-const EDITOR_CAMERA_PITCH = 280;
+const EDITOR_CAMERA_PITCH = 210;
 /** Tiles the camera pulls back along its view ray when framing a tile. */
-const EDITOR_CAMERA_DISTANCE = 22;
+const EDITOR_CAMERA_DISTANCE = 30;
+/**
+ * The logged-out viewport fills the canvas, and OSRS's own fov curve turns that
+ * into a ~78deg wide angle that leans every wall away from centre. 600 is the
+ * flatter, RS-like projection the old editor used (Client.cameraZoom = 600).
+ */
+const EDITOR_CAMERA_FOV = 600;
+/** Far enough that fog does not eat the frame at the editor's camera distance. */
+const EDITOR_DRAW_DISTANCE = 80;
 const WIDGET_SUMMARY_LIMIT = 200;
 /** Types decoded per frame while indexing, so the client keeps rendering. */
 const INDEX_CHUNK = 2000;
@@ -136,7 +144,11 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         },
         setScenePreview: (enabled) => {
             client.scenePreviewEnabled = enabled;
-            if (!enabled) return;
+            if (!enabled) {
+                restoreViewSettings(client);
+                return;
+            }
+            applyEditorViewSettings(client);
             // Logged out the camera still holds the title-screen angles and sits
             // 26 tiles up with nothing framed, which reads as a skewed world.
             frameCameraOnTile(
@@ -152,6 +164,23 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         isLoggedIn: () => client.isLoggedIn(),
         jumpCameraToTile: (tile) => {
             frameCameraOnTile(client, tile, false);
+        },
+        rotateCamera: (deltaX, deltaY) => {
+            // Same mapping the client uses for its own drag-look.
+            const camera = client.camera;
+            camera.updateYaw(camera.yaw, -deltaX * 0.9);
+            camera.updatePitch(camera.pitch, -deltaY * 0.9);
+        },
+        levelCamera: () => {
+            frameCameraOnTile(
+                client,
+                {
+                    tileX: Math.round(client.camera.getPosX()),
+                    tileY: Math.round(client.camera.getPosZ()),
+                    plane: 0,
+                },
+                true,
+            );
         },
         listInterfaceGroups: () => client.widgetManager?.getAvailableGroups() ?? [],
         openInterface: (groupId) => {
@@ -248,6 +277,36 @@ function frameCameraOnTile(client: OsrsClient, tile: EditModeTile, resetAngles: 
         centreZ,
     );
     camera.move(0, 0, EDITOR_CAMERA_DISTANCE, true);
+}
+
+type SavedViewSettings = {
+    fov: { low: number; high: number };
+    renderDistance: number;
+    lodDistance: number;
+};
+
+let savedViewSettings: SavedViewSettings | undefined;
+
+/** Swaps in the editor's flatter projection and a draw distance to match. */
+function applyEditorViewSettings(client: OsrsClient): void {
+    if (savedViewSettings) return;
+    savedViewSettings = {
+        fov: client.camera.getViewportFovValues(),
+        renderDistance: client.renderDistance,
+        lodDistance: client.lodDistance,
+    };
+    client.camera.setViewportFovValues(EDITOR_CAMERA_FOV, EDITOR_CAMERA_FOV);
+    client.renderDistance = EDITOR_DRAW_DISTANCE;
+    client.lodDistance = Math.max(0, EDITOR_DRAW_DISTANCE - 2);
+}
+
+function restoreViewSettings(client: OsrsClient): void {
+    const saved = savedViewSettings;
+    if (!saved) return;
+    savedViewSettings = undefined;
+    client.camera.setViewportFovValues(saved.fov.low, saved.fov.high);
+    client.renderDistance = saved.renderDistance;
+    client.lodDistance = saved.lodDistance;
 }
 
 let nextEditorNpcServerId = EDITOR_NPC_SERVER_ID_BASE;

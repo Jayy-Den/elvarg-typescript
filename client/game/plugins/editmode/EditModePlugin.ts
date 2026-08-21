@@ -39,6 +39,8 @@ const TOOLS: ReadonlySet<string> = new Set<EditModeTool>([
 ]);
 /** Keeps a stray path click from repainting half the map square. */
 const MAX_PATH_TILES = 512;
+/** Pointer travel past this is a camera drag, not a click on a tile. */
+const DRAG_THRESHOLD_PX = 4;
 const PLACE_KINDS: ReadonlySet<string> = new Set<EditModePlaceKind>(["loc", "npc"]);
 
 /** Keys spawned NPCs by the edit that created them, so undo can despawn them. */
@@ -63,6 +65,7 @@ export class EditModePlugin {
     private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
     private pathStart?: EditModeTile;
     private freeCamera = false;
+    private pointer?: { x: number; y: number; travelled: number };
     private scenePreview = false;
     private interfaces: EditModePluginState["interfaces"] = { groups: [], widgets: [] };
     private searchToken = 0;
@@ -182,6 +185,11 @@ export class EditModePlugin {
             }
         }
         this.commit();
+    }
+
+    /** Puts the camera back to north-up at the editor's working angle. */
+    levelCamera(): void {
+        this.host?.levelCamera();
     }
 
     /** Moves the camera over a tile; handy once the camera is detached. */
@@ -432,8 +440,32 @@ export class EditModePlugin {
     private readonly onMouseDown = (event: MouseEvent): void => {
         if (event.button !== 0 || event.target !== this.host?.getCanvas()) return;
         if (!this.hasEditableScene()) return;
+        // Swallowed so the click does not also reach the game, but the tool is
+        // not applied until mouseup proves this was a click and not a drag.
         event.preventDefault();
         event.stopPropagation();
+        this.pointer = { x: event.clientX, y: event.clientY, travelled: 0 };
+    };
+
+    private readonly onMouseMove = (event: MouseEvent): void => {
+        const pointer = this.pointer;
+        if (!pointer) return;
+        const deltaX = event.clientX - pointer.x;
+        const deltaY = event.clientY - pointer.y;
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        pointer.travelled += Math.abs(deltaX) + Math.abs(deltaY);
+        if (pointer.travelled <= DRAG_THRESHOLD_PX) return;
+        // Past the threshold this is drag-look; the client's own handler never
+        // sees the drag because we swallowed the mousedown.
+        this.host?.rotateCamera(deltaX, deltaY);
+    };
+
+    private readonly onMouseUp = (event: MouseEvent): void => {
+        const pointer = this.pointer;
+        this.pointer = undefined;
+        if (!pointer || event.button !== 0) return;
+        if (pointer.travelled > DRAG_THRESHOLD_PX) return;
         this.applyAtPointer();
     };
 
@@ -479,9 +511,14 @@ export class EditModePlugin {
         if (typeof window === "undefined") return;
         if (shouldCapture) {
             window.addEventListener("mousedown", this.onMouseDown, true);
+            window.addEventListener("mousemove", this.onMouseMove, true);
+            window.addEventListener("mouseup", this.onMouseUp, true);
             window.addEventListener("keydown", this.onKeyDown, true);
         } else {
+            this.pointer = undefined;
             window.removeEventListener("mousedown", this.onMouseDown, true);
+            window.removeEventListener("mousemove", this.onMouseMove, true);
+            window.removeEventListener("mouseup", this.onMouseUp, true);
             window.removeEventListener("keydown", this.onKeyDown, true);
         }
     }

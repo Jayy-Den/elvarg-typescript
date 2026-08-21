@@ -119,6 +119,10 @@ export interface EditModeHost {
     isLoggedIn(): boolean;
     /** Moves the camera over a world tile, for navigating while flying. */
     jumpCameraToTile(tile: EditModeTile): void;
+    /** Drag-look, in the client's own pixels-to-RS-units mapping. */
+    rotateCamera(deltaX: number, deltaY: number): void;
+    /** Re-frames the camera north-up at the editor's working angle. */
+    levelCamera(): void;
     /** Interface groups the cache has loaded, for the interface browser. */
     listInterfaceGroups(): number[];
     /** Opens an interface group as the root interface. */

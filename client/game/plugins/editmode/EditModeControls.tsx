@@ -1,5 +1,5 @@
-import { button, folder, useControls } from "leva";
-import { memo, useCallback, useSyncExternalStore } from "react";
+import { LevaPanel, button, folder, useControls, useCreateStore } from "leva";
+import { memo, useCallback, useEffect, useSyncExternalStore } from "react";
 
 import type { OsrsClient } from "../../OsrsClient";
 import type { EditModePlaceKind, EditModeTool } from "./types";
@@ -11,19 +11,6 @@ const TOOL_OPTIONS: Record<string, EditModeTool> = {
     Terrain: "terrain",
     Path: "path",
 };
-
-/**
- * leva calls every onChange once with `initial: true` each time the schema is
- * rebuilt (which dynamic options force). Those calls carry the schema's value,
- * not the user's intent, so honouring them writes stale state back the moment
- * the plugin changes something itself.
- */
-function onUserChange<T>(apply: (value: T) => void) {
-    return (value: T, _path: string, context: { initial: boolean }): void => {
-        if (context.initial) return;
-        apply(value);
-    };
-}
 
 const KIND_OPTIONS: Record<string, EditModePlaceKind> = { Loc: "loc", NPC: "npc" };
 
@@ -37,8 +24,24 @@ const SHAPE_OPTIONS: Record<string, number> = {
 };
 
 /**
- * Dev-only leva folder for the edit mode plugin. Rendered from DebugControls so
- * it sits with the other developer tooling instead of the player-facing sidebar.
+ * leva fires onChange for programmatic set() calls and once per schema rebuild
+ * as well as for real edits. Only edits carry fromPanel, so anything else would
+ * write the panel's stale value back over the plugin's own state.
+ */
+function onUserChange<T>(apply: (value: T) => void) {
+    return (
+        value: T,
+        _path: string,
+        context: { initial: boolean; fromPanel?: boolean },
+    ): void => {
+        if (context.initial || context.fromPanel !== true) return;
+        apply(value);
+    };
+}
+
+/**
+ * Dev-only editor controls. These live in their own leva panel rather than the
+ * renderer's, so the editor can be opened and collapsed on its own.
  */
 export default memo(function EditModeControls({
     osrsClient,
@@ -52,193 +55,230 @@ export default memo(function EditModeControls({
     );
     const getSnapshot = useCallback(() => plugin?.getState(), [plugin]);
     const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const store = useCreateStore();
 
     const config = state?.config;
     const placingNpc = config?.placeKind === "npc";
     const activeId = (placingNpc ? config?.npcId : config?.locId) ?? 0;
-    // Rebuild the folder when the lists change, but not on every keystroke -
-    // that would steal focus from the search box.
+    // Rebuild when the lists change, but not on every keystroke - that would
+    // steal focus from the search box.
     const resultKey = state?.search.results.map((result) => result.id).join(",") ?? "";
     const groupKey = state?.interfaces.groups.length ?? 0;
 
-    useControls(
-        {
-            "Edit Mode": folder(
+    const [, set] = useControls(
+        () => ({
+            Enabled: {
+                value: config?.enabled ?? false,
+                onChange: onUserChange((value: boolean) => {
+                    plugin?.setConfig({
+                        enabled: value,
+                        active: value && plugin.getConfig().active,
+                    });
+                }),
+            },
+            "Scene preview": {
+                value: state?.scenePreview ?? false,
+                hint: "Render the world on the login screen",
+                onChange: onUserChange((value: boolean) => {
+                    plugin?.setScenePreview(value);
+                }),
+            },
+            "Free camera": {
+                value: state?.freeCamera ?? false,
+                hint: "WASD to fly, E/Q for height, drag to look",
+                onChange: onUserChange((value: boolean) => {
+                    plugin?.setFreeCamera(value);
+                }),
+            },
+            "Capture clicks": {
+                value: config?.active ?? false,
+                hint: "Left click applies the tool, drag still moves the camera",
+                onChange: onUserChange((value: boolean) => {
+                    plugin?.setConfig({ active: value });
+                }),
+            },
+            Tool: {
+                value: config?.tool ?? "select",
+                options: TOOL_OPTIONS,
+                onChange: onUserChange((value: EditModeTool) => {
+                    plugin?.setConfig({ tool: value });
+                }),
+            },
+            Place: folder(
                 {
-                    Enabled: {
-                        value: config?.enabled ?? false,
-                        onChange: onUserChange((value: boolean) => {
-                            plugin?.setConfig({ enabled: value, active: value && config?.active });
+                    Kind: {
+                        value: config?.placeKind ?? "loc",
+                        options: KIND_OPTIONS,
+                        onChange: onUserChange((value: EditModePlaceKind) => {
+                            plugin?.setConfig({ placeKind: value });
                         }),
                     },
-                    "Scene preview": {
-                        value: state?.scenePreview ?? false,
-                        hint: "Render the world on the login screen",
-                        onChange: onUserChange((value: boolean) => {
-                            plugin?.setScenePreview(value);
+                    Id: {
+                        value: activeId,
+                        step: 1,
+                        min: 0,
+                        onChange: onUserChange((value: number) => {
+                            plugin?.setConfig(
+                                plugin.getConfig().placeKind === "npc"
+                                    ? { npcId: value | 0 }
+                                    : { locId: value | 0 },
+                            );
                         }),
                     },
-                    "Free camera": {
-                        value: state?.freeCamera ?? false,
-                        hint: "WASD to fly, E/Q for height",
-                        onChange: onUserChange((value: boolean) => {
-                            plugin?.setFreeCamera(value);
+                    Name: {
+                        value: placingNpc
+                            ? (plugin?.getNpcName(activeId) ?? "")
+                            : (plugin?.getLocName(activeId) ?? ""),
+                        editable: false,
+                    },
+                    Search: {
+                        value: state?.search.query ?? "",
+                        onChange: onUserChange((value: string) => {
+                            plugin?.searchCache(value);
                         }),
                     },
-                    "Capture clicks": {
-                        value: config?.active ?? false,
-                        hint: "Left click applies the tool (Esc exits)",
-                        onChange: onUserChange((value: boolean) => {
-                            plugin?.setConfig({ active: value });
+                    Results: {
+                        value: state?.search.results[0]?.id ?? 0,
+                        options: Object.fromEntries(
+                            (state?.search.results ?? []).map((result) => [
+                                `${result.name} (${result.id})`,
+                                result.id,
+                            ]),
+                        ),
+                        onChange: onUserChange((value: number) => {
+                            plugin?.useSearchResult(value | 0);
                         }),
                     },
-                    Tool: {
-                        value: config?.tool ?? "select",
-                        options: TOOL_OPTIONS,
-                        onChange: onUserChange((value: EditModeTool) => {
-                            plugin?.setConfig({ tool: value });
+                    Shape: {
+                        value: config?.shape ?? 10,
+                        options: SHAPE_OPTIONS,
+                        onChange: onUserChange((value: number) => {
+                            plugin?.setConfig({ shape: value | 0 });
                         }),
                     },
-                    Place: folder(
-                        {
-                            Kind: {
-                                value: config?.placeKind ?? "loc",
-                                options: KIND_OPTIONS,
-                                onChange: onUserChange((value: EditModePlaceKind) => {
-                                    plugin?.setConfig({ placeKind: value });
-                                }),
-                            },
-                            Id: {
-                                value: activeId,
-                                step: 1,
-                                min: 0,
-                                onChange: onUserChange((value: number) => {
-                                    plugin?.setConfig(
-                                        placingNpc ? { npcId: value | 0 } : { locId: value | 0 },
-                                    );
-                                }),
-                            },
-                            Name: {
-                                value: placingNpc
-                                    ? (plugin?.getNpcName(activeId) ?? "")
-                                    : (plugin?.getLocName(activeId) ?? ""),
-                                editable: false,
-                            },
-                            Search: {
-                                value: state?.search.query ?? "",
-                                onChange: onUserChange((value: string) => {
-                                    plugin?.searchCache(value);
-                                }),
-                            },
-                            Results: {
-                                value: state?.search.results[0]?.id ?? 0,
-                                options: Object.fromEntries(
-                                    (state?.search.results ?? []).map((result) => [
-                                        `${result.name} (${result.id})`,
-                                        result.id,
-                                    ]),
-                                ),
-                                onChange: onUserChange((value: number) => {
-                                    plugin?.useSearchResult(value | 0);
-                                }),
-                            },
-                            Shape: {
-                                value: config?.shape ?? 10,
-                                options: SHAPE_OPTIONS,
-                                onChange: onUserChange((value: number) => {
-                                    plugin?.setConfig({ shape: value | 0 });
-                                }),
-                            },
-                            Rotation: {
-                                value: config?.rotation ?? 0,
-                                options: [0, 1, 2, 3],
-                                onChange: onUserChange((value: number) => {
-                                    plugin?.setConfig({ rotation: value | 0 });
-                                }),
-                            },
-                        },
-                        { collapsed: true },
-                    ),
-                    Terrain: folder(
-                        {
-                            "Overlay id": {
-                                value: config?.overlayId ?? 2,
-                                step: 1,
-                                min: 0,
-                                onChange: onUserChange((value: number) => {
-                                    plugin?.setConfig({ overlayId: value | 0 });
-                                }),
-                            },
-                        },
-                        { collapsed: true },
-                    ),
-                    Camera: folder(
-                        {
-                            "Jump to tile": { value: "3222, 3218", label: "x, y[, plane]" },
-                            Jump: button((get) => {
-                                const [x, y, plane] = String(get("Edit Mode.Camera.Jump to tile"))
-                                    .split(/[ ,]+/)
-                                    .map(Number);
-                                if (Number.isFinite(x) && Number.isFinite(y)) {
-                                    plugin?.jumpToTile(x, y, Number.isFinite(plane) ? plane : 0);
-                                }
-                            }),
-                        },
-                        { collapsed: true },
-                    ),
-                    Interfaces: folder(
-                        {
-                            "List groups": button(() => plugin?.refreshInterfaces()),
-                            Group: {
-                                value: state?.interfaces.selected ?? 0,
-                                options: Object.fromEntries(
-                                    (state?.interfaces.groups ?? []).map((groupId) => [
-                                        String(groupId),
-                                        groupId,
-                                    ]),
-                                ),
-                                onChange: onUserChange((value: number) => {
-                                    plugin?.openInterface(value | 0);
-                                }),
-                            },
-                            Widgets: {
-                                value: `${state?.interfaces.widgets.length ?? 0} in group`,
-                                editable: false,
-                            },
-                        },
-                        { collapsed: true },
-                    ),
-                    Edits: folder(
-                        {
-                            Stored: { value: config?.edits.length ?? 0, editable: false },
-                            Undo: button(() => plugin?.undo()),
-                            "Re-apply": button(() => plugin?.reapply()),
-                            Clear: button(() => plugin?.clearEdits()),
-                        },
-                        { collapsed: true },
-                    ),
+                    Rotation: {
+                        value: config?.rotation ?? 0,
+                        options: [0, 1, 2, 3],
+                        onChange: onUserChange((value: number) => {
+                            plugin?.setConfig({ rotation: value | 0 });
+                        }),
+                    },
                 },
                 { collapsed: true },
             ),
-        },
-        [
-            plugin,
-            config?.enabled,
-            config?.active,
-            config?.tool,
-            config?.placeKind,
-            config?.shape,
-            config?.rotation,
-            config?.overlayId,
-            config?.edits.length,
-            state?.freeCamera,
-            state?.scenePreview,
-            state?.interfaces.selected,
-            activeId,
-            resultKey,
-            groupKey,
-        ],
+            Terrain: folder(
+                {
+                    "Overlay id": {
+                        value: config?.overlayId ?? 2,
+                        step: 1,
+                        min: 0,
+                        onChange: onUserChange((value: number) => {
+                            plugin?.setConfig({ overlayId: value | 0 });
+                        }),
+                    },
+                },
+                { collapsed: true },
+            ),
+            Camera: folder(
+                {
+                    "Jump to tile": { value: "3222, 3218", label: "x, y[, plane]" },
+                    Jump: button((get) => {
+                        const [x, y, plane] = String(get("Camera.Jump to tile"))
+                            .split(/[ ,]+/)
+                            .map(Number);
+                        if (Number.isFinite(x) && Number.isFinite(y)) {
+                            plugin?.jumpToTile(x, y, Number.isFinite(plane) ? plane : 0);
+                        }
+                    }),
+                    Level: button(() => plugin?.levelCamera()),
+                },
+                { collapsed: true },
+            ),
+            Interfaces: folder(
+                {
+                    "List groups": button(() => plugin?.refreshInterfaces()),
+                    Group: {
+                        value: state?.interfaces.selected ?? 0,
+                        options: Object.fromEntries(
+                            (state?.interfaces.groups ?? []).map((groupId) => [
+                                String(groupId),
+                                groupId,
+                            ]),
+                        ),
+                        onChange: onUserChange((value: number) => {
+                            plugin?.openInterface(value | 0);
+                        }),
+                    },
+                    Widgets: {
+                        value: `${state?.interfaces.widgets.length ?? 0} in group`,
+                        editable: false,
+                    },
+                },
+                { collapsed: true },
+            ),
+            Edits: folder(
+                {
+                    Stored: { value: `${config?.edits.length ?? 0}`, editable: false },
+                    Undo: button(() => plugin?.undo()),
+                    "Re-apply": button(() => plugin?.reapply()),
+                    Clear: button(() => plugin?.clearEdits()),
+                },
+                { collapsed: true },
+            ),
+        }),
+        { store },
+        // Only the dynamic option lists need a rebuild; every other value is
+        // pushed in below, which keeps the search box from losing focus.
+        [plugin, store, resultKey, groupKey],
     );
 
-    return null;
+    useEffect(() => {
+        // leva's set() typing only covers the leaves it can infer; every path
+        // here is a real input, and leva warns in the console if one is not.
+        const push = set as (values: Record<string, unknown>) => void;
+        push({
+            Enabled: config?.enabled ?? false,
+            "Scene preview": state?.scenePreview ?? false,
+            "Free camera": state?.freeCamera ?? false,
+            "Capture clicks": config?.active ?? false,
+            Tool: config?.tool ?? "select",
+            Kind: config?.placeKind ?? "loc",
+            Id: activeId,
+            Name: placingNpc
+                ? (plugin?.getNpcName(activeId) ?? "")
+                : (plugin?.getLocName(activeId) ?? ""),
+            Shape: config?.shape ?? 10,
+            Rotation: config?.rotation ?? 0,
+            "Overlay id": config?.overlayId ?? 2,
+            Widgets: `${state?.interfaces.widgets.length ?? 0} in group`,
+            Stored: `${config?.edits.length ?? 0}`,
+        });
+    }, [
+        set,
+        plugin,
+        activeId,
+        placingNpc,
+        config?.enabled,
+        config?.active,
+        config?.tool,
+        config?.placeKind,
+        config?.shape,
+        config?.rotation,
+        config?.overlayId,
+        config?.edits.length,
+        state?.freeCamera,
+        state?.scenePreview,
+        state?.interfaces.widgets.length,
+    ]);
+
+    return (
+        <div className="leva-edit-mode">
+            <LevaPanel
+                store={store}
+                titleBar={{ title: "Edit Mode", filter: false }}
+                hideCopyButton={true}
+                fill={false}
+            />
+        </div>
+    );
 });
