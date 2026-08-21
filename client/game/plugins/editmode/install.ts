@@ -131,6 +131,10 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             // past the loaded radius shows empty space.
             client.followPlayerCamera = !enabled;
         },
+        setScenePreview: (enabled) => {
+            client.scenePreviewEnabled = enabled;
+        },
+        isLoggedIn: () => client.isLoggedIn(),
         jumpCameraToTile: (tile) => {
             const renderer = client.renderer as unknown as
                 | { sampleHeightAtExactPlane?: (x: number, z: number, plane: number) => number }

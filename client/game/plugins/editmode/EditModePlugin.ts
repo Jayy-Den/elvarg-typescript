@@ -63,6 +63,7 @@ export class EditModePlugin {
     private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
     private pathStart?: EditModeTile;
     private freeCamera = false;
+    private scenePreview = false;
     private interfaces: EditModePluginState["interfaces"] = { groups: [], widgets: [] };
     private searchToken = 0;
     private readonly spawnedNpcs = new Map<string, number>();
@@ -75,6 +76,7 @@ export class EditModePlugin {
             config: this.config,
             search: this.search,
             freeCamera: this.freeCamera,
+            scenePreview: this.scenePreview,
             interfaces: this.interfaces,
             version: this.version,
         };
@@ -153,6 +155,22 @@ export class EditModePlugin {
     setFreeCamera(enabled: boolean): void {
         this.host?.setFreeCamera(enabled);
         this.freeCamera = enabled;
+        this.commit();
+    }
+
+    /**
+     * Renders the world on the login screen. There is no player to orbit, so
+     * the camera is detached at the same time and the scene streams around it.
+     */
+    setScenePreview(enabled: boolean): void {
+        const host = this.host;
+        if (!host) return;
+        host.setScenePreview(enabled);
+        this.scenePreview = enabled;
+        if (enabled && !this.freeCamera) {
+            host.setFreeCamera(true);
+            this.freeCamera = true;
+        }
         this.commit();
     }
 
@@ -416,7 +434,13 @@ export class EditModePlugin {
         // Checked before the change guard: switching the plugin off entirely
         // never toggles capture, and would otherwise strand the camera off the
         // player with the panel gone.
+        if (!shouldCapture && this.scenePreview) {
+            this.host?.setScenePreview(false);
+            this.scenePreview = false;
+        }
         if (!shouldCapture && this.freeCamera) {
+            // Logging in re-attaches the camera itself; only give it back when
+            // the preview is not the thing holding it.
             this.host?.setFreeCamera(false);
             this.freeCamera = false;
         }
@@ -479,6 +503,7 @@ export class EditModePlugin {
             search: this.search,
             pathStart: this.pathStart,
             freeCamera: this.freeCamera,
+            scenePreview: this.scenePreview,
             interfaces: this.interfaces,
             version: this.version,
         };

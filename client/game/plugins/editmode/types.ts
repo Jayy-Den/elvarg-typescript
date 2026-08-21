@@ -73,6 +73,8 @@ export interface EditModePluginState {
     pathStart?: EditModeTile;
     /** Camera detached from the player, flown with WASD/QE. Never persisted. */
     freeCamera: boolean;
+    /** World rendered on the login screen. Never persisted. */
+    scenePreview: boolean;
     interfaces: {
         groups: number[];
         selected?: number;
@@ -112,6 +114,9 @@ export interface EditModeHost {
     setTerrainOverlay(tile: EditModeTile, overlay: number, shape: number, rotation: number): void;
     clearTerrainOverride(tile: EditModeTile): void;
     setFreeCamera(enabled: boolean): void;
+    /** Renders the world instead of the login screen while logged out. */
+    setScenePreview(enabled: boolean): void;
+    isLoggedIn(): boolean;
     /** Moves the camera over a world tile, for navigating while flying. */
     jumpCameraToTile(tile: EditModeTile): void;
     /** Interface groups the cache has loaded, for the interface browser. */

@@ -639,6 +639,13 @@ export class OsrsClient {
     // Feature toggles
     hoverOverlayEnabled: boolean = false;
 
+    /**
+     * Renders the world instead of the login screen while logged out, streaming
+     * map squares around the camera rather than a player. Driven by the dev-only
+     * edit mode plugin; the render loop reads it every frame.
+     */
+    scenePreviewEnabled: boolean = false;
+
     // DevTools: show object id labels per tile
     showObjectTileIds: boolean = false;
     // DevTools: walkable collision devoverlay

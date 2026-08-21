@@ -42,6 +42,8 @@ plugin.attach({
     clearTerrainOverride: (...args) => calls.push(["clearTerrain", ...args]),
     setFreeCamera: (enabled) => calls.push(["freeCamera", enabled]),
     jumpCameraToTile: (tile) => calls.push(["jump", tile]),
+    setScenePreview: (enabled) => calls.push(["scenePreview", enabled]),
+    isLoggedIn: () => false,
     listInterfaceGroups: () => [548, 161, 162],
     openInterface: (groupId) => calls.push(["openInterface", groupId]),
     describeInterface: (groupId) =>
@@ -149,6 +151,8 @@ pathPlugin.attach({
     clearTerrainOverride: (tile) => pathCalls.push(["clearTerrain", tile.tileX, tile.tileY]),
     setFreeCamera: () => {},
     jumpCameraToTile: () => {},
+    setScenePreview: () => {},
+    isLoggedIn: () => false,
     listInterfaceGroups: () => [],
     openInterface: () => {},
     describeInterface: () => [],
@@ -194,6 +198,27 @@ plugin.openInterface(161);
 assert.deepEqual(calls.at(-1), ["openInterface", 161]);
 assert.equal(plugin.getState().interfaces.selected, 161);
 assert.equal(plugin.getState().interfaces.widgets[0].text, "hp");
+
+// The pre-login scene preview detaches the camera with it, and both are
+// handed back when edit mode stops.
+plugin.setConfig({ enabled: true, active: true });
+plugin.setFreeCamera(false);
+calls.length = 0;
+plugin.setScenePreview(true);
+assert.deepEqual(calls, [
+    ["scenePreview", true],
+    ["freeCamera", true],
+]);
+assert.equal(plugin.getState().scenePreview, true);
+assert.equal(plugin.getState().freeCamera, true);
+
+calls.length = 0;
+plugin.setConfig({ active: false });
+assert.deepEqual(calls, [
+    ["scenePreview", false],
+    ["freeCamera", false],
+]);
+assert.equal(plugin.getState().scenePreview, false);
 
 // Switching the plugin off also hands the camera back, even if world-click
 // capture was never turned on.

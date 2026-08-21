@@ -429,9 +429,13 @@ export function GameContainer({ osrsClient }: OsrsContainerProps): JSX.Element {
                     </span>
                 )}
 
-                {!hideUi && !osrsClient.isOnLoginScreen() && (
-                    <SidebarShell osrsClient={osrsClient} store={osrsClient.sidebar} />
-                )}
+                {!hideUi &&
+                    (!osrsClient.isOnLoginScreen() ||
+                        // Dev-only: the edit mode plugin drives the pre-login
+                        // scene preview, so its panel has to stay reachable.
+                        osrsClient.editModePlugin?.getConfig().enabled === true) && (
+                        <SidebarShell osrsClient={osrsClient} store={osrsClient.sidebar} />
+                    )}
             </div>
 
             {/* Debug controls sidebar (Leva) - top-left corner */}

@@ -68,6 +68,15 @@ export default function EditModePanel({ osrsClient }: { osrsClient: OsrsClient }
             <label className="rl-sidebar-check">
                 <input
                     type="checkbox"
+                    checked={state.scenePreview}
+                    onChange={(event) => plugin.setScenePreview(event.target.checked)}
+                />
+                <span>Scene preview (render the world on the login screen)</span>
+            </label>
+
+            <label className="rl-sidebar-check">
+                <input
+                    type="checkbox"
                     checked={state.freeCamera}
                     onChange={(event) => plugin.setFreeCamera(event.target.checked)}
                 />
