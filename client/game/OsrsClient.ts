@@ -257,6 +257,7 @@ import {
 import { NpcMovementSync } from "./movement/NpcMovementSync";
 import { PlayerMovementSync } from "./movement/PlayerMovementSync";
 import { NpcInstanceFlushController } from "./npc/NpcInstanceFlushController";
+import type { EditModePlugin } from "./plugins/editmode/EditModePlugin";
 import { createBrowserGroundItemsPluginPersistence } from "./plugins/grounditems/BrowserGroundItemsPluginPersistence";
 import { GroundItemsPlugin } from "./plugins/grounditems/GroundItemsPlugin";
 import { createBrowserInteractHighlightPluginPersistence } from "./plugins/interacthighlight/BrowserInteractHighlightPluginPersistence";
@@ -374,6 +375,7 @@ export class OsrsClient {
 
     private syncSidebarPlugins(force = false): void {
         const visibility: Required<SidebarPluginVisibilityOptions> = {
+            editModeEnabled: this.editModePlugin?.getConfig().enabled ?? false,
             groundItemsEnabled: this.groundItemsPlugin.getConfig().enabled,
             interactHighlightEnabled: this.interactHighlightPlugin.getConfig().enabled,
             notesEnabled: this.notesPlugin.getConfig().enabled,
@@ -382,6 +384,7 @@ export class OsrsClient {
 
         if (
             !force &&
+            this.sidebarPluginVisibility.editModeEnabled === visibility.editModeEnabled &&
             this.sidebarPluginVisibility.groundItemsEnabled === visibility.groundItemsEnabled &&
             this.sidebarPluginVisibility.interactHighlightEnabled ===
                 visibility.interactHighlightEnabled &&
@@ -393,6 +396,20 @@ export class OsrsClient {
 
         this.sidebarPluginVisibility = visibility;
         registerDefaultClientSidebarEntries(this.sidebar, visibility);
+    }
+
+    /**
+     * Dev-only. The dynamic import keeps the editor code out of production
+     * bundles - webpack folds the NODE_ENV check away and drops the call.
+     */
+    private loadEditModePlugin(): void {
+        void import("./plugins/editmode/install")
+            .then(({ installEditMode }) => {
+                this.editModePlugin = installEditMode(this);
+                // Force a re-register so the sidebar re-renders now it exists.
+                this.syncSidebarPlugins(true);
+            })
+            .catch((err) => console.log("[edit-mode-plugin] failed to load", err));
     }
 
     inputManager: InputManager = new InputManager();
@@ -493,12 +510,15 @@ export class OsrsClient {
     /** Renderer-agnostic sidebar state/registry. */
     readonly sidebar: SidebarStore<ClientSidebarEntryData>;
     readonly groundItemsPlugin: GroundItemsPlugin;
+    /** Dev-only map/loc editor. Loaded lazily so production bundles drop it. */
+    editModePlugin?: EditModePlugin;
     readonly interactHighlightPlugin: InteractHighlightPlugin;
     readonly notesPlugin: NotesPlugin;
     readonly rememberLoginPlugin: RememberLoginPlugin;
     readonly tileMarkersPlugin: TileMarkersPlugin;
     readonly tileHighlightManager: TileHighlightManager = new TileHighlightManager();
     private sidebarPluginVisibility: Required<SidebarPluginVisibilityOptions> = {
+        editModeEnabled: false,
         groundItemsEnabled: true,
         interactHighlightEnabled: true,
         notesEnabled: true,
@@ -1026,6 +1046,9 @@ export class OsrsClient {
             createBrowserTileMarkersPluginPersistence("osrs.plugin.tile_markers.v1"),
         );
         this.syncSidebarPlugins(true);
+        if (process.env.NODE_ENV !== "production") {
+            this.loadEditModePlugin();
+        }
         this.groundItemsPlugin.subscribe(() => {
             this.syncSidebarPlugins();
         });
