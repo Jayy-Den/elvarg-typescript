@@ -119,8 +119,9 @@ export interface EditModeHost {
     isLoggedIn(): boolean;
     /** Moves the camera over a world tile, for navigating while flying. */
     jumpCameraToTile(tile: EditModeTile): void;
-    /** Drag-look, in the client's own pixels-to-RS-units mapping. */
-    rotateCamera(deltaX: number, deltaY: number): void;
+    /** Drops the click the client has queued, so a tool press does not also
+     *  walk the player or open a menu. */
+    cancelPendingClick(): void;
     /** Re-frames the camera north-up at the editor's working angle. */
     levelCamera(): void;
     /** Interface groups the cache has loaded, for the interface browser. */

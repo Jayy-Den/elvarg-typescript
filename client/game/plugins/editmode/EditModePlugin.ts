@@ -437,28 +437,24 @@ export class EditModePlugin {
         return this.scenePreview || this.host?.isLoggedIn() === true;
     }
 
+    /**
+     * The press is deliberately left alone so the client's own drag-look keeps
+     * working exactly as it does everywhere else; only a press that turns out
+     * to be a click applies a tool, and that click is then cancelled so the
+     * game does not act on it too.
+     */
     private readonly onMouseDown = (event: MouseEvent): void => {
         if (event.button !== 0 || event.target !== this.host?.getCanvas()) return;
         if (!this.hasEditableScene()) return;
-        // Swallowed so the click does not also reach the game, but the tool is
-        // not applied until mouseup proves this was a click and not a drag.
-        event.preventDefault();
-        event.stopPropagation();
         this.pointer = { x: event.clientX, y: event.clientY, travelled: 0 };
     };
 
     private readonly onMouseMove = (event: MouseEvent): void => {
         const pointer = this.pointer;
         if (!pointer) return;
-        const deltaX = event.clientX - pointer.x;
-        const deltaY = event.clientY - pointer.y;
+        pointer.travelled += Math.abs(event.clientX - pointer.x) + Math.abs(event.clientY - pointer.y);
         pointer.x = event.clientX;
         pointer.y = event.clientY;
-        pointer.travelled += Math.abs(deltaX) + Math.abs(deltaY);
-        if (pointer.travelled <= DRAG_THRESHOLD_PX) return;
-        // Past the threshold this is drag-look; the client's own handler never
-        // sees the drag because we swallowed the mousedown.
-        this.host?.rotateCamera(deltaX, deltaY);
     };
 
     private readonly onMouseUp = (event: MouseEvent): void => {
@@ -467,6 +463,7 @@ export class EditModePlugin {
         if (!pointer || event.button !== 0) return;
         if (pointer.travelled > DRAG_THRESHOLD_PX) return;
         this.applyAtPointer();
+        this.host?.cancelPendingClick();
     };
 
     private readonly onKeyDown = (event: KeyboardEvent): void => {
