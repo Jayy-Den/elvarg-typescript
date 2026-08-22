@@ -21,9 +21,9 @@ import { OsrsClient } from "./OsrsClient";
 import { profiler } from "../render/PerformanceProfiler";
 
 // Dev-only: webpack folds this check away so the editor never ships in production.
-const EditModeControls =
+const EditModeUi =
     process.env.NODE_ENV !== "production"
-        ? lazy(() => import("./plugins/editmode/EditModeControls"))
+        ? lazy(() => import("./plugins/editmode/EditModeUi"))
         : undefined;
 
 interface OsrsClientControlsProps {
@@ -619,9 +619,9 @@ export const DebugControls = memo(
 
         return (
             <>
-                {EditModeControls && osrsClient.editModePlugin && !hidden && (
+                {EditModeUi && osrsClient.editModePlugin && !hidden && (
                     <Suspense fallback={null}>
-                        <EditModeControls osrsClient={osrsClient} />
+                        <EditModeUi osrsClient={osrsClient} />
                     </Suspense>
                 )}
                 <div className={`leva-left${levaCollapsed ? " leva-collapsed" : ""}`}>

@@ -1,9 +1,217 @@
 import assert from "node:assert/strict";
 
 import { EditModePlugin } from "../game/plugins/editmode/EditModePlugin";
+import { detectRectangularBuilding } from "../game/plugins/editmode/BuildingDetector";
+import { pickMapIconTarget, raycastEditScene } from "../game/plugins/editmode/install";
+import { InteractType } from "../render/InteractType";
 import type { EditModePluginConfig } from "../game/plugins/editmode/types";
 
 type Call = [string, ...unknown[]];
+
+const buildingLocs = new Map<string, Array<{ id: number; level: number; typeRot: number }>>();
+for (let x = 10; x <= 13; x++) {
+    for (let y = 20; y <= 22; y++) {
+        buildingLocs.set(`${x}:${y}`, [{ id: 500, level: x === 11 || x === 12 ? 2 : 1, typeRot: 12 }]);
+    }
+}
+const addBuildingLoc = (x: number, y: number, id: number, typeRot: number): void => {
+    const key = `${x}:${y}`;
+    const locs = buildingLocs.get(key) ?? [];
+    locs.push({ id, level: 0, typeRot });
+    buildingLocs.set(key, locs);
+};
+for (let y = 20; y <= 22; y++) {
+    addBuildingLoc(10, y, 100, 0);
+    addBuildingLoc(13, y, 100, 2 << 6);
+}
+for (let x = 10; x <= 13; x++) {
+    addBuildingLoc(x, 20, 100, 3 << 6);
+    addBuildingLoc(x, 22, 100, 1 << 6);
+}
+addBuildingLoc(9, 21, 200, 2 << 6);
+addBuildingLoc(9, 20, 100, 2 << 6);
+const buildingBounds = (building: ReturnType<typeof detectRectangularBuilding>) =>
+    building && {
+        minX: building.minX,
+        maxX: building.maxX,
+        minY: building.minY,
+        maxY: building.maxY,
+        minPlane: building.minPlane,
+        maxPlane: building.maxPlane,
+        wallId: building.wallId,
+        shape: building.shape,
+        tiles: building.tiles.length,
+    };
+const expectedRectangle = {
+    minX: 10,
+    maxX: 13,
+    minY: 20,
+    maxY: 22,
+    minPlane: 0,
+    maxPlane: 2,
+    wallId: 100,
+    shape: "Rectangle",
+    tiles: 12,
+};
+assert.deepEqual(
+    buildingBounds(
+        detectRectangularBuilding(11, 21, (x, y) => buildingLocs.get(`${x}:${y}`) ?? []),
+    ),
+    expectedRectangle,
+);
+const topMiddle = buildingLocs.get("11:22") ?? [];
+buildingLocs.set(
+    "11:22",
+    topMiddle.filter((loc) => loc.id !== 100 || loc.typeRot !== (1 << 6)),
+);
+assert.deepEqual(
+    buildingBounds(
+        detectRectangularBuilding(11, 21, (x, y) => buildingLocs.get(`${x}:${y}`) ?? []),
+    ),
+    expectedRectangle,
+);
+buildingLocs.delete("11:21");
+assert.equal(
+    detectRectangularBuilding(11, 21, (x, y) => buildingLocs.get(`${x}:${y}`) ?? []),
+    undefined,
+);
+
+const naveLocs = new Map<string, Array<{ id: number; level: number; typeRot: number }>>();
+const addNaveLoc = (x: number, y: number, id: number, level: number, typeRot: number): void => {
+    const key = `${x}:${y}`;
+    const locs = naveLocs.get(key) ?? [];
+    locs.push({ id, level, typeRot });
+    naveLocs.set(key, locs);
+};
+for (let x = 0; x < 3; x++) {
+    addNaveLoc(x, 0, 500, 1, 12);
+    addNaveLoc(x, 5, 500, 2, 12);
+}
+for (let y = 0; y <= 5; y++) {
+    addNaveLoc(0, y, 100, 0, 0);
+    addNaveLoc(2, y, 100, 0, 2 << 6);
+}
+assert.equal(
+    detectRectangularBuilding(1, 0, (x, y) => naveLocs.get(`${x}:${y}`) ?? [])?.tiles.length,
+    18,
+);
+for (let x = 0; x < 3; x++) addNaveLoc(x, 0, 100, 0, 3 << 6);
+assert.equal(
+    detectRectangularBuilding(1, 0, (x, y) => naveLocs.get(`${x}:${y}`) ?? []),
+    undefined,
+);
+
+const irregularLocs = new Map<string, Array<{ id: number; level: number; typeRot: number }>>();
+const irregularRoof = new Set(["0:0", "1:0", "2:0", "0:1", "0:2"]);
+const addIrregularLoc = (x: number, y: number, id: number, level: number, typeRot: number): void => {
+    const key = `${x}:${y}`;
+    const locs = irregularLocs.get(key) ?? [];
+    locs.push({ id, level, typeRot });
+    irregularLocs.set(key, locs);
+};
+for (const key of irregularRoof) {
+    const [x, y] = key.split(":").map(Number);
+    addIrregularLoc(x, y, 500, key === "0:1" ? 2 : 1, 12);
+    for (const [nextX, nextY, rotation] of [
+        [x - 1, y, 0],
+        [x, y + 1, 1],
+        [x + 1, y, 2],
+        [x, y - 1, 3],
+    ]) {
+        if (!irregularRoof.has(`${nextX}:${nextY}`)) addIrregularLoc(x, y, 100, 0, rotation << 6);
+    }
+}
+const corner = irregularLocs.get("2:0") ?? [];
+irregularLocs.set(
+    "2:0",
+    corner.filter(
+        ({ id, typeRot }) => id !== 100 || (typeRot !== (2 << 6) && typeRot !== (3 << 6)),
+    ),
+);
+addIrregularLoc(2, 0, 100, 0, 9);
+addIrregularLoc(-1, 0, 100, 0, 1 << 6);
+const irregular = detectRectangularBuilding(
+    0,
+    1,
+    (x, y) => irregularLocs.get(`${x}:${y}`) ?? [],
+);
+assert.equal(irregular?.shape, "Irregular");
+assert.equal(irregular?.tiles.length, 5);
+assert.equal(irregular?.maxPlane, 2);
+assert.equal(irregular?.structureTiles.some(({ x }) => x === -1), false);
+irregularLocs.set(
+    "2:0",
+    (irregularLocs.get("2:0") ?? []).filter(({ id, typeRot }) => id !== 100 || typeRot !== 9),
+);
+assert.equal(
+    detectRectangularBuilding(0, 1, (x, y) => irregularLocs.get(`${x}:${y}`) ?? []),
+    undefined,
+);
+for (const [x, y, id] of [[0, 0, 101], [2, 0, 102], [0, 2, 103], [1, 1, 104]]) {
+    addIrregularLoc(x, y, id, 0, 3);
+}
+assert.equal(
+    detectRectangularBuilding(0, 1, (x, y) => irregularLocs.get(`${x}:${y}`) ?? [])?.tiles.length,
+    5,
+);
+
+// A roof-shaped bridge/tightrope with walls beneath but no circumference is not a building.
+const bridgeRoofLocs = new Map<string, Array<{ id: number; level: number; typeRot: number }>>();
+for (let x = 0; x < 10; x++) {
+    for (let y = 0; y < 3; y++) bridgeRoofLocs.set(`${x}:${y}`, [{ id: 500, level: 2, typeRot: 17 }]);
+}
+for (let y = 0; y < 3; y++) {
+    bridgeRoofLocs.get(`0:${y}`)!.push({ id: 100, level: 0, typeRot: 0 });
+    bridgeRoofLocs.get(`9:${y}`)!.push({ id: 100, level: 0, typeRot: 2 << 6 });
+}
+assert.equal(
+    detectRectangularBuilding(5, 1, (x, y) => bridgeRoofLocs.get(`${x}:${y}`) ?? []),
+    undefined,
+);
+
+const normalLocFilter = () => false;
+let raycastOptions: { basePlane?: number; maxDistance?: number } | undefined;
+const editRaycaster = {
+    isLocTypeInteractive: normalLocFilter,
+    raycast: (_ray: unknown, options: { basePlane?: number; maxDistance?: number }) => {
+        raycastOptions = options;
+        return editRaycaster.isLocTypeInteractive({})
+            ? [{ t: 1, interactType: InteractType.LOC, interactId: 100, mapId: 0 }]
+            : [];
+    },
+};
+assert.equal(raycastEditScene(editRaycaster as any, {} as any)?.interactId, 100);
+assert.equal(editRaycaster.isLocTypeInteractive, normalLocFilter);
+assert.equal(raycastOptions?.basePlane, undefined);
+assert.equal(raycastOptions?.maxDistance, 4096);
+raycastEditScene(editRaycaster as any, {} as any, 2);
+assert.equal(raycastOptions?.basePlane, 2);
+
+const iconTarget = {
+    kind: "loc" as const,
+    locId: 100,
+    tileX: 10,
+    tileY: 20,
+    plane: 1,
+};
+assert.equal(
+    pickMapIconTarget(
+        [{ left: 5, top: 5, right: 15, bottom: 15, target: iconTarget }],
+        10,
+        10,
+        1,
+    ),
+    iconTarget,
+);
+assert.equal(
+    pickMapIconTarget(
+        [{ left: 5, top: 5, right: 15, bottom: 15, target: iconTarget }],
+        10,
+        10,
+        0,
+    ),
+    undefined,
+);
 
 const calls: Call[] = [];
 let saved: EditModePluginConfig | undefined;
@@ -14,6 +222,9 @@ const plugin = new EditModePlugin({
         saved = config;
     },
 });
+assert.equal(plugin.getConfig().heightLevel, 0);
+assert.equal(plugin.getConfig().renderAllHeightLevels, true);
+assert.equal(plugin.getConfig().showMapIcons, false);
 
 const cacheNames = [
     { id: 1276, name: "Tree" },
@@ -64,6 +275,11 @@ assert.deepEqual(plugin.getState().selection, {
     locId: 1276,
     locName: "Tree",
 });
+
+// The selection panel's duplicate action arms the same object for placement.
+plugin.duplicateSelection();
+assert.equal(plugin.getConfig().tool, "place");
+assert.equal(plugin.getConfig().locId, 1276);
 
 // Place spawns the loc and stores the edit.
 plugin.setConfig({ tool: "place" });
@@ -284,6 +500,192 @@ assert.deepEqual(restored.getConfig().edits[0], {
     shape: 22,
     rotation: 3,
 });
+
+// An armed placement follows the pointer, refreshes on rotation, and is
+// removed before the permanent scene edit is applied.
+const previewCalls: Call[] = [];
+const windowListeners: Array<[string, (...args: any[]) => void, unknown]> = [];
+(globalThis as any).window = {
+    addEventListener: (type: string, listener: (...args: any[]) => void, options?: unknown) =>
+        windowListeners.push([type, listener, options]),
+    removeEventListener: () => {},
+};
+const fakeCanvas = {} as HTMLCanvasElement;
+let previewPointer = { tileX: 3200, tileY: 3201, plane: 0 };
+let sceneFrameCallback: (() => void) | undefined;
+const previewPlugin = new EditModePlugin();
+previewPlugin.attach({
+    getCanvas: () => fakeCanvas,
+    getPointerTile: () => previewPointer,
+    getPointerLoc: () => undefined,
+    selectPointer: (tile) => {
+        previewCalls.push(["selectPointer", tile]);
+        return { kind: "npc", ...tile, locId: 3, locName: "Goblin" };
+    },
+    previewPointer: (tile) => previewCalls.push(["previewPointer", tile]),
+    previewBuilding: (tile) => previewCalls.push(["previewBuilding", tile]),
+    selectBuilding: (tile) => {
+        previewCalls.push(["selectBuilding", tile]);
+        return {
+            kind: "building",
+            tileX: 3200,
+            tileY: 3200,
+            plane: 0,
+            tileEndX: 3204,
+            tileEndY: 3203,
+            planeEnd: 1,
+            locId: -1,
+            locName: "",
+            buildingWidth: 5,
+            buildingDepth: 4,
+            buildingFloors: 2,
+            buildingTileCount: 40,
+            buildingObjectCount: 18,
+        };
+    },
+    clearPointerPreview: () => previewCalls.push(["clearPointerPreview"]),
+    selectTileRange: (start, end) => {
+        previewCalls.push(["selectTileRange", start, end]);
+        return {
+            kind: "ground",
+            ...start,
+            tileEndX: end.tileX,
+            tileEndY: end.tileY,
+            locId: -1,
+            locName: "",
+        };
+    },
+    afterNextSceneFrame: (callback) => {
+        sceneFrameCallback = callback;
+    },
+    setPlacementPreview: (...args) => previewCalls.push(["preview", ...args]),
+    clearPlacementPreview: () => previewCalls.push(["clearPreview"]),
+    onLocAddChange: (...args) => previewCalls.push(["add", ...args]),
+    onLocDel: () => {},
+    getLocName: () => "",
+    getNpcName: () => "",
+    search: async () => [],
+    spawnNpc: () => undefined,
+    despawnNpc: () => {},
+    setTerrainOverlay: () => {},
+    clearTerrainOverride: () => {},
+    setFreeCamera: () => {},
+    setScenePreview: () => {},
+    isLoggedIn: () => true,
+    jumpCameraToTile: () => {},
+    rotateCamera: (x, y) => previewCalls.push(["rotateCamera", x, y]),
+    cancelPendingClick: () => {},
+    levelCamera: () => {},
+    listInterfaceGroups: () => [],
+    openInterface: () => {},
+    describeInterface: () => [],
+});
+previewPlugin.setConfig({ enabled: true, active: true, tool: "place", locId: 1276 });
+assert.equal(
+    windowListeners.find(([type]) => type === "mousedown")?.[2],
+    undefined,
+    "editor mouse hooks must bubble after the canvas records its click",
+);
+assert.equal(previewCalls[0][0], "preview");
+previewPlugin.rotate();
+assert.deepEqual(
+    previewCalls.map((call) => call[0]),
+    ["preview", "clearPreview", "preview"],
+);
+previewPlugin.applyAtPointer();
+assert.deepEqual(
+    previewCalls.slice(-2).map((call) => call[0]),
+    ["clearPreview", "add"],
+);
+previewPlugin.setConfig({ tool: "select" });
+previewPlugin.applyAtPointer();
+assert.equal(previewCalls.at(-1)?.[0], "selectPointer");
+assert.deepEqual(previewPlugin.getState().selection, {
+    kind: "npc",
+    tileX: 3200,
+    tileY: 3201,
+    plane: 0,
+    locId: 3,
+    locName: "Goblin",
+});
+
+const emitWindow = (type: string, event: Record<string, unknown>) => {
+    for (const [, listener] of windowListeners.filter(([eventType]) => eventType === type)) {
+        listener(event);
+    }
+};
+const rotationBeforeShortcut = previewPlugin.getConfig().rotation;
+emitWindow("keydown", {
+    key: "r",
+    ctrlKey: false,
+    target: null,
+    preventDefault: () => {},
+    stopPropagation: () => {},
+});
+assert.equal(previewPlugin.getConfig().rotation, (rotationBeforeShortcut + 1) & 3);
+emitWindow("keydown", {
+    key: "x",
+    ctrlKey: false,
+    target: null,
+    preventDefault: () => {},
+    stopPropagation: () => {},
+});
+assert.equal(previewPlugin.getConfig().rotation, (rotationBeforeShortcut + 1) & 3);
+
+emitWindow("mousedown", {
+    button: 0,
+    target: fakeCanvas,
+    clientX: 10,
+    clientY: 10,
+});
+previewPointer = { tileX: 3202, tileY: 3203, plane: 0 };
+emitWindow("mousemove", { target: fakeCanvas, clientX: 20, clientY: 20 });
+emitWindow("mouseup", { button: 0 });
+assert.equal(previewCalls.at(-1)?.[0], "selectTileRange");
+assert.equal(previewPlugin.getState().selection?.tileEndX, 3202);
+assert.equal(previewPlugin.getState().selection?.tileEndY, 3203);
+
+emitWindow("mousedown", {
+    button: 2,
+    target: fakeCanvas,
+    clientX: 20,
+    clientY: 20,
+    preventDefault: () => {},
+});
+emitWindow("mousemove", { target: fakeCanvas, clientX: 24, clientY: 17 });
+emitWindow("mouseup", { button: 2 });
+assert.deepEqual(previewCalls.at(-1), ["rotateCamera", 4, -3]);
+sceneFrameCallback?.();
+assert.equal(previewCalls.at(-1)?.[0], "previewPointer");
+
+emitWindow("mousedown", {
+    button: 0,
+    target: fakeCanvas,
+    clientX: 24,
+    clientY: 17,
+});
+emitWindow("mouseup", { button: 0 });
+assert.notEqual(previewCalls.at(-1)?.[0], "selectPointer");
+sceneFrameCallback?.();
+assert.equal(previewCalls.at(-1)?.[0], "selectPointer");
+emitWindow("keydown", { key: "Shift", target: null });
+assert.equal(previewCalls.at(-1)?.[0], "previewBuilding");
+emitWindow("mousedown", {
+    button: 0,
+    target: fakeCanvas,
+    clientX: 24,
+    clientY: 17,
+});
+emitWindow("mouseup", { button: 0 });
+emitWindow("keyup", { key: "Shift", target: null });
+assert.equal(previewCalls.at(-1)?.[0], "previewPointer");
+sceneFrameCallback?.();
+assert.equal(previewCalls.at(-1)?.[0], "selectBuilding");
+assert.equal(previewPlugin.getState().selection?.kind, "building");
+assert.equal(previewPlugin.getState().selection?.buildingTileCount, 40);
+emitWindow("mousemove", { target: {}, clientX: 25, clientY: 18 });
+assert.equal(previewCalls.at(-1)?.[0], "clearPointerPreview");
+delete (globalThis as any).window;
 
 // Search results feed the id the place tool uses.
 async function searchTests(): Promise<void> {

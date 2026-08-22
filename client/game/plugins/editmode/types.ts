@@ -9,9 +9,26 @@ export const DEFAULT_PATH_OVERLAY_ID = 2;
 /** What the place tool drops: a cache loc or a cache NPC. */
 export type EditModePlaceKind = "loc" | "npc";
 
+/** Cache categories exposed by the reference editor's search panel. */
+export type EditModeSearchKind = EditModePlaceKind | "item";
+
 export interface EditModeSearchResult {
     id: number;
     name: string;
+}
+
+export interface EditModeDefinitionSummary {
+    id: number;
+    kind: EditModeSearchKind;
+    name: string;
+    fields: Array<[string, string]>;
+}
+
+export interface EditModeShop {
+    id: number;
+    name: string;
+    currency?: string;
+    originalStock: Array<{ id: number; amount: number; name?: string }>;
 }
 
 export interface EditModeTile {
@@ -42,6 +59,12 @@ export interface EditModePluginConfig {
     rotation: number;
     /** Floor overlay the terrain and path tools paint with. */
     overlayId: number;
+    /** Height level edited by pointer, placement, and terrain tools. */
+    heightLevel: number;
+    /** Show every height level, or heightLevel and everything below it. */
+    renderAllHeightLevels: boolean;
+    /** Draw selectable map-function sprites at their floor tiles. */
+    showMapIcons: boolean;
     edits: EditModeEdit[];
 }
 
@@ -57,14 +80,31 @@ export interface EditModeWidgetSummary {
 }
 
 export interface EditModeSelection extends EditModeTile {
+    kind?: "ground" | "loc" | "npc" | "building";
     locId: number;
     locName: string;
+    tileEndX?: number;
+    tileEndY?: number;
+    planeEnd?: number;
+    buildingWidth?: number;
+    buildingDepth?: number;
+    buildingFloors?: number;
+    buildingTileCount?: number;
+    buildingShape?: "Rectangle" | "Irregular";
+    buildingObjectCount?: number;
+    buildingWallCount?: number;
+    buildingDoorCount?: number;
+    buildingRoofCount?: number;
+    buildingDecorationCount?: number;
+    buildingOtherCount?: number;
+    buildingWallId?: number;
 }
 
 export interface EditModePluginState {
     config: EditModePluginConfig;
     selection?: EditModeSelection;
     search: {
+        kind: EditModeSearchKind;
         query: string;
         loading: boolean;
         results: EditModeSearchResult[];
@@ -93,8 +133,28 @@ export interface EditModeHost {
     getCanvas(): HTMLCanvasElement | undefined;
     /** Tile under the pointer, in world coordinates. */
     getPointerTile(): EditModeTile | undefined;
+    getCameraTile?(): EditModeTile | undefined;
     /** Menu entries for the current hover, used to identify the loc being pointed at. */
     getPointerLoc(): { locId: number; locName: string } | undefined;
+    /** Selects and visually marks the topmost entity, or the ground tile. */
+    selectPointer?(tile: EditModeTile): EditModeSelection;
+    previewPointer?(tile: EditModeTile): void;
+    previewBuilding?(tile: EditModeTile): void;
+    selectBuilding?(tile: EditModeTile): EditModeSelection | undefined;
+    clearPointerPreview?(): void;
+    selectTileRange?(start: EditModeTile, end: EditModeTile): EditModeSelection;
+    afterNextSceneFrame?(callback: () => void): void;
+    clearSelectionHighlight?(): void;
+    rotateCamera?(deltaX: number, deltaY: number): void;
+    /** Shows the currently armed loc/NPC at the tile under the pointer. */
+    setPlacementPreview?(
+        kind: EditModePlaceKind,
+        id: number,
+        tile: EditModeTile,
+        shape: number,
+        rotation: number,
+    ): void;
+    clearPlacementPreview?(): void;
     onLocAddChange(
         locId: number,
         tile: { x: number; y: number },
@@ -106,7 +166,9 @@ export interface EditModeHost {
     getLocName(locId: number): string;
     getNpcName(npcTypeId: number): string;
     /** Name/id search over the cache; the index is built on first use. */
-    search(kind: EditModePlaceKind, query: string): Promise<EditModeSearchResult[]>;
+    search(kind: EditModeSearchKind, query: string): Promise<EditModeSearchResult[]>;
+    describeDefinition?(kind: EditModeSearchKind, id: number): EditModeDefinitionSummary | undefined;
+    listShops?(): Promise<EditModeShop[]>;
     /** Spawns a cache NPC client-side. Returns the synthetic server id used. */
     spawnNpc(npcTypeId: number, tile: EditModeTile, rotation: number): number | undefined;
     despawnNpc(serverId: number): void;
@@ -116,6 +178,8 @@ export interface EditModeHost {
     setFreeCamera(enabled: boolean): void;
     /** Renders the world instead of the login screen while logged out. */
     setScenePreview(enabled: boolean): void;
+    setHeightLevel?(level: number): void;
+    setRenderAllHeightLevels?(enabled: boolean): void;
     isLoggedIn(): boolean;
     /** Moves the camera over a world tile, for navigating while flying. */
     jumpCameraToTile(tile: EditModeTile): void;

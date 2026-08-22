@@ -8,7 +8,9 @@ import {
     type EditModePluginConfig,
     type EditModePluginPersistence,
     type EditModePluginState,
-    type EditModeSearchResult,
+    type EditModeSearchKind,
+    type EditModeDefinitionSummary,
+    type EditModeShop,
     type EditModeSelection,
     type EditModeTile,
     type EditModeTool,
@@ -27,6 +29,9 @@ const DEFAULT_CONFIG: EditModePluginConfig = Object.freeze({
     shape: LOC_SHAPE_NORMAL,
     rotation: 0,
     overlayId: DEFAULT_PATH_OVERLAY_ID,
+    heightLevel: 0,
+    renderAllHeightLevels: true,
+    showMapIcons: false,
     edits: [] as EditModeEdit[],
 });
 
@@ -62,10 +67,24 @@ export class EditModePlugin {
     private config: EditModePluginConfig;
     private state: EditModePluginState;
     private selection?: EditModeSelection;
-    private search: EditModePluginState["search"] = { query: "", loading: false, results: [] };
+    private search: EditModePluginState["search"] = {
+        kind: "loc",
+        query: "",
+        loading: false,
+        results: [],
+    };
     private pathStart?: EditModeTile;
     private freeCamera = false;
-    private pointer?: { x: number; y: number; travelled: number };
+    private pointer?: {
+        x: number;
+        y: number;
+        travelled: number;
+        startTile?: EditModeTile;
+        dragSelection?: EditModeSelection;
+    };
+    private cameraPointer?: { x: number; y: number };
+    private buildingSelect = false;
+    private preview?: EditModeEdit;
     private scenePreview = false;
     private interfaces: EditModePluginState["interfaces"] = { groups: [], widgets: [] };
     private searchToken = 0;
@@ -100,14 +119,41 @@ export class EditModePlugin {
         return this.state.config;
     }
 
+    getCameraTile(): EditModeTile | undefined {
+        return this.host?.getCameraTile?.();
+    }
+
     attach(host: EditModeHost): void {
         this.host = host;
+        host.setHeightLevel?.(this.config.heightLevel);
+        host.setRenderAllHeightLevels?.(this.config.renderAllHeightLevels);
+        if (typeof window !== "undefined") {
+            window.addEventListener("keydown", this.onShortcut, true);
+        }
         this.syncListeners();
     }
 
+    /** Ctrl+E arms or disarms the tools; the only in-game way in. */
+    private readonly onShortcut = (event: KeyboardEvent): void => {
+        if (!event.ctrlKey || (event.key !== "e" && event.key !== "E")) return;
+        if (!this.config.enabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.setConfig({ active: !this.config.active });
+    };
+
     setConfig(nextConfig: Partial<EditModePluginConfig>): void {
         this.config = this.sanitizeConfig({ ...this.config, ...nextConfig });
+        if (nextConfig.heightLevel !== undefined) {
+            this.host?.setHeightLevel?.(this.config.heightLevel);
+        }
+        if (nextConfig.renderAllHeightLevels !== undefined) {
+            this.host?.setRenderAllHeightLevels?.(this.config.renderAllHeightLevels);
+        }
         this.syncListeners();
+        if (Object.keys(nextConfig).some((key) => key !== "edits")) {
+            this.refreshPlacementPreview();
+        }
         this.commit();
     }
 
@@ -130,30 +176,44 @@ export class EditModePlugin {
     }
 
     /** Runs a cache name/id search for the current place kind. */
-    searchCache(query: string): void {
+    searchCache(query: string, kind: EditModeSearchKind = this.config.placeKind): void {
         const host = this.host;
-        this.search = { query, loading: host !== undefined && query.trim().length > 0, results: [] };
+        this.search = {
+            kind,
+            query,
+            loading: host !== undefined && query.trim().length > 0,
+            results: [],
+        };
         this.commit();
         if (!host || !this.search.loading) return;
 
         const token = ++this.searchToken;
         void host
-            .search(this.config.placeKind, query)
+            .search(kind, query)
             .then((results) => {
                 if (token !== this.searchToken) return;
-                this.search = { query, loading: false, results };
+                this.search = { kind, query, loading: false, results };
                 this.commit();
             })
             .catch(() => {
                 if (token !== this.searchToken) return;
-                this.search = { query, loading: false, results: [] };
+                this.search = { kind, query, loading: false, results: [] };
                 this.commit();
             });
     }
 
     /** Selects a search result as the id the place tool will drop. */
     useSearchResult(id: number): void {
-        this.setConfig(this.config.placeKind === "npc" ? { npcId: id } : { locId: id });
+        if (this.search.kind === "item") return;
+        this.setConfig(this.search.kind === "npc" ? { npcId: id } : { locId: id });
+    }
+
+    describeDefinition(kind: EditModeSearchKind, id: number): EditModeDefinitionSummary | undefined {
+        return this.host?.describeDefinition?.(kind, id);
+    }
+
+    listShops(): Promise<EditModeShop[]> {
+        return this.host?.listShops?.() ?? Promise.resolve([]);
     }
 
     /** Detaches or reattaches the camera from the player. */
@@ -223,6 +283,34 @@ export class EditModePlugin {
         this.setConfig({ rotation: (this.config.rotation + 1) & 0x3 });
     }
 
+    duplicateSelection(): void {
+        if (!this.selection || this.selection.kind === "npc" || this.selection.locId < 0) return;
+        this.setConfig({ tool: "place", placeKind: "loc", locId: this.selection.locId });
+    }
+
+    deleteSelection(): void {
+        if (!this.selection || this.selection.kind === "npc" || this.selection.locId < 0) return;
+        this.commitEdits([
+            {
+                kind: "delete",
+                locId: 0,
+                tileX: this.selection.tileX,
+                tileY: this.selection.tileY,
+                plane: this.selection.plane,
+                shape: this.config.shape,
+                rotation: this.config.rotation,
+            },
+        ]);
+        this.selection = undefined;
+        this.host?.clearSelectionHighlight?.();
+        this.commit();
+    }
+
+    paintSelection(): void {
+        if (!this.selection || this.selection.kind === "building") return;
+        this.commitEdits([this.terrainEdit(this.selection, 0, 0)]);
+    }
+
     /** Re-applies every stored edit to the scene, e.g. after a login or map reload. */
     reapply(): void {
         for (const edit of this.config.edits) {
@@ -289,14 +377,21 @@ export class EditModePlugin {
     }
 
     /** Applies the active tool at the tile under the pointer. */
-    applyAtPointer(): void {
+    applyAtPointer(buildingSelect = this.buildingSelect): void {
         const host = this.host;
         const tile = host?.getPointerTile();
         if (!host || !tile) return;
 
         if (this.config.tool === "select") {
+            if (buildingSelect && host.selectBuilding) {
+                this.selection = host.selectBuilding(tile);
+                this.commit();
+                return;
+            }
             const loc = host.getPointerLoc();
-            this.selection = loc ? { ...tile, ...loc } : { ...tile, locId: -1, locName: "" };
+            this.selection =
+                host.selectPointer?.(tile) ??
+                (loc ? { ...tile, ...loc } : { ...tile, locId: -1, locName: "" });
             this.commit();
             return;
         }
@@ -312,6 +407,7 @@ export class EditModePlugin {
         }
 
         const placingNpc = this.config.tool === "place" && this.config.placeKind === "npc";
+        if (this.config.tool === "place") this.clearPlacementPreview();
         const edit: EditModeEdit = {
             kind: this.config.tool !== "place" ? "delete" : placingNpc ? "npc" : "place",
             locId: placingNpc
@@ -437,42 +533,109 @@ export class EditModePlugin {
         return this.scenePreview || this.host?.isLoggedIn() === true;
     }
 
-    /**
-     * The press is deliberately left alone so the client's own drag-look keeps
-     * working exactly as it does everywhere else; only a press that turns out
-     * to be a click applies a tool, and that click is then cancelled so the
-     * game does not act on it too.
-     */
+    /** Captures editor presses before the game can drag-look, walk, or draw its click cross. */
     private readonly onMouseDown = (event: MouseEvent): void => {
-        if (event.button !== 0 || event.target !== this.host?.getCanvas()) return;
+        if (event.target !== this.host?.getCanvas()) return;
         if (!this.hasEditableScene()) return;
-        this.pointer = { x: event.clientX, y: event.clientY, travelled: 0 };
+        if (event.button === 2) {
+            event.preventDefault();
+            this.cameraPointer = { x: event.clientX, y: event.clientY };
+            this.host?.cancelPendingClick();
+            return;
+        }
+        if (event.button !== 0) return;
+        this.pointer = {
+            x: event.clientX,
+            y: event.clientY,
+            travelled: 0,
+            startTile: this.config.tool === "select" ? this.host?.getPointerTile() : undefined,
+        };
+        this.host.cancelPendingClick();
     };
 
     private readonly onMouseMove = (event: MouseEvent): void => {
+        this.buildingSelect = event.shiftKey;
+        const cameraPointer = this.cameraPointer;
+        if (cameraPointer) {
+            const deltaX = event.clientX - cameraPointer.x;
+            const deltaY = event.clientY - cameraPointer.y;
+            cameraPointer.x = event.clientX;
+            cameraPointer.y = event.clientY;
+            this.host?.rotateCamera?.(deltaX, deltaY);
+            return;
+        }
+        if (event.target === this.host?.getCanvas()) {
+            this.refreshPlacementPreview();
+            this.refreshPointerPreview();
+        } else {
+            this.clearPlacementPreview();
+            this.host?.clearPointerPreview?.();
+        }
         const pointer = this.pointer;
         if (!pointer) return;
         pointer.travelled += Math.abs(event.clientX - pointer.x) + Math.abs(event.clientY - pointer.y);
         pointer.x = event.clientX;
         pointer.y = event.clientY;
+        if (
+            pointer.travelled > DRAG_THRESHOLD_PX &&
+            pointer.startTile &&
+            this.config.tool === "select"
+        ) {
+            const tile = this.host?.getPointerTile();
+            if (
+                tile &&
+                (pointer.dragSelection?.tileEndX !== tile.tileX ||
+                    pointer.dragSelection?.tileEndY !== tile.tileY)
+            ) {
+                pointer.dragSelection = this.host?.selectTileRange?.(pointer.startTile, tile);
+            }
+        }
     };
 
     private readonly onMouseUp = (event: MouseEvent): void => {
+        if (event.button === 2) {
+            this.cameraPointer = undefined;
+            this.host?.cancelPendingClick();
+            const refresh = (): void => {
+                if (!this.handlesCanvasInput()) return;
+                this.refreshPlacementPreview();
+                this.refreshPointerPreview();
+            };
+            if (this.host?.afterNextSceneFrame) this.host.afterNextSceneFrame(refresh);
+            else refresh();
+            return;
+        }
         const pointer = this.pointer;
         this.pointer = undefined;
         if (!pointer || event.button !== 0) return;
-        if (pointer.travelled > DRAG_THRESHOLD_PX) return;
-        this.applyAtPointer();
+        if (pointer.travelled > DRAG_THRESHOLD_PX) {
+            if (pointer.dragSelection) {
+                this.selection = pointer.dragSelection;
+                this.commit();
+            }
+            return;
+        }
         this.host?.cancelPendingClick();
+        const buildingSelect = this.buildingSelect;
+        const apply = (): void => {
+            if (this.handlesCanvasInput()) this.applyAtPointer(buildingSelect);
+        };
+        if (this.host?.afterNextSceneFrame) this.host.afterNextSceneFrame(apply);
+        else apply();
     };
 
     private readonly onKeyDown = (event: KeyboardEvent): void => {
         const target = event.target as HTMLElement | null;
         if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
         // The login form is drawn on the canvas, so its typing would otherwise
-        // lose every "x" to the rotate shortcut.
+        // lose every "r" to the rotate shortcut.
         if (!this.hasEditableScene()) return;
-        if (event.key === "x" || event.key === "X") {
+        if (event.key === "Shift") {
+            this.buildingSelect = true;
+            this.refreshPointerPreview();
+            return;
+        }
+        if (event.key === "r" || event.key === "R") {
             event.preventDefault();
             this.rotate();
         } else if (event.key === "Escape") {
@@ -483,6 +646,12 @@ export class EditModePlugin {
             }
             this.setConfig({ active: false });
         }
+    };
+
+    private readonly onKeyUp = (event: KeyboardEvent): void => {
+        if (event.key !== "Shift") return;
+        this.buildingSelect = false;
+        this.refreshPointerPreview();
     };
 
     private syncListeners(): void {
@@ -501,23 +670,90 @@ export class EditModePlugin {
             this.host?.setFreeCamera(false);
             this.freeCamera = false;
         }
+        if (!shouldCapture) this.clearPlacementPreview();
+        if (!shouldCapture) this.host?.clearSelectionHighlight?.();
 
         if (shouldCapture === this.capturing) return;
         this.capturing = shouldCapture;
 
         if (typeof window === "undefined") return;
         if (shouldCapture) {
-            window.addEventListener("mousedown", this.onMouseDown, true);
-            window.addEventListener("mousemove", this.onMouseMove, true);
-            window.addEventListener("mouseup", this.onMouseUp, true);
+            // Bubble after InputManager's canvas hooks, then remove the click
+            // pulse before the next frame can treat an editor click as Walk here.
+            window.addEventListener("mousedown", this.onMouseDown);
+            window.addEventListener("mousemove", this.onMouseMove);
+            window.addEventListener("mouseup", this.onMouseUp);
             window.addEventListener("keydown", this.onKeyDown, true);
+            window.addEventListener("keyup", this.onKeyUp, true);
         } else {
             this.pointer = undefined;
-            window.removeEventListener("mousedown", this.onMouseDown, true);
-            window.removeEventListener("mousemove", this.onMouseMove, true);
-            window.removeEventListener("mouseup", this.onMouseUp, true);
+            this.cameraPointer = undefined;
+            this.buildingSelect = false;
+            window.removeEventListener("mousedown", this.onMouseDown);
+            window.removeEventListener("mousemove", this.onMouseMove);
+            window.removeEventListener("mouseup", this.onMouseUp);
             window.removeEventListener("keydown", this.onKeyDown, true);
+            window.removeEventListener("keyup", this.onKeyUp, true);
         }
+    }
+
+    private refreshPlacementPreview(): void {
+        const host = this.host;
+        const id = this.config.placeKind === "npc" ? this.config.npcId : this.config.locId;
+        const tile = host?.getPointerTile();
+        if (
+            !host?.setPlacementPreview ||
+            !this.handlesCanvasInput() ||
+            this.config.tool !== "place" ||
+            id <= 0 ||
+            !tile
+        ) {
+            this.clearPlacementPreview();
+            return;
+        }
+
+        const next: EditModeEdit = {
+            kind: this.config.placeKind === "npc" ? "npc" : "place",
+            locId: id,
+            ...tile,
+            shape: this.config.shape,
+            rotation: this.config.rotation,
+        };
+        const current = this.preview;
+        if (
+            current?.kind === next.kind &&
+            current.locId === next.locId &&
+            current.tileX === next.tileX &&
+            current.tileY === next.tileY &&
+            current.plane === next.plane &&
+            current.shape === next.shape &&
+            current.rotation === next.rotation
+        ) {
+            return;
+        }
+        this.clearPlacementPreview();
+        host.setPlacementPreview(this.config.placeKind, id, tile, next.shape, next.rotation);
+        this.preview = next;
+    }
+
+    private refreshPointerPreview(): void {
+        const host = this.host;
+        const tile = host?.getPointerTile();
+        if (!host?.previewPointer || this.config.tool !== "select" || !tile) {
+            host?.clearPointerPreview?.();
+            return;
+        }
+        if (this.buildingSelect && host.previewBuilding) {
+            host.previewBuilding(tile);
+            return;
+        }
+        host.previewPointer(tile);
+    }
+
+    private clearPlacementPreview(): void {
+        if (!this.preview) return;
+        this.host?.clearPlacementPreview?.();
+        this.preview = undefined;
     }
 
     private sanitizeConfig(
@@ -536,6 +772,10 @@ export class EditModePlugin {
             overlayId: toInt(input?.overlayId, DEFAULT_CONFIG.overlayId, 0, 0xffff),
             shape: toInt(input?.shape, DEFAULT_CONFIG.shape, 0, 22),
             rotation: toInt(input?.rotation, DEFAULT_CONFIG.rotation, 0, 3),
+            heightLevel: toInt(input?.heightLevel, DEFAULT_CONFIG.heightLevel, 0, 3),
+            renderAllHeightLevels:
+                input?.renderAllHeightLevels ?? DEFAULT_CONFIG.renderAllHeightLevels,
+            showMapIcons: input?.showMapIcons ?? DEFAULT_CONFIG.showMapIcons,
             edits: edits
                 .filter(
                     (edit) =>
