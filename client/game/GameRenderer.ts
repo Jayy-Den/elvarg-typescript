@@ -159,6 +159,10 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
     handleInput(deltaTime: number) {
         // OSRS frame start: transfer click state (clickMode1 -> clickMode3)
         this.osrsClient.inputManager.onFrameStart();
+        if (this.osrsClient.loginState.serverListOpen) {
+            this.osrsClient.handleInGameServerListInput();
+            return;
+        }
         // Orbit only in-world; login keeps one-finger drag for list scrolling.
         this.osrsClient.inputManager.setTouchCameraOrbitEnabled(this.osrsClient.isLoggedIn());
 
@@ -210,24 +214,6 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         if (inputManager.isKeyDown("ArrowLeft")) {
             // Left rotates view to the left
             camera.updateYaw(camera.yaw, deltaYaw);
-        }
-
-        // RuneLite-style WASD camera: while chat typing is locked ("press enter to
-        // type"), WASD rotates the camera exactly like the arrow keys. Only in the
-        // normal follow-player camera — free-cam already uses WASD for movement.
-        if (this.osrsClient.followPlayerCamera && this.osrsClient.isWasdCameraActive()) {
-            if (inputManager.isKeyDown("KeyW")) {
-                camera.updatePitch(camera.pitch, deltaPitch);
-            }
-            if (inputManager.isKeyDown("KeyS")) {
-                camera.updatePitch(camera.pitch, -deltaPitch);
-            }
-            if (inputManager.isKeyDown("KeyD")) {
-                camera.updateYaw(camera.yaw, -deltaYaw);
-            }
-            if (inputManager.isKeyDown("KeyA")) {
-                camera.updateYaw(camera.yaw, deltaYaw);
-            }
         }
 
         // camera position controls

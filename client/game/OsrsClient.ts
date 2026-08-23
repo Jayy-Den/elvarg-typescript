@@ -228,7 +228,6 @@ import { AudioVarpController } from "./audio/AudioVarpController";
 import { MusicSystem } from "./audio/MusicSystem";
 import { type SequenceSoundContext, SoundEffectSystem } from "./audio/SoundEffectSystem";
 import { ChatTextMetrics } from "./chat/ChatTextMetrics";
-import { EnterToTypeChat } from "./chat/EnterToTypeChat";
 import { MobileChatKeyboard } from "./chat/MobileChatKeyboard";
 import { CombatOptionsController } from "./combat/CombatOptionsController";
 import { HitsplatFlushController } from "./combat/HitsplatFlushController";
@@ -354,6 +353,7 @@ const DEFAULT_LOD_DISTANCE = deriveLodDistanceFromRenderDistance(DEFAULT_RENDER_
 const VARBIT_ACCOUNT_TYPE = 1777;
 const VARBIT_POPOUT_OPEN = 13090;
 const VARBIT_POPOUT_PANEL_DESKTOP_DISABLED = 13982;
+const VARC_CHATBOX_SELECTED_TAB = 41;
 const ACCOUNT_TYPE_MAIN = 0;
 const SCRIPT_HIGHLIGHT_SCREEN_COMPONENT = 2463;
 const SCRIPT_HIGHLIGHT_TEXTBOX_DEFAULT = 2465;
@@ -727,8 +727,7 @@ export class OsrsClient {
     isTradeQuantityInputActive(): boolean {
         return this.pendingTradeQuantityAction !== null && this.cs2Vm.inputDialogType > 0;
     }
-    // RuneLite-style press-enter-to-type (desktop) + mobile soft-keyboard bridge.
-    private enterToTypeChat!: EnterToTypeChat;
+    // Mobile soft-keyboard bridge.
     private mobileChatKeyboard!: MobileChatKeyboard;
     private playerDesign!: PlayerDesignController;
     private customInterfaces!: CustomInterfaceRuntime;
@@ -1124,13 +1123,6 @@ export class OsrsClient {
      */
 
     private initChatControllers(): void {
-        this.enterToTypeChat = new EnterToTypeChat({
-            cs2Vm: this.cs2Vm,
-            varManager: this.varManager,
-            widgetManager: this.widgetManager,
-            isLoggedIn: () => this.isLoggedIn(),
-            isCustomInterfaceSearchFocused: () => this.customInterfaces.isSearchFocused(),
-        });
         this.mobileChatKeyboard = new MobileChatKeyboard({
             inputManager: this.inputManager,
             varManager: this.varManager,
@@ -1261,7 +1253,6 @@ export class OsrsClient {
             getVarManager: () => this.varManager,
             getWorldMap: () => this.worldMap,
             getCustomInterfaces: () => this.customInterfaces,
-            getEnterToTypeChat: () => this.enterToTypeChat,
             getPlayerDesign: () => this.playerDesign,
             getObjTypeLoader: () => this.objTypeLoader,
             getInventory: () => this.inventory,
@@ -3580,7 +3571,50 @@ export class OsrsClient {
     }
 
     handleWidgetAction(event: Parameters<WidgetActionRouter["handleWidgetAction"]>[0]): void {
+        if ((event.widget?.uid | 0) === ((182 << 16) | 3)) {
+            this.processLoginAction({ type: "open_server_list" });
+            return;
+        }
         this.widgetActionRouter.handleWidgetAction(event);
+    }
+
+    handleInGameServerListInput(): void {
+        const input = this.inputManager;
+        if (input.clickMode3 === 0 || input.saveClickX < 0 || input.saveClickY < 0) return;
+
+        const action = this.loginRenderer.handleMouseClick(
+            this.loginState,
+            input.saveClickX,
+            input.saveClickY,
+            input.clickMode3,
+            GameState.LOGGED_IN,
+        );
+        input.clickMode3 = 0;
+        input.saveClickX = -1;
+        input.saveClickY = -1;
+        if (!action) return;
+
+        if (action.type === "select_server") {
+            const server = this.loginRenderer.serverList[action.index];
+            const transport = server?.transport ?? "websocket";
+            const isCurrent =
+                transport === this.loginState.serverTransport &&
+                (transport === "webrtc"
+                    ? server?.worldId === this.loginState.serverWorldId &&
+                      server?.signalUrl === this.loginState.serverSignalUrl
+                    : server?.address === this.loginState.serverAddress &&
+                      server?.secure === this.loginState.serverSecure);
+            if (isCurrent) {
+                this.processLoginAction({ type: "close_server_list" });
+                return;
+            }
+
+            this.loginState.serverListOpen = false;
+            this.performLogout(() => this.processLoginAction(action));
+            return;
+        }
+
+        this.processLoginAction(action);
     }
 
     private runClientScriptWithInts(scriptId: number, args: number[]): void {
@@ -3696,9 +3730,6 @@ export class OsrsClient {
             }
         }
 
-        // Keep the "Press Enter to Chat" placeholder on the chat input line while
-        // chat typing is locked (re-applied whenever chat_promptinput rewrites it).
-        this.enterToTypeChat?.applyLockPlaceholder();
     }
 
     /**
@@ -3779,10 +3810,6 @@ export class OsrsClient {
     private applyMinimapWheelZoom(deltaY: number): void {
         const wheelStep = deltaY > 0 ? 1 : -1;
         this.minimapZoom = Math.max(2, Math.min(8, this.minimapZoom + -wheelStep * 0.25));
-    }
-
-    isWasdCameraActive(): boolean {
-        return this.enterToTypeChat.isWasdCameraActive(this.cs2Vm.inputDialogType | 0);
     }
 
     handleUiInput() {
@@ -4949,8 +4976,6 @@ export class OsrsClient {
         // Setup new state
         if (newState === GameState.LOGIN_SCREEN) {
             this.rememberLoginPlugin.restore(this.loginState);
-            // Chat starts locked ("Press Enter to Chat") on the next login.
-            this.enterToTypeChat?.reset();
             this.loginState.networkState = 0;
             // Reset loading tracker on return to login
             this.loadingTracker.reset();
@@ -4963,6 +4988,15 @@ export class OsrsClient {
             // Apply persisted server URL so sendLogin connects to the right place
             setServerUrl(
                 `${this.loginState.serverSecure ? "wss" : "ws"}://${this.loginState.serverAddress}`,
+                this.loginState.serverTransport === "webrtc" &&
+                    this.loginState.serverSignalUrl &&
+                    this.loginState.serverWorldId
+                    ? {
+                          signalUrl: this.loginState.serverSignalUrl,
+                          worldId: this.loginState.serverWorldId,
+                          iceServers: this.loginState.serverIceServers,
+                      }
+                    : undefined,
             );
         }
 
@@ -5425,9 +5459,22 @@ export class OsrsClient {
                     this.loginState.serverAddress = server.address;
                     this.loginState.serverName = server.name;
                     this.loginState.serverSecure = server.secure;
+                    this.loginState.serverTransport = server.transport ?? "websocket";
+                    this.loginState.serverSignalUrl = server.signalUrl;
+                    this.loginState.serverWorldId = server.worldId;
+                    this.loginState.serverIceServers = server.iceServers ?? [];
                     this.loginState.serverListOpen = false;
                     this.loginState.hoveredServerIndex = -1;
-                    setServerUrl(`${server.secure ? "wss" : "ws"}://${server.address}`);
+                    setServerUrl(
+                        `${server.secure ? "wss" : "ws"}://${server.address}`,
+                        server.transport === "webrtc" && server.signalUrl && server.worldId
+                            ? {
+                                  signalUrl: server.signalUrl,
+                                  worldId: server.worldId,
+                                  iceServers: server.iceServers ?? [],
+                              }
+                            : undefined,
+                    );
                     this.loginState.saveLastServer();
                 }
                 return undefined;
@@ -5508,6 +5555,10 @@ export class OsrsClient {
             this.loginState.serverAddress = serverAddress;
             this.loginState.serverName = getDefaultServerName();
             this.loginState.serverSecure = getDefaultServerSecure();
+            this.loginState.serverTransport = "websocket";
+            this.loginState.serverSignalUrl = undefined;
+            this.loginState.serverWorldId = undefined;
+            this.loginState.serverIceServers = [];
 
             // Set credentials and trigger login
             this.loginState.username = username;
@@ -5533,6 +5584,7 @@ export class OsrsClient {
      */
     onLoginSuccess(): void {
         this.loginState.savePersistedLoginState();
+        this.varManager.setVarcInt(VARC_CHATBOX_SELECTED_TAB, 0);
 
         // Restore uncapped desktop pacing if CS2 previously applied a mobile FPS cap.
         this.applyDisplayDefaults();
@@ -5558,7 +5610,7 @@ export class OsrsClient {
      * Perform logout - called by CS2 LOGOUT opcode.
      * Sends logout request to server and waits for consent before completing.
      */
-    performLogout(): void {
+    performLogout(afterLogout?: () => void): void {
         console.log("[OsrsClient] Requesting logout from server...");
 
         // Subscribe to logout response (one-shot)
@@ -5583,6 +5635,7 @@ export class OsrsClient {
 
                 // Transition to login screen
                 this.updateGameState(GameState.LOGIN_SCREEN);
+                afterLogout?.();
 
                 console.log("[OsrsClient] Logout complete - returned to login screen");
             } else {
