@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 
 import { EditModePlugin } from "../game/plugins/editmode/EditModePlugin";
 import { detectRectangularBuilding } from "../game/plugins/editmode/BuildingDetector";
-import { pickMapIconTarget, raycastEditScene } from "../game/plugins/editmode/install";
+import { raycastEditScene } from "../game/plugins/editmode/install";
 import { InteractType } from "../render/InteractType";
 import type { EditModePluginConfig } from "../game/plugins/editmode/types";
+import { buildMapIconGroundVertices } from "../game/plugins/editmode/MapIconGroundOverlay";
 
 type Call = [string, ...unknown[]];
 
@@ -187,30 +188,9 @@ assert.equal(raycastOptions?.maxDistance, 4096);
 raycastEditScene(editRaycaster as any, {} as any, 2);
 assert.equal(raycastOptions?.basePlane, 2);
 
-const iconTarget = {
-    kind: "loc" as const,
-    locId: 100,
-    tileX: 10,
-    tileY: 20,
-    plane: 1,
-};
-assert.equal(
-    pickMapIconTarget(
-        [{ left: 5, top: 5, right: 15, bottom: 15, target: iconTarget }],
-        10,
-        10,
-        1,
-    ),
-    iconTarget,
-);
-assert.equal(
-    pickMapIconTarget(
-        [{ left: 5, top: 5, right: 15, bottom: 15, target: iconTarget }],
-        10,
-        10,
-        0,
-    ),
-    undefined,
+assert.deepEqual(
+    [...buildMapIconGroundVertices({ tileX: 10, tileY: 20, plane: 2 }, () => 0.015)],
+    [10, 0, 20, 11, 0, 20, 11, 0, 21, 10, 0, 20, 11, 0, 21, 10, 0, 21],
 );
 
 const calls: Call[] = [];

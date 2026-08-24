@@ -1,4 +1,5 @@
 import { ClientState } from "../../ClientState";
+import type { App as PicoApp, UniformBuffer } from "picogl";
 import type { Ray } from "../../math/Raycast";
 import type { SceneRaycastHit, SceneRaycaster } from "../../scene/SceneRaycaster";
 import { MenuTargetType } from "../../../rs/MenuEntry";
@@ -18,6 +19,10 @@ import type { OsrsClient } from "../../OsrsClient";
 import { createBrowserEditModePluginPersistence } from "./BrowserEditModePluginPersistence";
 import { detectRectangularBuilding, type DetectedBuilding } from "./BuildingDetector";
 import { EditModePlugin } from "./EditModePlugin";
+import {
+    MapIconGroundOverlay,
+    type MapIconGroundEntry,
+} from "./MapIconGroundOverlay";
 import type {
     EditModeDefinitionSummary,
     EditModeEdit,
@@ -71,35 +76,6 @@ const WIDGET_SUMMARY_LIMIT = 200;
 const INDEX_CHUNK = 2000;
 
 type NameIndex = ReadonlyArray<EditModeSearchResult>;
-
-type MapIconHit = {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-    target: LocHighlightTarget;
-};
-
-export function pickMapIconTarget(
-    hits: readonly MapIconHit[],
-    x: number,
-    y: number,
-    plane: number,
-): LocHighlightTarget | undefined {
-    for (let i = hits.length - 1; i >= 0; i--) {
-        const hit = hits[i];
-        if (
-            hit.target.plane === plane &&
-            x >= hit.left &&
-            x <= hit.right &&
-            y >= hit.top &&
-            y <= hit.bottom
-        ) {
-            return hit.target;
-        }
-    }
-    return undefined;
-}
 
 interface NamedTypeLoader {
     getCount(): number;
@@ -268,9 +244,10 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
               pick: { tile: EditModeTile; target?: InteractHighlightTarget } | undefined;
           }
         | undefined;
-    let mapIconOverlay: HTMLCanvasElement | undefined;
     let mapIconFrame: number | undefined;
-    let mapIconHits: MapIconHit[] = [];
+    let mapIconTargets = new Map<string, LocHighlightTarget>();
+    let mapIconGroundOverlay: MapIconGroundOverlay | undefined;
+    let mapIconGroundManager: TerrainHost["overlayManager"];
     const mapIconSprites = new Map<number, HTMLCanvasElement>();
     const mapIconLocs = new WeakMap<MinimapIcon, { locId: number; rotation?: number } | null>();
     let previousInteractHighlightConfig:
@@ -382,46 +359,49 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             locRotation: rotation,
         };
     };
+    const ensureMapIconGroundOverlay = (
+        renderer: TerrainHost,
+    ): MapIconGroundOverlay | undefined => {
+        if (!renderer.overlayManager || !renderer.app || !renderer.sceneUniformBuffer) {
+            return undefined;
+        }
+        if (mapIconGroundManager === renderer.overlayManager) return mapIconGroundOverlay;
+        const overlay = new MapIconGroundOverlay();
+        overlay.init({ app: renderer.app, sceneUniforms: renderer.sceneUniformBuffer });
+        renderer.overlayManager.add(overlay);
+        mapIconGroundManager = renderer.overlayManager;
+        mapIconGroundOverlay = overlay;
+        return overlay;
+    };
     const drawMapIcons = (): void => {
         mapIconFrame = undefined;
         const state = plugin.getState();
         if (!state.config.showMapIcons || !state.config.active) {
-            mapIconOverlay?.remove();
-            mapIconHits = [];
+            mapIconGroundOverlay?.setEntries([]);
+            mapIconTargets.clear();
             return;
         }
         const renderer = terrainHost(client);
-        const gameCanvas = client.renderer?.canvas as HTMLCanvasElement | undefined;
-        const parent = gameCanvas?.parentElement;
-        if (renderer && gameCanvas && parent) {
-            if (!mapIconOverlay) {
-                mapIconOverlay = document.createElement("canvas");
-                mapIconOverlay.dataset.mapEditor = "map-icons";
-                Object.assign(mapIconOverlay.style, {
-                    position: "absolute",
-                    inset: "0",
-                    width: "100%",
-                    height: "100%",
-                    pointerEvents: "none",
-                    imageRendering: "pixelated",
-                });
-            }
-            if (mapIconOverlay.parentElement !== parent) parent.appendChild(mapIconOverlay);
-            if (
-                mapIconOverlay.width !== gameCanvas.width ||
-                mapIconOverlay.height !== gameCanvas.height
-            ) {
-                mapIconOverlay.width = gameCanvas.width;
-                mapIconOverlay.height = gameCanvas.height;
-            }
-            const context = mapIconOverlay.getContext("2d");
-            context?.clearRect(0, 0, mapIconOverlay.width, mapIconOverlay.height);
-            mapIconHits = [];
+        if (renderer) {
+            const entries: MapIconGroundEntry[] = [];
+            const targets = new Map<string, LocHighlightTarget>();
             const maxPlane = state.config.renderAllHeightLevels ? 3 : state.config.heightLevel;
-            const selection = state.selection;
-            for (let plane = 0; context && plane <= maxPlane; plane++) {
+            const cullTile = renderer.getRenderCullTile();
+            const renderDistance = renderer.getFrameRenderDistanceTiles();
+            for (let plane = 0; plane <= maxPlane; plane++) {
                 for (let i = 0; i < renderer.mapManager.visibleMapCount; i++) {
                     const map = renderer.mapManager.visibleMaps[i];
+                    if (
+                        !renderer.isMapWithinRenderDistance(
+                            map,
+                            cullTile.x,
+                            cullTile.y,
+                            renderDistance,
+                            0,
+                        )
+                    ) {
+                        continue;
+                    }
                     const icons = renderer.getMinimapIcons(map.mapX, map.mapY, plane) ?? [];
                     const baseX = map.getRenderBaseWorldX?.() ?? map.mapX * 64;
                     const baseY = map.getRenderBaseWorldY?.() ?? map.mapY * 64;
@@ -431,58 +411,13 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                         const target = resolveMapIconTarget(renderer, icon, tileX, tileY, plane);
                         const sprite = getMapIconSprite(icon.spriteId);
                         if (!target || !sprite) continue;
-                        const height = renderer.sampleHeightAtExactPlane(
-                            tileX + 0.5,
-                            tileY + 0.5,
-                            plane,
-                        );
-                        const screen = renderer.worldToScreen(tileX + 0.5, height - 0.05, tileY + 0.5);
-                        if (!screen) continue;
-                        const left = Math.round(screen[0] - sprite.width / 2);
-                        const top = Math.round(screen[1] - sprite.height / 2);
-                        if (
-                            left >= mapIconOverlay.width ||
-                            top >= mapIconOverlay.height ||
-                            left + sprite.width < 0 ||
-                            top + sprite.height < 0
-                        ) {
-                            continue;
-                        }
-                        context.drawImage(sprite, left, top);
-                        const hitPadding = 3;
-                        const hit = {
-                            left: left - hitPadding,
-                            top: top - hitPadding,
-                            right: left + sprite.width + hitPadding,
-                            bottom: top + sprite.height + hitPadding,
-                            target,
-                        };
-                        mapIconHits.push(hit);
-                        const hovered =
-                            plane === state.config.heightLevel &&
-                            client.inputManager.mouseX >= hit.left &&
-                            client.inputManager.mouseX <= hit.right &&
-                            client.inputManager.mouseY >= hit.top &&
-                            client.inputManager.mouseY <= hit.bottom;
-                        const selected =
-                            selection?.kind === "loc" &&
-                            selection.locId === target.locId &&
-                            selection.tileX === tileX &&
-                            selection.tileY === tileY &&
-                            selection.plane === plane;
-                        if (hovered || selected) {
-                            context.strokeStyle = "#ffffff";
-                            context.lineWidth = 2;
-                            context.strokeRect(
-                                left - 2,
-                                top - 2,
-                                sprite.width + 4,
-                                sprite.height + 4,
-                            );
-                        }
+                        entries.push({ spriteId: icon.spriteId, sprite, tileX, tileY, plane });
+                        targets.set(`${tileX}:${tileY}:${plane}`, target);
                     }
                 }
             }
+            mapIconTargets = targets;
+            ensureMapIconGroundOverlay(renderer)?.setEntries(entries);
         }
         mapIconFrame = requestAnimationFrame(drawMapIcons);
     };
@@ -494,8 +429,8 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         }
         if (mapIconFrame !== undefined) cancelAnimationFrame(mapIconFrame);
         mapIconFrame = undefined;
-        mapIconOverlay?.remove();
-        mapIconHits = [];
+        mapIconGroundOverlay?.setEntries([]);
+        mapIconTargets.clear();
     };
     const selectTileRange = (start: EditModeTile, end: EditModeTile) => {
         clearSelectionHighlight();
@@ -542,10 +477,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         ) {
             return editorPickCache.pick;
         }
-        const iconTarget = plugin.getConfig().showMapIcons
-            ? pickMapIconTarget(mapIconHits, x, y, plugin.getConfig().heightLevel)
-            : undefined;
-        const ray = iconTarget ? undefined : renderer.screenToRay(x, y);
+        const ray = renderer.screenToRay(x, y);
         const hit =
             ray && renderer.sceneRaycaster
                 ? raycastEditScene(
@@ -555,16 +487,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                   )
                 : undefined;
         let pick: { tile: EditModeTile; target?: InteractHighlightTarget } | undefined;
-        if (iconTarget?.kind === "loc") {
-            pick = {
-                tile: {
-                    tileX: iconTarget.tileX,
-                    tileY: iconTarget.tileY,
-                    plane: iconTarget.plane,
-                },
-                target: iconTarget,
-            };
-        } else if (hit?.tileX !== undefined && hit.tileY !== undefined) {
+        if (hit?.tileX !== undefined && hit.tileY !== undefined) {
             if (hit.interactType === InteractType.NPC && hit.npcServerId !== undefined) {
                 const target = renderer.resolveNpcHighlightTargetFromServerId(hit.npcServerId);
                 pick = {
@@ -599,6 +522,17 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                         },
                     };
                 }
+            }
+        }
+        if (!pick && plugin.getConfig().showMapIcons) {
+            const tile = renderer.computeTileAt(x, y);
+            const plane = plugin.getConfig().heightLevel;
+            const iconTarget = tile && mapIconTargets.get(`${tile.tileX}:${tile.tileY}:${plane}`);
+            if (iconTarget) {
+                pick = {
+                    tile: { tileX: iconTarget.tileX, tileY: iconTarget.tileY, plane },
+                    target: iconTarget,
+                };
             }
         }
         editorPickCache = { renderer, frame: renderer.currentFrameCount, x, y, pick };
@@ -1128,6 +1062,9 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
  */
 type TerrainHost = {
     currentFrameCount: number;
+    app?: PicoApp;
+    sceneUniformBuffer?: UniformBuffer;
+    overlayManager?: { add(overlay: MapIconGroundOverlay): unknown };
     mapManager: {
         visibleMapCount: number;
         visibleMaps: Array<{
@@ -1144,13 +1081,17 @@ type TerrainHost = {
     ): { tileX: number; tileY: number; plane: number } | undefined;
     sceneRaycaster: Pick<SceneRaycaster, "raycast"> | null;
     getPlayerRawPlane(): number;
+    getRenderCullTile(): { x: number; y: number };
+    getFrameRenderDistanceTiles(): number;
+    isMapWithinRenderDistance(
+        map: unknown,
+        tileX: number,
+        tileY: number,
+        renderDistanceTiles: number,
+        renderDistancePadTiles: number,
+    ): boolean;
     getMinimapIcons(mapX: number, mapY: number, level?: number): MinimapIcon[] | undefined;
     sampleHeightAtExactPlane(worldX: number, worldY: number, plane: number): number;
-    worldToScreen(
-        x: number,
-        y: number,
-        z: number,
-    ): Float32Array | number[] | undefined;
     getRoofPlaneLimit(): number;
     shouldRenderNpcFromMap(map: unknown, ecsId: number): boolean;
     shouldRenderPlayerIndex(ecsId: number): boolean;
