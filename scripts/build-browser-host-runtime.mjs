@@ -11,7 +11,6 @@ const worldSourcePath = path.join(
     "src/main/typescript/elvarg/game/World.ts",
 );
 const browserExcludedPluginEntrypoints = new Set([
-    "bots/PlayerBots.plugin.js",
     "bots/StressTestBots.plugin.js",
     "commands/AdminCommands.plugin.js",
     "commands/PluginPerfCommand.plugin.js",
@@ -21,7 +20,7 @@ const browserExcludedPluginEntrypoints = new Set([
     "persistence/JsonPlayerPersistence.plugin.js",
     "world/ProceduralRegionStream.plugin.js",
 ]);
-const expectedBrowserPluginEntrypoints = 55;
+const expectedBrowserPluginEntrypoints = 56;
 const runtimeDependencies = [
     "adm-zip",
     "async-lock",
@@ -120,6 +119,7 @@ for (const name of browserExcludedPluginEntrypoints) {
     }
 }
 for (const name of [
+    "plugins/bots/PlayerBots.plugin.js",
     "plugins/bots/behaviours/spawn/BotPlayerFactory.js",
     "plugins/bots/data/object-index.json",
     "plugins/combat/DragonfireProtection.js",

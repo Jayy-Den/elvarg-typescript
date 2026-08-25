@@ -173,12 +173,11 @@ export default function HostPage() {
             });
             const serverProcess = await container.spawn(
                 "node",
-                ["dist/Server.js", "1", "--disablePlayerBots"],
+                ["dist/Server.js", "1"],
                 {
                     env: {
                         BROWSER_HOST: "1",
                         WEBSOCKET_PORT: "43594",
-                        DISABLE_PLAYER_BOTS: "1",
                         BOT_RUNTIME_EVENT_LOGGING: "0",
                         BOT_RUNTIME_TELEMETRY_ENABLED: "0",
                         BOT_TASK_PROFILER_ENABLED: "0",
