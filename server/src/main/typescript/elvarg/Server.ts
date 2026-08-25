@@ -211,7 +211,11 @@ export class Server {
       const cache = await CachePipeline.initialize();
       console.info(`[cache] active ${cache.name} (revision ${cache.revision})`);
 
-      PluginManager.loadFromDirectory(path.join(process.cwd(), "plugins"));
+      if (process.env.BROWSER_HOST === "1") {
+        console.info("[plugins] skipped for ephemeral browser host");
+      } else {
+        PluginManager.loadFromDirectory(path.join(process.cwd(), "plugins"));
+      }
 
       console.info(
         `Initializing Name in ${

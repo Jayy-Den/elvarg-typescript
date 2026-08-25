@@ -1,6 +1,5 @@
 import type { Player } from "../Player";
-import { PasswordUtil } from "../../../../../util/PasswordUtil"
-import { PlayerSave } from "../persistence/PlayerSave"
+import { PlayerSave } from "../persistence/PlayerSave";
 
 
 
@@ -14,13 +13,19 @@ export abstract class PlayerPersistence {
     }
 
     public async encryptPassword(plainPassword: string): Promise<string> {
+        const { PasswordUtil } = require(
+            "../../../../../util/PasswordUtil"
+        ) as typeof import("../../../../../util/PasswordUtil");
         const passwordEncrypt: string = await PasswordUtil.generatePasswordHashWithSalt(plainPassword);
         return passwordEncrypt;
     }
 
     public async checkPassword(password: string, playerSave: PlayerSave): Promise<boolean> {
-        let passwordHashWithSalt = playerSave.getPasswordHashWithSalt();
-        let isMatch: boolean = await PasswordUtil.passwordsMatch(password, passwordHashWithSalt);
+        const { PasswordUtil } = require(
+            "../../../../../util/PasswordUtil"
+        ) as typeof import("../../../../../util/PasswordUtil");
+        const passwordHashWithSalt = playerSave.getPasswordHashWithSalt();
+        const isMatch: boolean = await PasswordUtil.passwordsMatch(password, passwordHashWithSalt);
         return isMatch;
     }
 }

@@ -1,0 +1,123 @@
+.host-page {
+    min-height: 100%;
+    box-sizing: border-box;
+    overflow: auto;
+    padding: 24px;
+    color: #e9edf5;
+    background: #10141c;
+    user-select: text;
+}
+
+.host-header,
+.host-toolbar,
+.host-settings {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.host-header {
+    justify-content: space-between;
+}
+
+.host-header h1 {
+    margin: 0;
+}
+
+.host-header p {
+    margin: 6px 0 0;
+    color: #ffce72;
+}
+
+.host-link,
+.host-page button {
+    border: 1px solid #60708c;
+    border-radius: 5px;
+    padding: 8px 12px;
+    color: white;
+    background: #263750;
+    font: inherit;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.host-page button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.host-settings {
+    flex-wrap: wrap;
+    margin: 22px 0 14px;
+}
+
+.host-settings label {
+    display: grid;
+    flex: 1 1 190px;
+    gap: 5px;
+    color: #b9c4d6;
+    font-size: 13px;
+}
+
+.host-settings .host-wide {
+    flex-basis: 360px;
+}
+
+.host-settings input {
+    min-width: 0;
+    border: 1px solid #3c475a;
+    border-radius: 4px;
+    padding: 8px;
+    color: white;
+    background: #171e29;
+    font: 13px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.host-toolbar {
+    flex-wrap: wrap;
+    border-block: 1px solid #30394a;
+    padding: 12px 0;
+    font-size: 13px;
+}
+
+.host-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
+    gap: 14px;
+    height: max(560px, calc(100vh - 250px));
+    padding-top: 14px;
+}
+
+.host-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 7px;
+    min-width: 0;
+    color: #b9c4d6;
+    font-size: 13px;
+}
+
+.host-panel textarea,
+.host-panel pre {
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+    overflow: auto;
+    border: 1px solid #3c475a;
+    border-radius: 5px;
+    padding: 12px;
+    color: #dce6f5;
+    background: #090c11;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+    white-space: pre;
+    resize: none;
+    user-select: text;
+}
+
+@media (max-width: 900px) {
+    .host-page { padding: 14px; }
+    .host-workspace { grid-template-columns: 1fr; height: auto; }
+    .host-panel textarea, .host-panel pre { height: 55vh; }
+}

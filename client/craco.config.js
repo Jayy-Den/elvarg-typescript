@@ -90,6 +90,7 @@ module.exports = {
 
             webpackConfig.resolve.fallback = {
                 fs: false,
+                module: false,
             };
 
             webpackConfig.resolve.extensions = [".web.js", ...webpackConfig.resolve.extensions];
@@ -106,7 +107,17 @@ module.exports = {
                     ) ||
                         warning.module.resource.includes(
                             `${path.sep}node_modules${path.sep}wasm-gzip${path.sep}`,
+                        ) ||
+                        warning.module.resource.includes(
+                            `${path.sep}node_modules${path.sep}typescript${path.sep}`,
                         )),
+                (warning) =>
+                    typeof warning?.message === "string" &&
+                    warning.message.includes("Critical dependency") &&
+                    typeof warning?.module?.resource === "string" &&
+                    warning.module.resource.includes(
+                        `${path.sep}node_modules${path.sep}typescript${path.sep}`,
+                    ),
             ];
 
             return webpackConfig;

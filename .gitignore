@@ -15,6 +15,7 @@
 # production
 /build
 /client/build
+/client/public/browser-host/runtime.json
 
 # misc
 .DS_Store

@@ -12,7 +12,6 @@ import { PluginManager } from "../plugins/PluginManager";
 import { Misc } from "../util/Misc";
 import { PlayerPunishment } from "../util/PlayerPunishment";
 import { BinaryChannel, MAX_GAME_MESSAGE_BYTES, WebSocketBinaryChannel } from "./BinaryChannel";
-import { WebRtcGameConnector } from "./webrtc/WebRtcGameConnector";
 import { PlayerSession } from "./PlayerSession";
 import { CachePipeline } from "../game/cache/CachePipeline";
 import { ContentApi } from "./http/ContentApi";
@@ -100,6 +99,11 @@ export class NetworkBuilder {
   public initialize(port: number): WebSocketServer {
     const http = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
+      if (process.env.BROWSER_HOST === "1" && request.url === "/browser-host-status") {
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ playerCount: World.getNetworkPlayerCount() }));
+        return;
+      }
       const content = ContentApi.resolve(
         request.method ?? "GET",
         request.url ?? "",
@@ -138,10 +142,15 @@ export class NetworkBuilder {
     server.on("listening", () => console.info(`[network] client websocket listening on ${port}`));
     server.on("error", (error) => console.error("[network] websocket error", error));
     http.listen(port);
-    WebRtcGameConnector.startFromEnv(
-      (channel) => new ClientConnection(channel),
-      World.getNetworkPlayerCount
-    );
+    if (process.env.WEBRTC_WORLD_ID?.trim() || process.env.WEBRTC_WORLD_TOKEN?.trim()) {
+      const { WebRtcGameConnector } = require(
+        "./webrtc/WebRtcGameConnector"
+      ) as typeof import("./webrtc/WebRtcGameConnector");
+      WebRtcGameConnector.startFromEnv(
+        (channel) => new ClientConnection(channel),
+        World.getNetworkPlayerCount
+      );
+    }
     return server;
   }
 }
