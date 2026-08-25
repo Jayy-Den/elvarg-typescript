@@ -1,6 +1,5 @@
 const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
 const { Misc } = require("../../src/main/typescript/elvarg/util/Misc");
-const { PasswordUtil } = require("../../src/main/typescript/elvarg/util/PasswordUtil");
 const { DamageFormulas } = require("../../src/main/typescript/elvarg/game/content/combat/formula/DamageFormulas");
 const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
 const { SkullType } = require("../../src/main/typescript/elvarg/game/model/SkullType");
@@ -149,7 +148,7 @@ module.exports = {
         return true;
       }
       try {
-        const passwordHash = await PasswordUtil.generatePasswordHashWithSalt(pass);
+        const passwordHash = await GameConstants.PLAYER_PERSISTENCE.encryptPassword(pass);
         player.setPasswordHashWithSalt(passwordHash);
         player.getPacketSender().sendMessage(`Your password is now: ${pass}`);
       } catch (err) {
