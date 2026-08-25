@@ -28,9 +28,8 @@ const {
   EQUIPMENT_SLOTS,
   STAT_ROW_START,
   STAT_MAX_ROW_START,
-  LIST_CONTENT_HEIGHT,
   uid,
-  buildPresetsWidgetGroup,
+  buildPresetsInterfaceDefinition,
 } = require("./presetsWidget");
 const {
   isPresetActive,
@@ -46,18 +45,7 @@ const MAX_PRESETS = CUSTOM_ROW_COUNT;
 const MAIN_MODAL_UID = (161 << 16) | 16;
 const OPEN_PRESETS_DELAY_TICKS = 2;
 
-const INTERFACE_DEFINITION = {
-  ...buildPresetsWidgetGroup(),
-  // The preset column scrolls: there are more presets than fit, and adding one should not
-  // mean rearranging the interface.
-  scroll: [
-    {
-      viewComponent: COMPONENT.LIST_VIEW,
-      scrollbarComponent: COMPONENT.LIST_SCROLLBAR,
-      contentHeight: LIST_CONTENT_HEIGHT,
-    },
-  ],
-};
+const INTERFACE_DEFINITION = buildPresetsInterfaceDefinition();
 
 const STAT_LABELS = ["Attack", "Defence", "Strength", "Hitpoints", "Ranged", "Prayer", "Magic"];
 // One list: the predefined presets, then the player's own slots.

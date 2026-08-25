@@ -1,59 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FileSystemTree, WebContainerProcess } from "@webcontainer/api";
-import ts from "typescript";
 
 import { getWebRtcRelayConfig } from "../config/clientEnv";
 import { BrowserWorldConnector } from "./BrowserWorldConnector";
+import { DEFAULT_MY_SERVER_PLUGIN } from "./MyServerPlugin";
 import "./host.css";
 
 type RuntimeSnapshot = {
     version: number;
-    worldSource: string;
     tree: FileSystemTree;
 };
 
 const relayDefaults = getWebRtcRelayConfig();
+const signalUrl = relayDefaults?.signalUrl ?? "wss://worlds.rsps.app";
+const iceServers = relayDefaults?.iceServers ?? [];
 const initialWorldId = `browser-${Math.random().toString(36).slice(2, 8)}`;
 
-function compileWorld(source: string): string {
-    const result = ts.transpileModule(source, {
-        fileName: "World.ts",
-        reportDiagnostics: true,
-        compilerOptions: {
-            target: ts.ScriptTarget.ES2020,
-            module: ts.ModuleKind.CommonJS,
-            experimentalDecorators: true,
-            downlevelIteration: true,
-        },
-    });
-    const errors = result.diagnostics?.filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error) ?? [];
-    if (errors.length > 0) {
-        throw new Error(errors.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")).join("\n"));
-    }
-    return result.outputText;
-}
-
 export default function HostPage() {
-    const [worldSource, setWorldSource] = useState("");
+    const [pluginSource, setPluginSource] = useState(DEFAULT_MY_SERVER_PLUGIN);
     const [worldId, setWorldId] = useState(initialWorldId);
     const [worldName, setWorldName] = useState("Browser World");
     const [token, setToken] = useState("");
-    const [signalUrl, setSignalUrl] = useState(relayDefaults?.signalUrl ?? "ws://127.0.0.1:8787");
-    const [iceServers, setIceServers] = useState(JSON.stringify(relayDefaults?.iceServers ?? []));
     const [status, setStatus] = useState("loading runtime snapshot");
     const [logs, setLogs] = useState<string[]>([]);
     const [playerCount, setPlayerCount] = useState(0);
     const [peerCount, setPeerCount] = useState(0);
     const [memory, setMemory] = useState<string>();
+    const [copyLabel, setCopyLabel] = useState("Copy");
     const [busy, setBusy] = useState(false);
     const snapshotRef = useRef<RuntimeSnapshot | undefined>(undefined);
     const containerRef = useRef<import("@webcontainer/api").WebContainer | undefined>(undefined);
     const processRef = useRef<WebContainerProcess | undefined>(undefined);
     const connectorRef = useRef<BrowserWorldConnector | undefined>(undefined);
+    const logRef = useRef<HTMLPreElement | null>(null);
     const installedRef = useRef(false);
     const mountedRef = useRef(false);
     const operationRef = useRef(0);
-    const playerPollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
     const addLog = useCallback((message: string) => {
         const ansiColor = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
@@ -62,10 +44,22 @@ export default function HostPage() {
         setLogs((current) => [...current, ...lines].slice(-300));
     }, []);
 
+    useEffect(() => {
+        if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+        setCopyLabel("Copy");
+    }, [logs]);
+
+    const copyLogs = async () => {
+        try {
+            await navigator.clipboard.writeText(logs.join("\n"));
+            setCopyLabel("Copied");
+        } catch {
+            setCopyLabel("Copy failed");
+        }
+    };
+
     const stopWorld = useCallback(() => {
         operationRef.current++;
-        if (playerPollRef.current) clearInterval(playerPollRef.current);
-        playerPollRef.current = undefined;
         connectorRef.current?.stop();
         connectorRef.current = undefined;
         processRef.current?.kill();
@@ -79,18 +73,17 @@ export default function HostPage() {
     useEffect(() => {
         let cancelled = false;
         const publicUrl = process.env.PUBLIC_URL ?? "";
-        fetch(`${publicUrl}/browser-host/runtime.json`)
+        fetch(`${publicUrl}/browser-host/runtime.json`, { cache: "no-store" })
             .then(async (response) => {
                 if (!response.ok) throw new Error(`runtime snapshot returned HTTP ${response.status}`);
                 return response.json() as Promise<RuntimeSnapshot>;
             })
             .then((snapshot) => {
                 if (cancelled) return;
-                if (snapshot.version !== 1 || !snapshot.worldSource || !snapshot.tree) {
+                if (snapshot.version !== 2 || !snapshot.tree) {
                     throw new Error("runtime snapshot has an unsupported format");
                 }
                 snapshotRef.current = snapshot;
-                setWorldSource(snapshot.worldSource);
                 setStatus("ready");
             })
             .catch((error) => {
@@ -102,7 +95,6 @@ export default function HostPage() {
             cancelled = true;
             // eslint-disable-next-line react-hooks/exhaustive-deps
             operationRef.current++;
-            if (playerPollRef.current) clearInterval(playerPollRef.current);
             connectorRef.current?.stop();
             processRef.current?.kill();
             containerRef.current?.teardown();
@@ -119,8 +111,6 @@ export default function HostPage() {
             if (!window.crossOriginIsolated) {
                 throw new Error("/host must be served with COOP/COEP headers (localhost or HTTPS)");
             }
-            const parsedIceServers = JSON.parse(iceServers);
-            if (!Array.isArray(parsedIceServers)) throw new Error("ICE servers must be a JSON array");
             if (!/^[A-Za-z0-9._-]{1,64}$/.test(worldId)) throw new Error("World ID is invalid");
             if (!worldName.trim() || worldName.length > 64) throw new Error("World name is invalid");
             if (!token.trim()) throw new Error("Forum world token is required");
@@ -128,7 +118,9 @@ export default function HostPage() {
             if (relayUrl.protocol !== "ws:" && relayUrl.protocol !== "wss:") {
                 throw new Error("Relay URL must use ws:// or wss://");
             }
-            compileWorld(worldSource);
+            if (relayUrl.hostname === "worlds.rsps.app" && !/^[A-Za-z0-9_-]{43}$/.test(token.trim())) {
+                throw new Error("Public relay requires a 43-character Server token from RSPS.app settings");
+            }
 
             let container = containerRef.current;
             if (!container) {
@@ -157,7 +149,16 @@ export default function HostPage() {
             }
             if (operation !== operationRef.current) return;
 
-            await container.fs.writeFile("dist/game/World.js", compileWorld(worldSource));
+            setStatus("checking MyServer plugin");
+            await container.fs.writeFile("plugins/MyServer.plugin.js", pluginSource);
+            const check = await container.spawn("node", ["--check", "plugins/MyServer.plugin.js"]);
+            processRef.current = check;
+            void check.output.pipeTo(new WritableStream({ write: addLog })).catch(() => {});
+            const checkExitCode = await check.exit;
+            processRef.current = undefined;
+            if (checkExitCode !== 0) throw new Error("MyServer plugin has a syntax error");
+            if (operation !== operationRef.current) return;
+
             setStatus("starting Elvarg (first cache download can take several minutes)");
             let resolveServer!: (url: string) => void;
             let rejectServer!: (error: Error) => void;
@@ -191,8 +192,6 @@ export default function HostPage() {
                 rejectServer(new Error(`Elvarg exited with ${code}`));
                 if (processRef.current === serverProcess) {
                     processRef.current = undefined;
-                    if (playerPollRef.current) clearInterval(playerPollRef.current);
-                    playerPollRef.current = undefined;
                     connectorRef.current?.stop();
                     connectorRef.current = undefined;
                     setStatus(`server exited (${code})`);
@@ -213,30 +212,20 @@ export default function HostPage() {
                 worldId,
                 worldName,
                 token,
-                iceServers: parsedIceServers,
+                iceServers,
                 onLog: addLog,
                 onStatus: setStatus,
-                onPeerCount: setPeerCount,
+                onPeerCount: (count) => {
+                    setPeerCount(count);
+                    setPlayerCount(count);
+                    connectorRef.current?.setPlayerCount(count);
+                },
             });
             connectorRef.current = connector;
             connector.start();
-            const refreshPlayers = async () => {
-                try {
-                    const statusUrl = new URL("/browser-host-status", gameServerUrl);
-                    const response = await fetch(statusUrl);
-                    const value = Number((await response.json()).playerCount);
-                    if (operation !== operationRef.current || !Number.isInteger(value) || value < 0) return;
-                    setPlayerCount(value);
-                    connector.setPlayerCount(value);
-                } catch {}
-            };
-            await refreshPlayers();
-            playerPollRef.current = setInterval(() => void refreshPlayers(), 5000);
             setBusy(false);
         } catch (error) {
             if (operation !== operationRef.current) return;
-            if (playerPollRef.current) clearInterval(playerPollRef.current);
-            playerPollRef.current = undefined;
             connectorRef.current?.stop();
             connectorRef.current = undefined;
             processRef.current?.kill();
@@ -275,23 +264,21 @@ export default function HostPage() {
             <header className="host-header">
                 <div>
                     <h1>Start New Server</h1>
-                    <p>This temporary world exists only while this tab stays open and awake.</p>
+                    <p>Keep this host window visible; background tabs throttle the server.</p>
                 </div>
-                <a className="host-link" href="/" target="_blank" rel="noreferrer">Open Client</a>
+                <button type="button" onClick={() => window.open("/", "elvarg-client", "popup,width=1280,height=800")}>Open Client Window</button>
             </header>
 
             <section className="host-settings" aria-label="World settings">
                 <label>World ID<input value={worldId} onChange={(event) => setWorldId(event.target.value)} disabled={running || busy} /></label>
                 <label>World name<input value={worldName} onChange={(event) => setWorldName(event.target.value)} disabled={running || busy} /></label>
-                <label>Forum token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} disabled={running || busy} /></label>
-                <label>Relay WebSocket<input value={signalUrl} onChange={(event) => setSignalUrl(event.target.value)} disabled={running || busy} /></label>
-                <label className="host-wide">ICE servers JSON<input value={iceServers} onChange={(event) => setIceServers(event.target.value)} disabled={running || busy} /></label>
+                <label>Forum Server token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} disabled={running || busy} /></label>
             </section>
 
             <section className="host-toolbar">
                 <button type="button" onClick={() => void startWorld()} disabled={busy || running || !snapshotRef.current}>Start</button>
                 <button type="button" onClick={stopWorld} disabled={!busy && !running}>Stop</button>
-                <button type="button" onClick={() => void restartWorld()} disabled={!running}>Restart &amp; apply World.ts</button>
+                <button type="button" onClick={() => void restartWorld()} disabled={!running}>Restart &amp; apply MyServer</button>
                 <span>Status: <strong>{status}</strong></span>
                 <span>Players: <strong>{playerCount}</strong></span>
                 <span>WebRTC peers: <strong>{peerCount}</strong></span>
@@ -301,12 +288,15 @@ export default function HostPage() {
 
             <section className="host-workspace">
                 <label className="host-panel">
-                    <span>World.ts (existing imports only; restart to apply)</span>
-                    <textarea value={worldSource} onChange={(event) => setWorldSource(event.target.value)} spellCheck={false} />
+                    <span>MyServer.plugin.js (restart to apply)</span>
+                    <textarea value={pluginSource} onChange={(event) => setPluginSource(event.target.value)} spellCheck={false} />
                 </label>
                 <div className="host-panel">
-                    <span>Server log</span>
-                    <pre aria-live="polite">{logs.join("\n") || "No output yet."}</pre>
+                    <div className="host-panel-heading">
+                        <span>Server log</span>
+                        <button type="button" onClick={() => void copyLogs()} disabled={logs.length === 0}>{copyLabel}</button>
+                    </div>
+                    <pre ref={logRef} aria-live="polite">{logs.join("\n") || "No output yet."}</pre>
                 </div>
             </section>
         </main>

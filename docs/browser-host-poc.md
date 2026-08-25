@@ -16,9 +16,9 @@ corepack yarn --cwd client start
 
 The final command also ensures the local OSRS cache exists so a second tab can run the normal client. Open `http://localhost:3000/host` in desktop Chrome or Edge. The dev server already supplies the COOP/COEP headers WebContainers require.
 
-The generated `client/public/browser-host/runtime.json` is intentionally ignored. It contains compiled `server/dist`, 55 browser-safe gameplay plugin entrypoints with their helpers, all server definitions and the editable `World.ts` source. Generate it after server changes; Vercel's build command generates it automatically.
+The generated `client/public/browser-host/runtime.json` is intentionally ignored. It contains compiled `server/dist`, 56 browser-safe gameplay plugin entrypoints with their helpers and all server definitions. Generate it after server changes; Vercel's build command generates it automatically.
 
-On first Start, the WebContainer installs a small set of pure-JavaScript server dependencies and downloads the roughly 195 MiB OSRS cache from OpenRS2. Restart reuses both for the lifetime of the tab. `World.ts` is transpiled with the client's TypeScript package and replaces `dist/game/World.js`; only existing imports are supported, and Restart applies later edits.
+On first Start, the WebContainer installs a small set of pure-JavaScript server dependencies and downloads the roughly 195 MiB OSRS cache from OpenRS2. Restart reuses both for the lifetime of the tab. The editor writes `plugins/MyServer.plugin.js`; Restart checks its JavaScript syntax and applies it.
 
 ## Relay and two-browser test
 
@@ -37,14 +37,14 @@ REACT_APP_WEBRTC_ICE_SERVERS='[]' \
 corepack yarn --cwd client start
 ```
 
-In `/host`, enter a unique world ID/name, `dev-token`, `ws://127.0.0.1:8787`, and `[]`, then press Start. Wait for `online`. Press Open Client, refresh the server list, select the advertised world, log in, walk and chat. A second browser profile can join the same way and gets its own peer and local game WebSocket.
+In `/host`, enter a unique world ID/name and `dev-token`, then press Start. The relay and ICE settings come from the client build environment above. Wait for `online`. Press Open Client Window, leave the host window visible, refresh the server list, select the advertised world, log in, walk and chat. A second browser profile can join the same way and gets its own WebRTC peer and local HTTP game bridge.
 
 For the public relay, paste a forum-issued world token and use `wss://worlds.rsps.app` with the deployment's ICE configuration. The token stays only in React state in the host tab; it is never mounted into the WebContainer or written to browser storage.
 
 ## Limits
 
 - Desktop Chromium is the POC target. Production hosting needs HTTPS plus `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
-- The server uses null persistence and loses all players/state with the tab. Browser hosting excludes persistence, voice, admin/developer, procedural-world and global/stress-bot plugins.
+- The server uses null persistence and loses all players/state with the tab. Browser hosting enables normal PlayerBots and gameplay commands, but excludes persistence, voice, admin/developer, procedural-world and stress-test plugins.
 - Each gameplay message is binary and limited to 4096 bytes. The browser bridge pair-closes peers that send text, oversized messages or more than 64 KiB of queued data.
 - Direct Internet reachability still depends on ICE. Add authenticated TURN only when host/srflx candidates are insufficient.
 - Memory is measured only on request through `performance.measureUserAgentSpecificMemory()` when the browser exposes it.

@@ -2,7 +2,7 @@ export const MAX_GAME_MESSAGE_BYTES = 4096;
 export const MAX_QUEUED_BYTES = 64 * 1024;
 
 export type BinaryTransport = {
-    readyState: string;
+    readyState: string | number;
     bufferedAmount: number;
     bufferedAmountLowThreshold?: number;
     send(data: ArrayBuffer): void;
@@ -18,6 +18,10 @@ type BridgeOptions = {
 };
 
 type Queue = { frames: ArrayBuffer[]; bytes: number };
+
+function isOpen(transport: BinaryTransport): boolean {
+    return transport.readyState === "open" || transport.readyState === 1;
+}
 
 function binaryFrame(data: unknown): ArrayBuffer | undefined {
     if (data instanceof ArrayBuffer) return data.slice(0);
@@ -57,6 +61,11 @@ export function bridgeBinaryTransports(
         close();
     };
 
+    const transportFailure = (side: "peer" | "game") => (event: Event & { error?: Error; message?: string }) => {
+        const detail = event.error?.message ?? event.message;
+        fail(`Binary bridge ${side} transport failed${detail ? `: ${detail}` : ""}`);
+    };
+
     const schedule = () => {
         if (retry || closed) return;
         retry = setTimeout(() => {
@@ -67,7 +76,7 @@ export function bridgeBinaryTransports(
 
     const pump = (target: BinaryTransport, queue: Queue) => {
         while (
-            target.readyState === "open" &&
+            isOpen(target) &&
             target.bufferedAmount < MAX_QUEUED_BYTES &&
             queue.frames.length > 0
         ) {
@@ -87,7 +96,7 @@ export function bridgeBinaryTransports(
         if (closed) return;
         pump(left, toLeft);
         pump(right, toRight);
-        if (!opened && left.readyState === "open" && right.readyState === "open") {
+        if (!opened && isOpen(left) && isOpen(right)) {
             opened = true;
             options.onOpen?.();
         }
@@ -117,14 +126,14 @@ export function bridgeBinaryTransports(
         ["open", flush],
         ["bufferedamountlow", flush],
         ["close", close],
-        ["error", () => fail("Binary bridge transport failed")],
+        ["error", transportFailure("peer")],
     ] as const;
     const rightListeners = [
         ["message", (event: MessageEvent) => forward(left, toLeft, event.data)],
         ["open", flush],
         ["bufferedamountlow", flush],
         ["close", close],
-        ["error", () => fail("Binary bridge transport failed")],
+        ["error", transportFailure("game")],
     ] as const;
     for (const [type, listener] of leftListeners) left.addEventListener(type, listener);
     for (const [type, listener] of rightListeners) right.addEventListener(type, listener);

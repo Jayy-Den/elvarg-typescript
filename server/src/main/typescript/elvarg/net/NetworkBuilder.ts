@@ -12,6 +12,7 @@ import { PluginManager } from "../plugins/PluginManager";
 import { Misc } from "../util/Misc";
 import { PlayerPunishment } from "../util/PlayerPunishment";
 import { BinaryChannel, MAX_GAME_MESSAGE_BYTES, WebSocketBinaryChannel } from "./BinaryChannel";
+import { BROWSER_HOST_BRIDGE_HTML, BrowserHostHttpBridge } from "./BrowserHostHttpBridge";
 import { PlayerSession } from "./PlayerSession";
 import { CachePipeline } from "../game/cache/CachePipeline";
 import { ContentApi } from "./http/ContentApi";
@@ -97,13 +98,19 @@ type PendingLogin = {
 
 export class NetworkBuilder {
   public initialize(port: number): WebSocketServer {
+    const browserBridge = process.env.BROWSER_HOST === "1"
+      ? new BrowserHostHttpBridge((channel) => new ClientConnection(channel))
+      : undefined;
     const http = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
-      if (process.env.BROWSER_HOST === "1" && request.url === "/browser-host-status") {
-        response.setHeader("Content-Type", "application/json");
-        response.end(JSON.stringify({ playerCount: World.getNetworkPlayerCount() }));
+      if (process.env.BROWSER_HOST === "1" && request.url === "/") {
+        response.setHeader("Content-Type", "text/html; charset=utf-8");
+        response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(BROWSER_HOST_BRIDGE_HTML);
         return;
       }
+      if (browserBridge?.handle(request, response)) return;
       const content = ContentApi.resolve(
         request.method ?? "GET",
         request.url ?? "",

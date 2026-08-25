@@ -92,6 +92,7 @@
     "test:protocol": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/login-protocol-harness.ts",
     "test:client-protocol": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/client-protocol-smoke.ts",
     "test:webrtc": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/webrtc-loopback-smoke.ts",
+    "test:browser-host-bridge": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2022\",\"module\":\"commonjs\"}' ts-node ./scripts/browser-host-http-bridge-smoke.ts",
     "test:pathfinding": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/pathfinding-smoke.ts",
     "test:combat-pathing": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/combat-pathing-smoke.ts",
     "test:route-core": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2022\"}' ts-node ./scripts/rsmod-route-core-smoke.ts",

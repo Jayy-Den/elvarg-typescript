@@ -1,15 +1,14 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
 const server = path.join(root, "server");
 const output = path.join(root, "client", "public", "browser-host", "runtime.json");
+const interfaceOutput = path.join(root, "client", "public", "browser-host", "interfaces");
 const dist = path.join(server, "dist");
-const worldSourcePath = path.join(
-    server,
-    "src/main/typescript/elvarg/game/World.ts",
-);
 const browserExcludedPluginEntrypoints = new Set([
     "bots/StressTestBots.plugin.js",
     "commands/AdminCommands.plugin.js",
@@ -132,10 +131,16 @@ for (const name of [
 
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, JSON.stringify({
-    version: 1,
-    worldSource: fs.readFileSync(worldSourcePath, "utf8"),
+    version: 2,
     tree,
 }));
+const { buildPresetsInterfaceDefinition } = require("../server/plugins/interface/presetsWidget.js");
+const presetsInterface = buildPresetsInterfaceDefinition();
+fs.mkdirSync(interfaceOutput, { recursive: true });
+fs.writeFileSync(
+    path.join(interfaceOutput, `${presetsInterface.groupId}.json`),
+    JSON.stringify(presetsInterface),
+);
 console.info(
     `[browser-host] wrote ${path.relative(root, output)} with ${browserPluginEntrypoints.length} plugins ` +
     `(${(fs.statSync(output).size / 1024 / 1024).toFixed(1)} MiB)`,

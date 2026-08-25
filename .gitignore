@@ -16,6 +16,7 @@
 /build
 /client/build
 /client/public/browser-host/runtime.json
+/client/public/browser-host/interfaces/
 
 # misc
 .DS_Store

@@ -2,13 +2,14 @@ import {
     bridgeBinaryTransports,
     type BinaryTransport,
 } from "./BinaryBridge";
+import { WebContainerGameSocket } from "./WebContainerGameSocket";
 
 type SignalDescription = { type: "offer" | "answer"; sdp: string };
 type SignalCandidate = RTCIceCandidateInit;
 type PeerState = {
     peer: RTCPeerConnection;
     channel?: RTCDataChannel;
-    gameSocket?: WebSocket;
+    gameSocket?: BinaryTransport;
     bridge?: { close: () => void };
     pendingCandidates: SignalCandidate[];
     remoteDescriptionSet: boolean;
@@ -37,15 +38,6 @@ function signallingEndpoint(raw: string): string {
     return url.toString();
 }
 
-function gameSocketEndpoint(raw: string): string {
-    const url = new URL(raw);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.pathname = "/";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-}
-
 export class BrowserWorldConnector {
     private signal?: WebSocket;
     private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -54,6 +46,7 @@ export class BrowserWorldConnector {
     private playerCount = 0;
     private readonly signalUrl: string;
     private readonly gameServerUrl: string;
+    private readonly token: string;
 
     constructor(private readonly options: BrowserWorldConnectorOptions) {
         if (!/^[A-Za-z0-9._-]{1,64}$/.test(options.worldId)) {
@@ -62,9 +55,10 @@ export class BrowserWorldConnector {
         if (!options.worldName.trim() || options.worldName.length > 64) {
             throw new Error("World name must be 1-64 characters");
         }
-        if (!options.token.trim()) throw new Error("Forum world token is required");
+        this.token = options.token.trim();
+        if (!this.token) throw new Error("Forum world token is required");
         this.signalUrl = signallingEndpoint(options.signalUrl);
-        this.gameServerUrl = gameSocketEndpoint(options.gameServerUrl);
+        this.gameServerUrl = new URL(options.gameServerUrl).toString();
     }
 
     start(): void {
@@ -100,7 +94,7 @@ export class BrowserWorldConnector {
                 worldId: this.options.worldId,
                 name: this.options.worldName.trim(),
                 playerCount: this.playerCount,
-                token: this.options.token,
+                token: this.token,
             });
         });
         signal.addEventListener("message", (event) => {
@@ -135,7 +129,10 @@ export class BrowserWorldConnector {
             return;
         }
         if (message.type === "error" && typeof message.sessionId !== "string") {
-            this.options.onStatus("relay rejected registration");
+            this.running = false;
+            this.options.onStatus(message.message === "registration_rejected"
+                ? "relay rejected Server token"
+                : "relay rejected registration");
             this.options.onLog(`Relay rejected world: ${message.message ?? "unknown error"}`);
             return;
         }
@@ -215,14 +212,13 @@ export class BrowserWorldConnector {
             return;
         }
         try {
-            const gameSocket = new WebSocket(this.gameServerUrl);
+            const gameSocket = new WebContainerGameSocket(this.gameServerUrl);
             channel.binaryType = "arraybuffer";
-            gameSocket.binaryType = "arraybuffer";
             state.channel = channel;
             state.gameSocket = gameSocket;
             state.bridge = bridgeBinaryTransports(
                 channel as unknown as BinaryTransport,
-                gameSocket as unknown as BinaryTransport,
+                gameSocket,
                 {
                     onOpen: () => {
                         if (state.connected) return;

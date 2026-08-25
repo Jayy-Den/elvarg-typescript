@@ -1,8 +1,10 @@
 .host-page {
-    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
     box-sizing: border-box;
-    overflow: auto;
-    padding: 24px;
+    overflow: hidden;
+    padding: 24px 24px 36px;
     color: #e9edf5;
     background: #10141c;
     user-select: text;
@@ -12,6 +14,7 @@
 .host-toolbar,
 .host-settings {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 12px;
 }
@@ -29,7 +32,6 @@
     color: #ffce72;
 }
 
-.host-link,
 .host-page button {
     border: 1px solid #60708c;
     border-radius: 5px;
@@ -59,10 +61,6 @@
     font-size: 13px;
 }
 
-.host-settings .host-wide {
-    flex-basis: 360px;
-}
-
 .host-settings input {
     min-width: 0;
     border: 1px solid #3c475a;
@@ -82,9 +80,10 @@
 
 .host-workspace {
     display: grid;
+    flex: 1 1 0;
     grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
     gap: 14px;
-    height: max(560px, calc(100vh - 250px));
+    min-height: 0;
     padding-top: 14px;
 }
 
@@ -93,6 +92,8 @@
     grid-template-rows: auto minmax(0, 1fr);
     gap: 7px;
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
     color: #b9c4d6;
     font-size: 13px;
 }
@@ -116,8 +117,19 @@
     user-select: text;
 }
 
+.host-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.host-panel-heading button {
+    padding: 3px 8px;
+    font-size: 12px;
+}
+
 @media (max-width: 900px) {
-    .host-page { padding: 14px; }
-    .host-workspace { grid-template-columns: 1fr; height: auto; }
+    .host-page { height: auto; min-height: 100vh; overflow: auto; padding: 14px 14px 28px; }
+    .host-workspace { flex: none; grid-template-columns: 1fr; height: auto; }
     .host-panel textarea, .host-panel pre { height: 55vh; }
 }

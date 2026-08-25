@@ -6,6 +6,9 @@ import { state } from "./state";
  * rather than configured separately.
  */
 export function getContentApiBase(): string | undefined {
+    if (state.webRtcConfig) {
+        return undefined;
+    }
     const url = state.lastUrl;
     if (typeof url !== "string" || url.length === 0) {
         return undefined;
@@ -29,25 +32,28 @@ export function getContentApiBase(): string | undefined {
  */
 export async function fetchInterfaceDefinition(groupId: number): Promise<any | undefined> {
     const base = getContentApiBase();
-    if (!base) {
-        return undefined;
-    }
-    const url = `${base}/api/interfaces/${groupId | 0}`;
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.warn(`[content-api] ${url} -> ${response.status}`);
-            return undefined;
+    const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
+    const urls = [
+        ...(base ? [`${base}/api/interfaces/${groupId | 0}`] : []),
+        `${publicUrl}/browser-host/interfaces/${groupId | 0}.json`,
+    ];
+    for (const url of urls) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                if (response.status !== 404) console.warn(`[content-api] ${url} -> ${response.status}`);
+                continue;
+            }
+            const definition = await response.json();
+            console.log(
+                `[content-api] loaded interface ${groupId} (${
+                    Array.isArray(definition?.widgets) ? definition.widgets.length : 0
+                } widgets)`,
+            );
+            return definition;
+        } catch (error) {
+            console.warn(`[content-api] ${url} failed`, error);
         }
-        const definition = await response.json();
-        console.log(
-            `[content-api] loaded interface ${groupId} (${
-                Array.isArray(definition?.widgets) ? definition.widgets.length : 0
-            } widgets)`,
-        );
-        return definition;
-    } catch (error) {
-        console.warn(`[content-api] ${url} failed`, error);
-        return undefined;
     }
+    return undefined;
 }
