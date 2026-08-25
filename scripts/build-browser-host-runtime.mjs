@@ -10,17 +10,18 @@ const worldSourcePath = path.join(
     server,
     "src/main/typescript/elvarg/game/World.ts",
 );
-const definitionFiles = [
-    "interface_layouts.json",
-    "monsters-complete.json",
-    "music-data.json",
-    "npc-animations.json",
-    "npc-combat-defs.json",
-    "npc_drops.json",
-    "npc_interactions.json",
-    "object_spawns.json",
-    "shops.json",
-];
+const browserExcludedPluginEntrypoints = new Set([
+    "bots/PlayerBots.plugin.js",
+    "bots/StressTestBots.plugin.js",
+    "commands/AdminCommands.plugin.js",
+    "commands/PluginPerfCommand.plugin.js",
+    "interface/DeveloperSetSkillLevel.plugin.js",
+    "interface/ItemSpawner.plugin.js",
+    "interface/VoiceChat.plugin.js",
+    "persistence/JsonPlayerPersistence.plugin.js",
+    "world/ProceduralRegionStream.plugin.js",
+]);
+const expectedBrowserPluginEntrypoints = 55;
 const runtimeDependencies = [
     "adm-zip",
     "async-lock",
@@ -54,6 +55,7 @@ const dependencies = Object.fromEntries(
     }),
 );
 const tree = {};
+const packagedFiles = new Set();
 
 function addFile(relativePath, contents) {
     const parts = relativePath.split("/");
@@ -63,6 +65,7 @@ function addFile(relativePath, contents) {
         directory = directory[part].directory;
     }
     directory[parts.at(-1)] = { file: { contents } };
+    packagedFiles.add(relativePath);
 }
 
 function addDirectory(source, destination) {
@@ -74,15 +77,58 @@ function addDirectory(source, destination) {
     }
 }
 
-addDirectory(dist, "dist");
-for (const name of definitionFiles) {
-    addFile(`data/definitions/${name}`, fs.readFileSync(path.join(server, "data/definitions", name), "utf8"));
+const browserPluginEntrypoints = [];
+
+function addBrowserPlugins(source, relativeDirectory = "") {
+    for (const entry of fs.readdirSync(source, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const absolute = path.join(source, entry.name);
+        const relative = path.posix.join(relativeDirectory, entry.name);
+        if (entry.isDirectory()) {
+            if (relative !== "world") addBrowserPlugins(absolute, relative);
+            continue;
+        }
+        if (!relative.endsWith(".js") && !relative.endsWith(".json")) continue;
+        if (browserExcludedPluginEntrypoints.has(relative)) continue;
+        addFile(`plugins/${relative}`, fs.readFileSync(absolute, "utf8"));
+        if (relative.endsWith(".plugin.js")) browserPluginEntrypoints.push(relative);
+    }
 }
+
+for (const name of browserExcludedPluginEntrypoints) {
+    if (!fs.existsSync(path.join(server, "plugins", name))) {
+        throw new Error(`Missing excluded browser plugin entrypoint ${name}`);
+    }
+}
+
+addDirectory(dist, "dist");
+addBrowserPlugins(path.join(server, "plugins"));
+addDirectory(path.join(server, "data", "definitions"), "data/definitions");
 for (const name of ["Bans.txt", "IPBans.txt", "IPMutes.txt", "Mutes.txt"]) {
     addFile(`data/saves/${name}`, fs.readFileSync(path.join(server, "data/saves", name), "utf8"));
 }
 addFile("target.txt", fs.readFileSync(path.join(server, "target.txt"), "utf8"));
 addFile("package.json", `${JSON.stringify({ private: true, dependencies }, null, 2)}\n`);
+
+if (browserPluginEntrypoints.length !== expectedBrowserPluginEntrypoints) {
+    throw new Error(
+        `Expected ${expectedBrowserPluginEntrypoints} browser plugin entrypoints, found ${browserPluginEntrypoints.length}`,
+    );
+}
+for (const name of browserExcludedPluginEntrypoints) {
+    if (packagedFiles.has(`plugins/${name}`)) {
+        throw new Error(`Excluded browser plugin entrypoint was packaged: ${name}`);
+    }
+}
+for (const name of [
+    "plugins/bots/behaviours/spawn/BotPlayerFactory.js",
+    "plugins/bots/data/object-index.json",
+    "plugins/combat/DragonfireProtection.js",
+    "plugins/interface/PresetsState.js",
+    "data/definitions/item-gameplay.json",
+    "data/definitions/npc_spawns.json",
+]) {
+    if (!packagedFiles.has(name)) throw new Error(`Browser runtime is missing ${name}`);
+}
 
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, JSON.stringify({
@@ -90,4 +136,7 @@ fs.writeFileSync(output, JSON.stringify({
     worldSource: fs.readFileSync(worldSourcePath, "utf8"),
     tree,
 }));
-console.info(`[browser-host] wrote ${path.relative(root, output)} (${(fs.statSync(output).size / 1024 / 1024).toFixed(1)} MiB)`);
+console.info(
+    `[browser-host] wrote ${path.relative(root, output)} with ${browserPluginEntrypoints.length} plugins ` +
+    `(${(fs.statSync(output).size / 1024 / 1024).toFixed(1)} MiB)`,
+);

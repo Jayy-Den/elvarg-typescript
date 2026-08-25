@@ -16,7 +16,7 @@ corepack yarn --cwd client start
 
 The final command also ensures the local OSRS cache exists so a second tab can run the normal client. Open `http://localhost:3000/host` in desktop Chrome or Edge. The dev server already supplies the COOP/COEP headers WebContainers require.
 
-The generated `client/public/browser-host/runtime.json` is intentionally ignored. It contains compiled `server/dist`, the definitions needed by the plugin-free server and the editable `World.ts` source. Generate it after server changes; Vercel's build command generates it automatically.
+The generated `client/public/browser-host/runtime.json` is intentionally ignored. It contains compiled `server/dist`, 55 browser-safe gameplay plugin entrypoints with their helpers, all server definitions and the editable `World.ts` source. Generate it after server changes; Vercel's build command generates it automatically.
 
 On first Start, the WebContainer installs a small set of pure-JavaScript server dependencies and downloads the roughly 195 MiB OSRS cache from OpenRS2. Restart reuses both for the lifetime of the tab. `World.ts` is transpiled with the client's TypeScript package and replaces `dist/game/World.js`; only existing imports are supported, and Restart applies later edits.
 
@@ -44,7 +44,7 @@ For the public relay, paste a forum-issued world token and use `wss://worlds.rsp
 ## Limits
 
 - Desktop Chromium is the POC target. Production hosting needs HTTPS plus `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
-- The server uses null persistence, loads no optional plugins or player bots, and loses all players/state with the tab.
+- The server uses null persistence and loses all players/state with the tab. Browser hosting excludes persistence, voice, admin/developer, procedural-world and global/stress-bot plugins.
 - Each gameplay message is binary and limited to 4096 bytes. The browser bridge pair-closes peers that send text, oversized messages or more than 64 KiB of queued data.
 - Direct Internet reachability still depends on ICE. Add authenticated TURN only when host/srflx candidates are insufficient.
 - Memory is measured only on request through `performance.measureUserAgentSpecificMemory()` when the browser exposes it.
