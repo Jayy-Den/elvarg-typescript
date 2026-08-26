@@ -64,6 +64,10 @@ import { packWorldMapCoord } from "../src/main/typescript/elvarg/net/protocol/Wo
 import { CombatFactory } from "../src/main/typescript/elvarg/game/content/combat/CombatFactory";
 import { HitQueue } from "../src/main/typescript/elvarg/game/content/combat/hit/HitQueue";
 import { TeleportHandler } from "../src/main/typescript/elvarg/game/model/teleportation/TeleportHandler";
+import { PluginManager } from "../src/main/typescript/elvarg/plugins/PluginManager";
+import { ItemIdentifiers } from "../src/main/typescript/elvarg/util/ItemIdentifiers";
+
+const ElementalStaves = require("../plugins/items/ElementalStaves.plugin");
 
 assert.strictEqual(EquipPacketListener.resolveEquipmentSlot(387, 15), 0);
 assert.strictEqual(EquipPacketListener.resolveEquipmentSlot(387, 25), 13);
@@ -83,9 +87,62 @@ assert.strictEqual(Autocasting.autocastSpell(1), CombatSpells.WIND_STRIKE);
 assert.strictEqual(Autocasting.autocastSpell(17), CombatSpells.CRUMBLE_UNDEAD);
 assert.strictEqual(Autocasting.autocastSpell(46), CombatSpells.ICE_BARRAGE);
 assert.strictEqual(Autocasting.autocastSpell(59), null);
+
+const originalAssignWeapon = WeaponInterfaces.assign;
+const originalSetAutocast = Autocasting.setAutocast;
+let equippedStaff = false;
+let selectedAutocast: any = CombatSpells.WIND_STRIKE;
+let autocastSyncs = 0;
+let autocastLocation = new Location(3200, 3200);
+(WeaponInterfaces as any).assign = () => undefined;
+(Autocasting as any).setAutocast = (_player: any, spell: any) => {
+  selectedAutocast = spell;
+  autocastSyncs++;
+};
+const autocastPlayer: any = {
+  getCombat: () => ({ getAutocastSpell: () => selectedAutocast }),
+  getEquipment: () => ({ hasStaffEquipped: () => equippedStaff }),
+  getLocation: () => autocastLocation,
+  getPacketSender: () => ({ sendSpecialAttackState: () => undefined }),
+  setSpecialActivated: () => undefined,
+};
+EquipPacketListener.resetWeapon(autocastPlayer, true);
+assert.strictEqual(selectedAutocast, CombatSpells.WIND_STRIKE);
+assert.strictEqual(autocastSyncs, 0);
+equippedStaff = true;
+EquipPacketListener.resetWeapon(autocastPlayer, true);
+assert.strictEqual(selectedAutocast, CombatSpells.WIND_STRIKE);
+assert.strictEqual(autocastSyncs, 1);
+autocastLocation = new Location(3200, 3600);
+EquipPacketListener.resetWeapon(autocastPlayer, true);
+assert.strictEqual(selectedAutocast, null);
+(WeaponInterfaces as any).assign = originalAssignWeapon;
+(Autocasting as any).setAutocast = originalSetAutocast;
+
 assert.strictEqual(WeaponInterfaces.WHIP.getCategory(), 20);
 assert.strictEqual(WeaponInterfaces.STAFF.getCategory(), 18);
 assert.strictEqual(WeaponInterfaces.BLOWPIPE.getCategory(), 19);
+
+ElementalStaves.register((PluginManager as any).createApi("elemental-staves-smoke"));
+let magicWeaponId = ItemIdentifiers.STAFF_OF_AIR;
+const staffPlayer = {
+  getEquipment: () => ({ get: () => ({ getId: () => magicWeaponId }) }),
+};
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0), null);
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.AIR_RUNE), true);
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.FIRE_RUNE), null);
+assert.deepStrictEqual(
+  CombatSpells.WIND_STRIKE.itemsToConsume(staffPlayer as any).map((rune) => rune.id),
+  [ItemIdentifiers.MIND_RUNE]
+);
+magicWeaponId = ItemIdentifiers.MYSTIC_SMOKE_STAFF;
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.AIR_RUNE), true);
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.FIRE_RUNE), true);
+magicWeaponId = ItemIdentifiers.KODAI_WAND;
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.WATER_RUNE), true);
+magicWeaponId = ItemIdentifiers.TWINFLAME_STAFF;
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.FIRE_RUNE), true);
+assert.strictEqual(PluginManager.emitSpellRuneBypass(staffPlayer, null, 0, ItemIdentifiers.WATER_RUNE), true);
 
 let hitTargetHp = 10;
 let hitAttackerHp = 10;

@@ -267,6 +267,8 @@ import { createBrowserRememberLoginPluginPersistence } from "./plugins/rememberl
 import { RememberLoginPlugin } from "./plugins/rememberlogin/RememberLoginPlugin";
 import { createBrowserTileMarkersPluginPersistence } from "./plugins/tilemarkers/BrowserTileMarkersPluginPersistence";
 import { TileMarkersPlugin } from "./plugins/tilemarkers/TileMarkersPlugin";
+import { createBrowserVengeanceTimerPluginPersistence } from "./plugins/vengeancetimer/BrowserVengeanceTimerPluginPersistence";
+import { VengeanceTimerPlugin } from "./plugins/vengeancetimer/VengeanceTimerPlugin";
 import { ResolveTilePlaneFn } from "./scene/PlaneResolver";
 import {
     createSelectedSpellOnGroundItemPacket,
@@ -298,6 +300,7 @@ import { VarcPersistence } from "./vars/VarcPersistence";
 import { NotificationDisplay } from "./widgets/NotificationDisplay";
 import { PlayerDesignController } from "./widgets/PlayerDesignController";
 import { SpellSelectionController } from "./widgets/SpellSelectionController";
+import { applyWildernessHudLayout } from "./widgets/WildernessHud";
 import {
     type SelectedSpellInfo,
     type SpellSelectionState,
@@ -522,6 +525,7 @@ export class OsrsClient {
     readonly notesPlugin: NotesPlugin;
     readonly rememberLoginPlugin: RememberLoginPlugin;
     readonly tileMarkersPlugin: TileMarkersPlugin;
+    readonly vengeanceTimerPlugin: VengeanceTimerPlugin;
     readonly tileHighlightManager: TileHighlightManager = new TileHighlightManager();
     private sidebarPluginVisibility: Required<SidebarPluginVisibilityOptions> = {
         groundItemsEnabled: true,
@@ -1020,7 +1024,18 @@ export class OsrsClient {
             globalState.osrsClient = this;
         } catch {}
         try {
-            setClientCycleProvider(() => this.playerEcs.getClientCycle());
+            setClientCycleProvider(() => {
+                const cycle = this.playerEcs.getClientCycle();
+                if (!this.clientTickLoopRunning || this.clientTickLastNowMs <= 0) return cycle;
+                const perf = (globalThis as any)?.performance;
+                const now =
+                    perf && typeof perf.now === "function"
+                        ? (perf.now.call(perf) as number)
+                        : Date.now();
+                const pendingMs =
+                    this.clientTickAccumulatedMs + Math.max(0, now - this.clientTickLastNowMs);
+                return cycle + Math.min(0.999, pendingMs / OsrsClient.CLIENT_TICK_MS);
+            });
         } catch {}
         try {
             registerAnimDebugProvider(() => {
@@ -1055,6 +1070,9 @@ export class OsrsClient {
         );
         this.tileMarkersPlugin = new TileMarkersPlugin(
             createBrowserTileMarkersPluginPersistence("osrs.plugin.tile_markers.v1"),
+        );
+        this.vengeanceTimerPlugin = new VengeanceTimerPlugin(
+            createBrowserVengeanceTimerPluginPersistence("osrs.plugin.vengeance_timer.v1"),
         );
         this.syncSidebarPlugins(true);
         if (process.env.NODE_ENV !== "production") {
@@ -1497,6 +1515,9 @@ export class OsrsClient {
             },
             loadScript: (id: number) => {
                 return self.clientScripts.load(id);
+            },
+            onScriptFinished: (scriptId: number) => {
+                applyWildernessHudLayout(self.widgetManager, self.varManager, scriptId);
             },
             clientRevision: 235,
             // Canvas dimensions as defined by the renderer's current UI layout space.
@@ -2622,6 +2643,26 @@ export class OsrsClient {
                             this._serverVarpSync = false;
                         }
                     }
+                    if (payload.inventories) {
+                        for (const [id, snapshot] of Object.entries(
+                            payload.inventories as Record<
+                                number,
+                                { capacity: number; slots: any[] }
+                            >,
+                        )) {
+                            const inventoryId = Number(id) | 0;
+                            const capacity = Math.max(0, Number(snapshot.capacity) | 0);
+                            let inventory = inventoriesMap.get(inventoryId);
+                            if (!inventory || inventory.capacity !== capacity) {
+                                inventory = new Inventory(capacity);
+                                inventoriesMap.set(inventoryId, inventory);
+                            }
+                            inventory.setSnapshot(
+                                Array.isArray(snapshot.slots) ? snapshot.slots : [],
+                                { selectedSlot: null },
+                            );
+                        }
+                    }
                     const script = this.cs2Vm.context.loadScript(scriptId);
                     if (script) {
                         // Separate int and string args
@@ -2843,11 +2884,20 @@ export class OsrsClient {
                     );
                 }
                 const text = isTradeRequest && msg.from ? `${msg.from} ${msg.text}` : msg.text;
+                const normalizedSender = (msg.from ?? "").replace(/<img=\d+>/g, "").trim().toLowerCase();
+                const isFromFriend = (this.cs2Vm.context.friendList ?? []).some(
+                    (friend) => friend.name.toLowerCase() === normalizedSender,
+                );
+                const isFromIgnored = (this.cs2Vm.context.ignoreList ?? []).some(
+                    (ignored) => ignored.name.toLowerCase() === normalizedSender,
+                );
                 chatHistory.addMessage(
                     msg.chatType ?? msg.messageType,
                     text,
                     msg.from ?? "",
                     msg.prefix ?? "",
+                    isFromFriend,
+                    isFromIgnored,
                 );
                 // Note: chatCycle is now marked by onMessageAdded callback below
             });

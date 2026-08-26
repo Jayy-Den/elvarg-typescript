@@ -31,7 +31,10 @@ export class ChatPacketListener {
       return;
     }
     if (!ChatPacketListener.allowChat(player, text)) return;
-    player.forceChat(text);
+    const iconPrefix = (player.getChatIcons?.() ?? [])
+      .map((icon: number) => `<img=${icon}>`)
+      .join("");
+    player.forceChat(`${iconPrefix}${text}`);
 
     // Local lists can be asymmetric at the 255-player cap. Include clients
     // that render the speaker even when the speaker cannot render them.
@@ -47,10 +50,14 @@ export class ChatPacketListener {
       if (
         !recipient ||
         sent.has(recipient.getIndex()) ||
-        recipient.getRelations?.().hasIgnore?.(player.getLongUsername())
+        (recipient !== player && !recipient.getRelations?.().canReceivePublicChatFrom?.(player))
       ) continue;
       sent.add(recipient.getIndex());
-      recipient.getPacketSender().sendPublicChat(text, player.getUsername(), player.getIndex());
+      recipient.getPacketSender().sendPublicChat(
+        text,
+        `${iconPrefix}${player.getUsername()}`,
+        player.getIndex()
+      );
     }
   }
 }

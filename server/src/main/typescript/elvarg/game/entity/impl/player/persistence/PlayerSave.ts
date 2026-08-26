@@ -56,6 +56,7 @@ export class PlayerSave {
     private fightType;
     private autocastSpellId: number;
     private autoRetaliate: boolean;
+    private audioSettings: Record<number, number>;
     private xpLocked: boolean;
     private clanChat: string;
     private targetTeleportUnlocked: boolean;
@@ -85,6 +86,7 @@ export class PlayerSave {
     private recentKills: string[];
     private deaths: number;
     private points: number;
+    private pcPoints: number;
     private pouches;
     private inventory: Item[];
     private equipment: Item[];
@@ -93,6 +95,12 @@ export class PlayerSave {
     private quickPrayers: PrayerData[];
     private friends: string[];
     private ignores: string[];
+    private friendRanks: Record<string, number>;
+    private friendsChatChannelName: string;
+    private friendsChatLastOwner: string;
+    private friendsChatEntryRank: number;
+    private friendsChatTalkRank: number;
+    private friendsChatKickRank: number;
     private banks: Map<number, Item[]>;
     private presets: Presetable[];
     private questPoints: number;
@@ -444,6 +452,26 @@ export class PlayerSave {
         this.ignores = ignores;
     }
 
+    public getFriendRanks(): Record<string, number> {
+        return this.friendRanks ?? {};
+    }
+
+    public getFriendsChatChannelName(): string {
+        return this.friendsChatChannelName ?? "";
+    }
+
+    public getFriendsChatEntryRank(): number {
+        return Number.isFinite(this.friendsChatEntryRank) ? this.friendsChatEntryRank : -1;
+    }
+
+    public getFriendsChatTalkRank(): number {
+        return Number.isFinite(this.friendsChatTalkRank) ? this.friendsChatTalkRank : -1;
+    }
+
+    public getFriendsChatKickRank(): number {
+        return Number.isFinite(this.friendsChatKickRank) ? this.friendsChatKickRank : 2;
+    }
+
     public getBanks(): Map<number, Item[]> {
         return this.banks;
     }
@@ -638,6 +666,7 @@ export class PlayerSave {
         );
         player.getCombat().setCastSpell(null);
         player.setAutoRetaliate(this.autoRetaliate);
+        player.setAudioSettings(this.audioSettings);
         player.setExperienceLocked(this.xpLocked);
         player.setClanChatName(this.clanChat);
         player.setTargetTeleportUnlocked(this.targetTeleportUnlocked);
@@ -666,6 +695,7 @@ export class PlayerSave {
         player.setHighestKillstreak(this.highestKillstreak);
         player.setDeaths(this.deaths);
         player.setPoints(this.points);
+        player.pcPoints = Math.max(0, Math.min(4000, Number.isFinite(this.pcPoints) ? Math.trunc(this.pcPoints) : 0));
         player.setPoisonDamage(this.poisonDamage);
         player.setCrystalBowShotsInStage(this.crystalBowShotsInStage);
         player.setCrystalBowTrackedStageItemId(this.crystalBowTrackedStageItemId);
@@ -705,6 +735,15 @@ export class PlayerSave {
                 PlayerSave.MAX_IGNORES
             )
         );
+        const relations = player.getRelations();
+        relations.loadFriendRanks(this.friendRanks);
+        relations.setFriendsChatChannelName(this.friendsChatChannelName ?? "");
+        relations.setFriendsChatLastOwner(this.friendsChatLastOwner ?? "");
+        relations.setFriendsChatRanks(
+            this.getFriendsChatEntryRank(),
+            this.getFriendsChatTalkRank(),
+            this.getFriendsChatKickRank()
+        );
 
         for (let i = 0; i < player.getBanks().length; i++) {
             if (i == Bank.BANK_SEARCH_TAB_INDEX) {
@@ -733,6 +772,7 @@ export class PlayerSave {
         playerSave.fightType = player.getFightType();
         playerSave.autocastSpellId = player.getCombat().getAutocastSpell()?.spellId?.() ?? -1;
         playerSave.autoRetaliate = player.autoRetaliateReturn();
+        playerSave.audioSettings = { ...player.getAudioSettings() };
         playerSave.xpLocked = player.experienceLockedReturn();
         playerSave.clanChat = player.getClanChatName();
         playerSave.targetTeleportUnlocked = player.isTargetTeleportUnlocked();
@@ -763,6 +803,7 @@ export class PlayerSave {
         playerSave.recentKills = [...(player.getRecentKills() ?? [])];
         playerSave.deaths = player.getDeaths();
         playerSave.points = player.getPoints();
+        playerSave.pcPoints = Math.max(0, Math.min(4000, Number.isFinite(player.pcPoints) ? Math.trunc(player.pcPoints) : 0));
         playerSave.poisonDamage = player.getPoisonDamage();
         playerSave.crystalBowShotsInStage = player.getCrystalBowShotsInStage();
         playerSave.crystalBowTrackedStageItemId = player.getCrystalBowTrackedStageItemId();
@@ -796,6 +837,13 @@ export class PlayerSave {
             player.getRelations().getIgnoreList(),
             PlayerSave.MAX_IGNORES
         );
+        const relations = player.getRelations();
+        playerSave.friendRanks = relations.getFriendRanks();
+        playerSave.friendsChatChannelName = relations.getFriendsChatChannelName();
+        playerSave.friendsChatLastOwner = relations.getFriendsChatLastOwner();
+        playerSave.friendsChatEntryRank = relations.getFriendsChatEntryRank();
+        playerSave.friendsChatTalkRank = relations.getFriendsChatTalkRank();
+        playerSave.friendsChatKickRank = relations.getFriendsChatKickRank();
 
         playerSave.presets = [...(player.getPresets() ?? [])];
 
