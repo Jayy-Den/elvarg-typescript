@@ -1,3 +1,4 @@
+import FileSaver from "file-saver";
 import type { EditModePlugin } from "./EditModePlugin";
 import { EditorPalette, type PaletteMode } from "./EditorPalette";
 import {
@@ -158,6 +159,8 @@ class EditorChrome {
     private readonly heightInput: HTMLInputElement;
     private readonly renderAllInput: HTMLInputElement;
     private readonly mapIconsInput: HTMLInputElement;
+    private readonly pvpZonesInput: HTMLInputElement;
+    private readonly multiCombatZonesInput: HTMLInputElement;
     private readonly unsubscribe: () => void;
     private readonly canvasShell?: HTMLElement;
     private readonly previousCanvasBottom: string;
@@ -204,9 +207,9 @@ class EditorChrome {
                 },
                 {
                     id: "export-region",
-                    label: "Export current region edits",
+                    label: "Export active region (.pack)",
                     icon: createExportIcon,
-                    action: () => this.exportEdits(),
+                    action: () => this.exportRegion(),
                 },
                 {
                     id: "play",
@@ -322,6 +325,36 @@ class EditorChrome {
             this.plugin.setConfig({ showMapIcons: this.mapIconsInput.checked }),
         );
         mapIconsLabel.appendChild(this.mapIconsInput);
+        const zoneToggle = (
+            text: string,
+            color: string,
+            change: (checked: boolean) => void,
+        ): { label: HTMLLabelElement; input: HTMLInputElement } => {
+            const label = document.createElement("label");
+            Object.assign(label.style, {
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                marginLeft: "8px",
+                color,
+                cursor: "pointer",
+            });
+            label.append(`${text}:`);
+            const input = document.createElement("input");
+            input.type = "checkbox";
+            input.setAttribute("aria-label", `Show ${text} zones`);
+            input.addEventListener("change", () => change(input.checked));
+            label.appendChild(input);
+            return { label, input };
+        };
+        const pvpZones = zoneToggle("PvP", "#fca5a5", (checked) =>
+            this.plugin.setConfig({ showPvpZones: checked }),
+        );
+        this.pvpZonesInput = pvpZones.input;
+        const multiCombatZones = zoneToggle("Multi", "#fcd34d", (checked) =>
+            this.plugin.setConfig({ showMultiCombatZones: checked }),
+        );
+        this.multiCombatZonesInput = multiCombatZones.input;
         this.bottomBar.append(
             heightLabel,
             decrement,
@@ -329,6 +362,8 @@ class EditorChrome {
             increment,
             renderAllLabel,
             mapIconsLabel,
+            pvpZones.label,
+            multiCombatZones.label,
         );
 
         const viewport = document.querySelector<HTMLElement>(".game-viewport");
@@ -416,6 +451,8 @@ class EditorChrome {
         this.heightInput.value = String(state.config.heightLevel);
         this.renderAllInput.checked = state.config.renderAllHeightLevels;
         this.mapIconsInput.checked = state.config.showMapIcons;
+        this.pvpZonesInput.checked = state.config.showPvpZones;
+        this.multiCombatZonesInput.checked = state.config.showMultiCombatZones;
         this.toolbar.select(
             state.config.tool === "place"
                 ? "cache-search"
@@ -434,6 +471,11 @@ class EditorChrome {
 
         const tile = state.selection ?? this.plugin.getCameraTile();
         const location = tile ? `${tile.tileX}, ${tile.tileY}, ${tile.plane}` : "unknown";
+        const worldStatus = state.world.loading
+            ? "zones loading"
+            : state.world.error
+              ? "zones unavailable"
+              : `${state.world.definition?.zones.length ?? 0} zones`;
         const help =
             state.config.tool === "place"
                 ? `Place ${state.config.placeKind === "npc" ? "NPC" : "object"}: click terrain · R: rotate`
@@ -444,7 +486,7 @@ class EditorChrome {
                   : "Pointer: click object to select · Shift+click: select building";
         this.overlay.textContent =
             `Edit Mode · Scene window loaded\n` +
-            `World ${location} · ${state.config.edits.length} stored edits\n` +
+            `World ${location} · ${state.config.edits.length} stored edits · ${worldStatus}\n` +
             `${help} · Right/middle drag: rotate\nWheel: zoom · WASD: move · Shift: faster`;
         this.renderSelection();
     }
@@ -502,7 +544,10 @@ class EditorChrome {
                 ? `World ${selection.tileX}, ${selection.tileY}, ${selection.plane}`
                 : `World ${selection.tileX}, ${selection.tileY} → ${selection.tileEndX}, ${selection.tileEndY}, ${selection.plane}`;
         const rotation = document.createElement("div");
-        rotation.textContent = `Placement rotation ${this.plugin.getConfig().rotation}`;
+        rotation.textContent =
+            selection.kind === "loc" && selection.rotation !== undefined
+                ? `Object rotation ${selection.rotation}`
+                : `Placement rotation ${this.plugin.getConfig().rotation}`;
         const divider = document.createElement("div");
         Object.assign(divider.style, {
             height: "1px",
@@ -515,7 +560,7 @@ class EditorChrome {
             createActionButton("Paint configured overlay", createLayersIcon, () =>
                 this.plugin.paintSelection(),
             ),
-            createActionButton("Rotate placement", createRotateIcon, () => this.plugin.rotate()),
+            createActionButton("Rotate object", createRotateIcon, () => this.plugin.rotateSelection()),
             createActionButton("Duplicate object", createDuplicateIcon, () =>
                 this.plugin.duplicateSelection(),
             ),
@@ -908,25 +953,19 @@ class EditorChrome {
         draw(tile.tileX, tile.tileY);
     }
 
-    private exportEdits(): void {
-        const tile = this.plugin.getCameraTile();
-        const config = this.plugin.getConfig();
-        // ponytail: JSON preserves edit intent; add RSPSi cache-block encoding only when a .pack consumer is wired to this client.
-        const blob = new Blob(
-            [
-                JSON.stringify(
-                    { format: "elvarg-edit-mode-v1", tile, edits: config.edits },
-                    null,
-                    2,
-                ),
-            ],
-            { type: "application/json" },
-        );
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `region-${tile?.tileX ?? 0}-${tile?.tileY ?? 0}-edits.json`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+    private exportRegion(): void {
+        try {
+            const exported = this.plugin.exportActiveRegionPack();
+            if (!exported) throw new Error("Active region is not ready");
+            const blob = new Blob([exported.data.slice().buffer], {
+                type: "application/octet-stream",
+            });
+            FileSaver.saveAs(blob, `${exported.regionId}.pack`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error("[edit-mode] Region export failed", error);
+            window.alert(`Region export failed: ${message}`);
+        }
     }
 
     private closeAuxiliaryPanel(): void {

@@ -411,6 +411,9 @@ export class OsrsClient {
                 const syncEditMode = (): void => {
                     // The welcome screen swaps "New User" for "Edit Mode".
                     this.loginState.editModeAvailable = plugin.getConfig().enabled === true;
+                    const world = plugin.getState().world;
+                    this.loginState.editModeReady =
+                        this.loginState.editModeAvailable && !world.loading && world.definition != null;
                     this.syncSidebarPlugins();
                 };
                 plugin.subscribe(syncEditMode);
@@ -5380,6 +5383,7 @@ export class OsrsClient {
             case "new_user":
                 // Dev builds: this button is labelled "Edit Mode" instead.
                 if (this.editModePlugin?.getConfig().enabled === true) {
+                    if (!this.loginState.editModeReady) return undefined;
                     this.editModePlugin.setScenePreview(true);
                     this.loginState.virtualKeyboardVisible = false;
                     return "new_user";

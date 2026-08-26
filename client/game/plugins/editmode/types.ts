@@ -31,6 +31,22 @@ export interface EditModeShop {
     originalStock: Array<{ id: number; amount: number; name?: string }>;
 }
 
+export type EditModeWorldZoneTag = "pvp" | "multi-combat";
+
+export interface EditModeWorldZone {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    z: number;
+    tags: EditModeWorldZoneTag[];
+}
+
+export interface EditModeWorldDefinition {
+    spawn: { x: number; y: number; z: number };
+    zones: EditModeWorldZone[];
+}
+
 export interface EditModeTile {
     tileX: number;
     tileY: number;
@@ -65,6 +81,8 @@ export interface EditModePluginConfig {
     renderAllHeightLevels: boolean;
     /** Draw selectable map-function sprites at their floor tiles. */
     showMapIcons: boolean;
+    showPvpZones: boolean;
+    showMultiCombatZones: boolean;
     edits: EditModeEdit[];
 }
 
@@ -83,6 +101,8 @@ export interface EditModeSelection extends EditModeTile {
     kind?: "ground" | "loc" | "npc" | "building";
     locId: number;
     locName: string;
+    shape?: number;
+    rotation?: number;
     tileEndX?: number;
     tileEndY?: number;
     planeEnd?: number;
@@ -119,6 +139,11 @@ export interface EditModePluginState {
         groups: number[];
         selected?: number;
         widgets: EditModeWidgetSummary[];
+    };
+    world: {
+        loading: boolean;
+        definition?: EditModeWorldDefinition;
+        error?: string;
     };
     version: number;
 }
@@ -169,6 +194,7 @@ export interface EditModeHost {
     search(kind: EditModeSearchKind, query: string): Promise<EditModeSearchResult[]>;
     describeDefinition?(kind: EditModeSearchKind, id: number): EditModeDefinitionSummary | undefined;
     listShops?(): Promise<EditModeShop[]>;
+    loadWorldDefinition?(): Promise<EditModeWorldDefinition>;
     /** Spawns a cache NPC client-side. Returns the synthetic server id used. */
     spawnNpc(npcTypeId: number, tile: EditModeTile, rotation: number): number | undefined;
     despawnNpc(serverId: number): void;
@@ -177,12 +203,17 @@ export interface EditModeHost {
     clearTerrainOverride(tile: EditModeTile): void;
     setFreeCamera(enabled: boolean): void;
     /** Renders the world instead of the login screen while logged out. */
-    setScenePreview(enabled: boolean): void;
+    setScenePreview(enabled: boolean, spawn?: EditModeTile): void;
     setHeightLevel?(level: number): void;
     setRenderAllHeightLevels?(enabled: boolean): void;
     isLoggedIn(): boolean;
     /** Moves the camera over a world tile, for navigating while flying. */
     jumpCameraToTile(tile: EditModeTile): void;
+    /** Serializes the map square under the camera for data/regions/{regionId}.pack. */
+    exportRegionPack?(
+        tile: EditModeTile,
+        edits: readonly EditModeEdit[],
+    ): { regionId: number; data: Uint8Array };
     /** Drops the click the client has queued, so a tool press does not also
      *  walk the player or open a menu. */
     cancelPendingClick(): void;

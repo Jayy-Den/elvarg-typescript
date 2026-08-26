@@ -32,6 +32,8 @@ const DEFAULT_CONFIG: EditModePluginConfig = Object.freeze({
     heightLevel: 0,
     renderAllHeightLevels: true,
     showMapIcons: false,
+    showPvpZones: false,
+    showMultiCombatZones: false,
     edits: [] as EditModeEdit[],
 });
 
@@ -87,7 +89,9 @@ export class EditModePlugin {
     private preview?: EditModeEdit;
     private scenePreview = false;
     private interfaces: EditModePluginState["interfaces"] = { groups: [], widgets: [] };
+    private world: EditModePluginState["world"] = { loading: false };
     private searchToken = 0;
+    private worldLoadToken = 0;
     private readonly spawnedNpcs = new Map<string, number>();
     private version = 0;
 
@@ -102,6 +106,7 @@ export class EditModePlugin {
             freeCamera: this.freeCamera,
             scenePreview: this.scenePreview,
             interfaces: this.interfaces,
+            world: this.world,
             version: this.version,
         };
     }
@@ -123,6 +128,11 @@ export class EditModePlugin {
         return this.host?.getCameraTile?.();
     }
 
+    exportActiveRegionPack(): { regionId: number; data: Uint8Array } | undefined {
+        const tile = this.getCameraTile();
+        return tile ? this.host?.exportRegionPack?.(tile, this.config.edits) : undefined;
+    }
+
     attach(host: EditModeHost): void {
         this.host = host;
         host.setHeightLevel?.(this.config.heightLevel);
@@ -131,6 +141,32 @@ export class EditModePlugin {
             window.addEventListener("keydown", this.onShortcut, true);
         }
         this.syncListeners();
+        this.refreshWorldDefinition();
+    }
+
+    refreshWorldDefinition(): void {
+        const load = this.host?.loadWorldDefinition;
+        if (!load) return;
+        const token = ++this.worldLoadToken;
+        const previousDefinition = this.world.definition;
+        this.world = { loading: true, definition: previousDefinition };
+        this.commit();
+        void load.call(this.host).then(
+            (definition) => {
+                if (token !== this.worldLoadToken) return;
+                this.world = { loading: false, definition };
+                this.commit();
+            },
+            (error) => {
+                if (token !== this.worldLoadToken) return;
+                this.world = {
+                    loading: false,
+                    definition: previousDefinition,
+                    error: error instanceof Error ? error.message : String(error),
+                };
+                this.commit();
+            },
+        );
     }
 
     /** Ctrl+E arms or disarms the tools; the only in-game way in. */
@@ -143,6 +179,7 @@ export class EditModePlugin {
     };
 
     setConfig(nextConfig: Partial<EditModePluginConfig>): void {
+        const wasActive = this.config.active;
         this.config = this.sanitizeConfig({ ...this.config, ...nextConfig });
         if (nextConfig.heightLevel !== undefined) {
             this.host?.setHeightLevel?.(this.config.heightLevel);
@@ -155,6 +192,9 @@ export class EditModePlugin {
             this.refreshPlacementPreview();
         }
         this.commit();
+        if (!wasActive && this.config.active && !this.world.loading) {
+            this.refreshWorldDefinition();
+        }
     }
 
     /** Cache name for a loc id, "" when the cache is not loaded yet. */
@@ -230,7 +270,12 @@ export class EditModePlugin {
     setScenePreview(enabled: boolean): void {
         const host = this.host;
         if (!host) return;
-        host.setScenePreview(enabled);
+        const spawn = this.world.definition?.spawn;
+        if (enabled && host.loadWorldDefinition && (this.world.loading || !spawn)) return;
+        host.setScenePreview(
+            enabled,
+            spawn && { tileX: spawn.x, tileY: spawn.y, plane: spawn.z },
+        );
         this.scenePreview = enabled;
         if (enabled) {
             if (!this.freeCamera) {
@@ -285,7 +330,43 @@ export class EditModePlugin {
 
     duplicateSelection(): void {
         if (!this.selection || this.selection.kind === "npc" || this.selection.locId < 0) return;
-        this.setConfig({ tool: "place", placeKind: "loc", locId: this.selection.locId });
+        this.setConfig({
+            tool: "place",
+            placeKind: "loc",
+            locId: this.selection.locId,
+            shape: this.selection.shape ?? this.config.shape,
+            rotation: this.selection.rotation ?? this.config.rotation,
+        });
+    }
+
+    rotateSelection(): void {
+        const selection = this.selection;
+        if (!selection || selection.kind !== "loc" || selection.locId < 0) return;
+        const shape = selection.shape ?? this.config.shape;
+        const rotation = selection.rotation ?? this.config.rotation;
+        const nextRotation = (rotation + 1) & 0x3;
+        this.commitEdits([
+            {
+                kind: "delete",
+                locId: 0,
+                tileX: selection.tileX,
+                tileY: selection.tileY,
+                plane: selection.plane,
+                shape,
+                rotation,
+            },
+            {
+                kind: "place",
+                locId: selection.locId,
+                tileX: selection.tileX,
+                tileY: selection.tileY,
+                plane: selection.plane,
+                shape,
+                rotation: nextRotation,
+            },
+        ]);
+        this.selection = { ...selection, rotation: nextRotation };
+        this.commit();
     }
 
     deleteSelection(): void {
@@ -297,8 +378,8 @@ export class EditModePlugin {
                 tileX: this.selection.tileX,
                 tileY: this.selection.tileY,
                 plane: this.selection.plane,
-                shape: this.config.shape,
-                rotation: this.config.rotation,
+                shape: this.selection.shape ?? this.config.shape,
+                rotation: this.selection.rotation ?? this.config.rotation,
             },
         ]);
         this.selection = undefined;
@@ -637,7 +718,11 @@ export class EditModePlugin {
         }
         if (event.key === "r" || event.key === "R") {
             event.preventDefault();
-            this.rotate();
+            if (this.config.tool === "select" && this.selection?.kind === "loc") {
+                this.rotateSelection();
+            } else {
+                this.rotate();
+            }
         } else if (event.key === "Escape") {
             if (this.pathStart) {
                 this.pathStart = undefined;
@@ -776,6 +861,9 @@ export class EditModePlugin {
             renderAllHeightLevels:
                 input?.renderAllHeightLevels ?? DEFAULT_CONFIG.renderAllHeightLevels,
             showMapIcons: input?.showMapIcons ?? DEFAULT_CONFIG.showMapIcons,
+            showPvpZones: input?.showPvpZones ?? DEFAULT_CONFIG.showPvpZones,
+            showMultiCombatZones:
+                input?.showMultiCombatZones ?? DEFAULT_CONFIG.showMultiCombatZones,
             edits: edits
                 .filter(
                     (edit) =>
@@ -807,6 +895,7 @@ export class EditModePlugin {
             freeCamera: this.freeCamera,
             scenePreview: this.scenePreview,
             interfaces: this.interfaces,
+            world: this.world,
             version: this.version,
         };
         this.persistence?.save(this.config);

@@ -252,6 +252,9 @@ export class LoginState {
      */
     editModeAvailable: boolean = false;
 
+    /** The world definition has loaded, so Edit Mode can frame its preview safely. */
+    editModeReady: boolean = false;
+
     /** Whether the current server uses secure WebSocket */
     serverSecure: boolean = getDefaultServerSecure();
 

@@ -29,7 +29,7 @@ export function computeTitleStateHash(
             state.password.length
         }|${state.otp.length}|${state.currentLoginField}|${state.onMobile}|${
             state.virtualKeyboardVisible
-        }|${state.serverListOpen}|${state.hoveredServerIndex}|${state.serverName}|${state.editModeAvailable}|${host.probing}|${
+        }|${state.serverListOpen}|${state.hoveredServerIndex}|${state.serverName}|${state.editModeAvailable}|${state.editModeReady}|${host.probing}|${
             host.probed
         }|${host.serverList.map((s) => s.playerCount).join(",")}|${state.worldSelectOpen}|${
             state.worldSelectPage

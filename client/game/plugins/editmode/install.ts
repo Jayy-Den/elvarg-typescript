@@ -23,6 +23,11 @@ import {
     MapIconGroundOverlay,
     type MapIconGroundEntry,
 } from "./MapIconGroundOverlay";
+import { buildRegionPack } from "./RegionPack";
+import {
+    ZoneGroundOverlay,
+    type ZoneGroundRect,
+} from "./ZoneGroundOverlay";
 import type {
     EditModeDefinitionSummary,
     EditModeEdit,
@@ -30,6 +35,8 @@ import type {
     EditModeSearchResult,
     EditModeShop,
     EditModeTile,
+    EditModeWorldDefinition,
+    EditModeWorldZone,
 } from "./types";
 
 /** Synthetic server ids for editor NPCs, kept clear of the server's own range. */
@@ -39,11 +46,18 @@ const EDITOR_SELECTION_TILE_SLOT = 255;
 const EDITOR_SELECTION_TILE_GROUP = 255;
 const EDITOR_HOVER_TILE_SLOT = 254;
 const EDITOR_HOVER_TILE_GROUP = 254;
+const EDITOR_SPAWN_TILE_SLOT = 253;
+const EDITOR_SPAWN_TILE_GROUP = 253;
+const TILE_HIGHLIGHT_ALWAYS_ON_TOP = 0x10;
 const EDITOR_SELECTION_MAX_SPAN = 128;
 const SEARCH_RESULT_LIMIT = 60;
 /** North-up at the standard RS working angle: the title-screen preset sits off-axis and reads as skewed. */
 const EDITOR_CAMERA_YAW = 0;
 const EDITOR_CAMERA_PITCH = 210;
+const PVP_ZONE_COLOR = 0xef4444;
+const MULTI_COMBAT_ZONE_COLOR = 0xf59e0b;
+const ZONE_OVERLAY_ALPHA = 0.14;
+const SPAWN_TILE_COLOR = 0xa855f7;
 
 /** Reuses the scene's exact model picker, but includes scenery hidden from the game menu. */
 export function raycastEditScene(
@@ -203,6 +217,76 @@ async function loadShops(client: OsrsClient): Promise<EditModeShop[]> {
     }));
 }
 
+const worldInteger = (value: unknown, label: string): number => {
+    if (typeof value !== "number" || !Number.isInteger(value)) {
+        throw new Error(`${label} must be an integer`);
+    }
+    return value;
+};
+
+const worldCoordinate = (value: unknown, label: string): number => {
+    const coordinate = worldInteger(value, label);
+    if (coordinate < 0 || coordinate > 0x3fff) throw new Error(`${label} is outside the world`);
+    return coordinate;
+};
+
+const worldPlane = (value: unknown, label: string): number => {
+    const plane = worldInteger(value, label);
+    if (plane < 0 || plane > 3) throw new Error(`${label} must be between 0 and 3`);
+    return plane;
+};
+
+export function parseEditModeWorldDefinition(value: unknown): EditModeWorldDefinition {
+    if (!value || Array.isArray(value) || typeof value !== "object") {
+        throw new Error("World API returned an invalid document");
+    }
+    const raw = value as Record<string, unknown>;
+    if (!raw.spawn || Array.isArray(raw.spawn) || typeof raw.spawn !== "object") {
+        throw new Error("World API returned an invalid spawn");
+    }
+    if (!Array.isArray(raw.zones)) throw new Error("World API returned invalid zones");
+    const spawn = raw.spawn as Record<string, unknown>;
+    const zones: EditModeWorldZone[] = raw.zones.map((value, index) => {
+        if (!value || Array.isArray(value) || typeof value !== "object") {
+            throw new Error(`World API zone ${index} is invalid`);
+        }
+        const zone = value as Record<string, unknown>;
+        if (
+            !Array.isArray(zone.tags) ||
+            zone.tags.length === 0 ||
+            zone.tags.some((tag) => tag !== "pvp" && tag !== "multi-combat")
+        ) {
+            throw new Error(`World API zone ${index} has invalid tags`);
+        }
+        const parsed: EditModeWorldZone = {
+            minX: worldCoordinate(zone.minX, `World API zone ${index}.minX`),
+            maxX: worldCoordinate(zone.maxX, `World API zone ${index}.maxX`),
+            minY: worldCoordinate(zone.minY, `World API zone ${index}.minY`),
+            maxY: worldCoordinate(zone.maxY, `World API zone ${index}.maxY`),
+            z: worldPlane(zone.z, `World API zone ${index}.z`),
+            tags: [...new Set(zone.tags)] as EditModeWorldZone["tags"],
+        };
+        if (parsed.minX > parsed.maxX || parsed.minY > parsed.maxY) {
+            throw new Error(`World API zone ${index} has reversed bounds`);
+        }
+        return parsed;
+    });
+    return {
+        spawn: {
+            x: worldCoordinate(spawn.x, "World API spawn.x"),
+            y: worldCoordinate(spawn.y, "World API spawn.y"),
+            z: worldPlane(spawn.z, "World API spawn.z"),
+        },
+        zones,
+    };
+}
+
+async function loadWorldDefinition(): Promise<EditModeWorldDefinition> {
+    const response = await fetch(`http://${window.location.hostname || "127.0.0.1"}:49600/world`);
+    if (!response.ok) throw new Error(`World API returned ${response.status}`);
+    return parseEditModeWorldDefinition(await response.json());
+}
+
 function filterIndex(index: NameIndex, query: string): EditModeSearchResult[] {
     const trimmed = query.trim().toLowerCase();
     if (trimmed.length === 0) return [];
@@ -248,6 +332,9 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     let mapIconTargets = new Map<string, LocHighlightTarget>();
     let mapIconGroundOverlay: MapIconGroundOverlay | undefined;
     let mapIconGroundManager: TerrainHost["overlayManager"];
+    let zoneFrame: number | undefined;
+    let zoneGroundOverlay: ZoneGroundOverlay | undefined;
+    let zoneGroundManager: TerrainHost["overlayManager"];
     const mapIconSprites = new Map<number, HTMLCanvasElement>();
     const mapIconLocs = new WeakMap<MinimapIcon, { locId: number; rotation?: number } | null>();
     let previousInteractHighlightConfig:
@@ -431,6 +518,115 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         mapIconFrame = undefined;
         mapIconGroundOverlay?.setEntries([]);
         mapIconTargets.clear();
+    };
+    const ensureZoneGroundOverlay = (
+        renderer: TerrainHost,
+    ): ZoneGroundOverlay | undefined => {
+        if (!renderer.overlayManager || !renderer.app || !renderer.sceneUniformBuffer) {
+            return undefined;
+        }
+        if (zoneGroundManager === renderer.overlayManager) return zoneGroundOverlay;
+        const overlay = new ZoneGroundOverlay();
+        overlay.init({ app: renderer.app, sceneUniforms: renderer.sceneUniformBuffer });
+        renderer.overlayManager.add(overlay);
+        zoneGroundManager = renderer.overlayManager;
+        zoneGroundOverlay = overlay;
+        return overlay;
+    };
+    const drawWorldZones = (): void => {
+        zoneFrame = undefined;
+        const state = plugin.getState();
+        const world = state.world.definition;
+        const renderer = terrainHost(client);
+        if (!state.config.active || !world || !renderer) {
+            zoneGroundOverlay?.setRects([]);
+            return;
+        }
+
+        const cullTile = renderer.getRenderCullTile();
+        const renderDistance = Math.ceil(renderer.getFrameRenderDistanceTiles());
+        const rects: ZoneGroundRect[] = [];
+        for (const zone of world.zones) {
+            if (!state.config.renderAllHeightLevels && zone.z !== state.config.heightLevel) continue;
+            const showPvp = state.config.showPvpZones && zone.tags.includes("pvp");
+            const showMulti =
+                state.config.showMultiCombatZones && zone.tags.includes("multi-combat");
+            if (!showPvp && !showMulti) continue;
+            for (let i = 0; i < renderer.mapManager.visibleMapCount; i++) {
+                const map = renderer.mapManager.visibleMaps[i];
+                if (
+                    !renderer.isMapWithinRenderDistance(
+                        map,
+                        cullTile.x,
+                        cullTile.y,
+                        renderDistance,
+                        0,
+                    )
+                ) {
+                    continue;
+                }
+                const mapMinX = map.getRenderBaseWorldX?.() ?? map.mapX * 64;
+                const mapMinY = map.getRenderBaseWorldY?.() ?? map.mapY * 64;
+                const minX = Math.max(zone.minX, mapMinX);
+                const maxX = Math.min(zone.maxX, mapMinX + 63);
+                const minY = Math.max(zone.minY, mapMinY);
+                const maxY = Math.min(zone.maxY, mapMinY + 63);
+                if (minX > maxX || minY > maxY) continue;
+                if (showPvp) {
+                    rects.push({
+                        minX,
+                        maxX,
+                        minY,
+                        maxY,
+                        plane: zone.z,
+                        colorRgb: PVP_ZONE_COLOR,
+                        alpha: ZONE_OVERLAY_ALPHA,
+                    });
+                }
+                if (showMulti) {
+                    rects.push({
+                        minX,
+                        maxX,
+                        minY,
+                        maxY,
+                        plane: zone.z,
+                        colorRgb: MULTI_COMBAT_ZONE_COLOR,
+                        alpha: ZONE_OVERLAY_ALPHA,
+                    });
+                }
+            }
+        }
+        ensureZoneGroundOverlay(renderer)?.setRects(rects);
+        zoneFrame = requestAnimationFrame(drawWorldZones);
+    };
+    const syncWorldZoneLoop = (): void => {
+        const state = plugin.getState();
+        const visible = state.config.showPvpZones || state.config.showMultiCombatZones;
+        if (state.config.active && state.world.definition && visible) {
+            if (zoneFrame === undefined) zoneFrame = requestAnimationFrame(drawWorldZones);
+            return;
+        }
+        if (zoneFrame !== undefined) cancelAnimationFrame(zoneFrame);
+        zoneFrame = undefined;
+        zoneGroundOverlay?.setRects([]);
+    };
+    const syncWorldSpawnHighlight = (): void => {
+        client.tileHighlightManager.clear(EDITOR_SPAWN_TILE_SLOT);
+        const state = plugin.getState();
+        const spawn = state.world.definition?.spawn;
+        if (!spawn || !state.config.enabled || !(state.config.active || state.scenePreview)) return;
+        client.tileHighlightManager.configure(
+            EDITOR_SPAWN_TILE_SLOT,
+            SPAWN_TILE_COLOR,
+            2,
+            25,
+            TILE_HIGHLIGHT_ALWAYS_ON_TOP,
+        );
+        client.tileHighlightManager.set(
+            packWorldMapCoord({ x: spawn.x, y: spawn.y, plane: spawn.z }),
+            EDITOR_SPAWN_TILE_SLOT,
+            EDITOR_SPAWN_TILE_GROUP,
+        );
     };
     const selectTileRange = (start: EditModeTile, end: EditModeTile) => {
         clearSelectionHighlight();
@@ -857,6 +1053,8 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                         plane: target.plane,
                         locId: target.locId,
                         locName: client.locTypeLoader.load(target.locId)?.name ?? "",
+                        shape: target.locModelType,
+                        rotation: target.locRotation,
                     };
                 }
                 const npcTile = renderer.getNpcWorldTile(target.ecsId);
@@ -946,6 +1144,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         },
         describeDefinition: (kind, id) => describeDefinition(client, kind, id),
         listShops: () => loadShops(client),
+        loadWorldDefinition,
         spawnNpc: (npcTypeId, tile, rotation) => spawnEditorNpc(client, npcTypeId, tile, rotation),
         setFreeCamera: (enabled) => {
             // The client already flies the camera with WASD/QE whenever it is
@@ -954,14 +1153,14 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             // past the loaded radius shows empty space.
             client.followPlayerCamera = !enabled;
         },
-        setScenePreview: (enabled) => {
+        setScenePreview: (enabled, spawn) => {
             client.scenePreviewEnabled = enabled;
             if (!enabled) return;
             // Logged out the camera still holds the title-screen angles and sits
             // 26 tiles up with nothing framed, which reads as a skewed world.
             frameCameraOnTile(
                 client,
-                {
+                spawn ?? {
                     tileX: Math.round(client.camera.getPosX()),
                     tileY: Math.round(client.camera.getPosZ()),
                     plane: plugin.getConfig().heightLevel,
@@ -980,6 +1179,35 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         isLoggedIn: () => client.isLoggedIn(),
         jumpCameraToTile: (tile) => {
             frameCameraOnTile(client, tile, false);
+        },
+        exportRegionPack: (tile, edits) => {
+            const mapX = tile.tileX >> 6;
+            const mapY = tile.tileY >> 6;
+            const regionId = (mapX << 8) | mapY;
+            const mapFileLoader = client.loaderFactory.getMapFileLoader();
+            const replacement = terrainHost(client)?.mapRegionReplacements.get(regionId);
+            const xteas = client.loadedCache?.xteas;
+            const terrainData =
+                replacement?.terrainData ?? mapFileLoader.getTerrainData(mapX, mapY, xteas);
+            const objectData =
+                replacement?.objectData ??
+                (xteas ? mapFileLoader.getLocData(mapX, mapY, xteas) : undefined);
+            if (!terrainData || !objectData) {
+                throw new Error(`Region ${regionId} is not loaded`);
+            }
+            return {
+                regionId,
+                data: buildRegionPack(
+                    regionId,
+                    client.mapFileIndex.getLocArchiveId(mapX, mapY),
+                    client.mapFileIndex.getTerrainArchiveId(mapX, mapY),
+                    objectData,
+                    terrainData,
+                    edits,
+                    client.loadedCache?.info.game === "oldschool" &&
+                        (client.loadedCache?.info.revision ?? 0) >= 209,
+                ),
+            };
         },
         rotateCamera: (deltaX, deltaY) => {
             const camera = client.camera;
@@ -1034,12 +1262,14 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                 rotation: rotation & 0x3,
             });
             reloadTile(renderer, tile);
+            zoneGroundOverlay?.invalidate();
         },
         clearTerrainOverride: (tile) => {
             const renderer = terrainHost(client);
             if (!renderer) return;
             renderer.terrainOverrides.delete(`${tile.tileX},${tile.tileY},${tile.plane}`);
             reloadTile(renderer, tile);
+            zoneGroundOverlay?.invalidate();
         },
         despawnNpc: (serverId) => {
             // Dev-only: reuse the server despawn path rather than duplicating
@@ -1048,7 +1278,11 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         },
     });
 
-    plugin.subscribe(syncMapIconLoop);
+    plugin.subscribe(() => {
+        syncMapIconLoop();
+        syncWorldZoneLoop();
+        syncWorldSpawnHighlight();
+    });
 
     // Dev builds always offer the editor: the welcome screen's "Edit Mode"
     // button is the way in, and Ctrl+E arms it while logged in.
@@ -1064,7 +1298,7 @@ type TerrainHost = {
     currentFrameCount: number;
     app?: PicoApp;
     sceneUniformBuffer?: UniformBuffer;
-    overlayManager?: { add(overlay: MapIconGroundOverlay): unknown };
+    overlayManager?: { add(overlay: MapIconGroundOverlay | ZoneGroundOverlay): unknown };
     mapManager: {
         visibleMapCount: number;
         visibleMaps: Array<{
@@ -1131,6 +1365,10 @@ type TerrainHost = {
     terrainOverrides: Map<
         string,
         { underlay?: number; overlay?: number; shape?: number; rotation?: number }
+    >;
+    mapRegionReplacements: Map<
+        number,
+        { terrainData: Int8Array; objectData?: Int8Array }
     >;
     pendingLocUpdates: Set<number>;
     getMapIdForWorldTile(x: number, y: number): number;
