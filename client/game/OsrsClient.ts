@@ -256,6 +256,7 @@ import {
 import { NpcMovementSync } from "./movement/NpcMovementSync";
 import { PlayerMovementSync } from "./movement/PlayerMovementSync";
 import { NpcInstanceFlushController } from "./npc/NpcInstanceFlushController";
+import type { EditModePlugin } from "./plugins/editmode/EditModePlugin";
 import { createBrowserGroundItemsPluginPersistence } from "./plugins/grounditems/BrowserGroundItemsPluginPersistence";
 import { GroundItemsPlugin } from "./plugins/grounditems/GroundItemsPlugin";
 import { createBrowserInteractHighlightPluginPersistence } from "./plugins/interacthighlight/BrowserInteractHighlightPluginPersistence";
@@ -266,6 +267,8 @@ import { createBrowserRememberLoginPluginPersistence } from "./plugins/rememberl
 import { RememberLoginPlugin } from "./plugins/rememberlogin/RememberLoginPlugin";
 import { createBrowserTileMarkersPluginPersistence } from "./plugins/tilemarkers/BrowserTileMarkersPluginPersistence";
 import { TileMarkersPlugin } from "./plugins/tilemarkers/TileMarkersPlugin";
+import { createBrowserVengeanceTimerPluginPersistence } from "./plugins/vengeancetimer/BrowserVengeanceTimerPluginPersistence";
+import { VengeanceTimerPlugin } from "./plugins/vengeancetimer/VengeanceTimerPlugin";
 import { ResolveTilePlaneFn } from "./scene/PlaneResolver";
 import {
     createSelectedSpellOnGroundItemPacket,
@@ -396,6 +399,31 @@ export class OsrsClient {
         registerDefaultClientSidebarEntries(this.sidebar, visibility);
     }
 
+    /**
+     * Dev-only. The dynamic import keeps the editor code out of production
+     * bundles - webpack folds the NODE_ENV check away and drops the call.
+     */
+    private loadEditModePlugin(): void {
+        void import("./plugins/editmode/install")
+            .then(({ installEditMode }) => {
+                const plugin = installEditMode(this);
+                this.editModePlugin = plugin;
+                const syncEditMode = (): void => {
+                    // The welcome screen swaps "New User" for "Edit Mode".
+                    this.loginState.editModeAvailable = plugin.getConfig().enabled === true;
+                    const world = plugin.getState().world;
+                    this.loginState.editModeReady =
+                        this.loginState.editModeAvailable && !world.loading && world.definition != null;
+                    this.syncSidebarPlugins();
+                };
+                plugin.subscribe(syncEditMode);
+                syncEditMode();
+                // Force a re-register so the sidebar re-renders now it exists.
+                this.syncSidebarPlugins(true);
+            })
+            .catch((err) => console.log("[edit-mode-plugin] failed to load", err));
+    }
+
     inputManager: InputManager = new InputManager();
     camera: Camera = new Camera(3242, -26, 3202, 245, 1862);
 
@@ -494,10 +522,13 @@ export class OsrsClient {
     /** Renderer-agnostic sidebar state/registry. */
     readonly sidebar: SidebarStore<ClientSidebarEntryData>;
     readonly groundItemsPlugin: GroundItemsPlugin;
+    /** Dev-only map/loc editor. Loaded lazily so production bundles drop it. */
+    editModePlugin?: EditModePlugin;
     readonly interactHighlightPlugin: InteractHighlightPlugin;
     readonly notesPlugin: NotesPlugin;
     readonly rememberLoginPlugin: RememberLoginPlugin;
     readonly tileMarkersPlugin: TileMarkersPlugin;
+    readonly vengeanceTimerPlugin: VengeanceTimerPlugin;
     readonly tileHighlightManager: TileHighlightManager = new TileHighlightManager();
     private sidebarPluginVisibility: Required<SidebarPluginVisibilityOptions> = {
         groundItemsEnabled: true,
@@ -619,6 +650,13 @@ export class OsrsClient {
 
     // Feature toggles
     hoverOverlayEnabled: boolean = false;
+
+    /**
+     * Renders the world instead of the login screen while logged out, streaming
+     * map squares around the camera rather than a player. Driven by the dev-only
+     * edit mode plugin; the render loop reads it every frame.
+     */
+    scenePreviewEnabled: boolean = false;
 
     // DevTools: show object id labels per tile
     showObjectTileIds: boolean = false;
@@ -1036,7 +1074,13 @@ export class OsrsClient {
         this.tileMarkersPlugin = new TileMarkersPlugin(
             createBrowserTileMarkersPluginPersistence("osrs.plugin.tile_markers.v1"),
         );
+        this.vengeanceTimerPlugin = new VengeanceTimerPlugin(
+            createBrowserVengeanceTimerPluginPersistence("osrs.plugin.vengeance_timer.v1"),
+        );
         this.syncSidebarPlugins(true);
+        if (process.env.NODE_ENV !== "production") {
+            this.loadEditModePlugin();
+        }
         this.groundItemsPlugin.subscribe(() => {
             this.syncSidebarPlugins();
         });
@@ -5337,6 +5381,13 @@ export class OsrsClient {
     ): "new_user" | "existing_user" | "login" | "cancel" | "connect" | undefined {
         switch (action.type) {
             case "new_user":
+                // Dev builds: this button is labelled "Edit Mode" instead.
+                if (this.editModePlugin?.getConfig().enabled === true) {
+                    if (!this.loginState.editModeReady) return undefined;
+                    this.editModePlugin.setScenePreview(true);
+                    this.loginState.virtualKeyboardVisible = false;
+                    return "new_user";
+                }
                 console.log("[Login] New user clicked - would open registration");
                 this.loginState.virtualKeyboardVisible = false;
                 return "new_user";

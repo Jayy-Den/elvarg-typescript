@@ -1,6 +1,6 @@
 import { NullPlayerPersistence } from "./entity/impl/player/persistence/NullPlayerPersistence";
 import { PlayerPersistence } from "./entity/impl/player/persistence/PlayerPersistence";
-import { Location } from "./model/Location"
+import { WORLD_SPAWN } from "./definition/WorldDefinition";
 import { PlayerRights } from "./model/rights/PlayerRights"
 
 
@@ -23,7 +23,7 @@ export class GameConstants {
     // existing follow break range from Java follow behavior as the auto-teleport
     // threshold for pets in this server.
     public static readonly PET_FOLLOW_AUTO_TELEPORT_DISTANCE: number = 15;
-    public static readonly DEFAULT_LOCATION = new Location(3089, 3524);
+    public static readonly DEFAULT_LOCATION = WORLD_SPAWN;
     public static readonly QUEUE_SWITCHING_REFRESH: boolean = true;
     public static readonly DROP_THRESHOLD: number = 2;
     public static readonly COMBAT_SKILLS_EXP_MULTIPLIER: number = 6;

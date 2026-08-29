@@ -101,6 +101,7 @@ import {
 } from "../../../common/utils/DeviceUtil";
 import { clamp } from "../../../common/utils/MathUtil";
 import { ClientState } from "../../../game/ClientState";
+import { MapManager } from "../../../game/MapManager";
 import { GameRenderer } from "../../../game/GameRenderer";
 import type { HitsplatEventPayload } from "../../../game/GameRenderer";
 import { OsrsRendererType, WEBGL } from "../../../game/GameRenderers";
@@ -189,6 +190,10 @@ import {
 import { KNOWN_WATER_TEXTURE_IDS } from "../../water/WaterTextureIds";
 import type { WebGLOsrsRendererHost } from "../hostInterface";
 import { RENDER_CONSTANTS } from "../constants";
+
+/** Half a streamed scene, so the preview base centres the camera. */
+const SCENE_PREVIEW_HALF_TILES = MapManager.SCENE_STREAM_HALF_TILES;
+const WELCOME_SCREEN_GROUP_ID = 378;
 
 export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: number, resized: boolean): void {
 
@@ -326,7 +331,11 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
         // Non-game states only need title/login overlays, not world resources like textureArray.
         const inputManager = host.osrsClient.inputManager;
         host.syncMobileLoginInput(false);
-        if (!loggedIn) {
+        // Dev-only scene preview: render the world logged out instead of the
+        // login screen, streaming around the camera (see OsrsClient.scenePreviewEnabled).
+        const scenePreview =
+            !loggedIn && host.osrsClient.scenePreviewEnabled === true && !!host.osrsClient.loadedCache;
+        if (!loggedIn && !scenePreview) {
             // Transfer click state for this frame ()
             inputManager.onFrameStart();
             const uiMetrics = host.computeUiRenderMetrics(host.app.width, host.app.height);
@@ -503,6 +512,9 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
         }
 
         const camera = host.osrsClient.camera;
+        // The terrain clamp is a render-only pitch. Clear the previous frame's value
+        // before input so camera controls continue to operate on the player's pitch.
+        camera.setScenePitchOverride(undefined);
 
         profiler.startPhase("input");
         host.handleInput(deltaTime);
@@ -541,16 +553,16 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
         host.tickPass(timeSec, ticksElapsed, clientTicksElapsed, clientCycle);
         profiler.endPhase();
 
+        camera.applySmoothing(deltaTime);
         // Now update follow camera and matrices using up-to-date player position
         if (host.osrsClient.followPlayerCamera && host.osrsClient.playerEcs.size() > 0) {
             host.updateCameraFollow(deltaTime, timeSec);
         }
-        camera.applySmoothing(deltaTime);
         let cameraShakeApplied = false;
         let restoreCameraX = 0;
         let restoreCameraY = 0;
         let restoreCameraZ = 0;
-        let restoreCameraPitch = 0;
+        let restoreCameraPitchOverride: number | undefined;
         let restoreCameraYaw = 0;
         // Ensure camera uses valid dimensions
         const camWidth = Math.max(1, host.app.width || host.canvas.width || 1);
@@ -582,14 +594,15 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                 restoreCameraX = camera.getPosX();
                 restoreCameraY = camera.getPosY();
                 restoreCameraZ = camera.getPosZ();
-                restoreCameraPitch = camera.pitch | 0;
+                restoreCameraPitchOverride = camera.getScenePitchOverride();
                 restoreCameraYaw = camera.yaw | 0;
 
-                let shakenPitch = restoreCameraPitch;
+                let shakenPitch = camera.getScenePitchAngle();
                 if ((shake.pitch | 0) !== 0) {
-                    let camAngleX = 128 + Math.floor((clamp(shakenPitch, 0, 512) * 255) / 512);
-                    camAngleX = Math.max(128, Math.min(383, camAngleX + (shake.pitch | 0)));
-                    shakenPitch = clamp(Math.floor(((camAngleX - 128) * 512) / 255), 0, 512);
+                    shakenPitch = Math.max(
+                        128,
+                        Math.min(383, shakenPitch + (shake.pitch | 0)),
+                    );
                 }
                 const shakenYaw = (restoreCameraYaw + (shake.yaw | 0)) & 2047;
 
@@ -598,7 +611,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                     restoreCameraY + shake.y / 128,
                     restoreCameraZ + shake.z / 128,
                 );
-                camera.snapToPitch(shakenPitch);
+                camera.setScenePitchOverride(shakenPitch);
                 camera.snapToYaw(shakenYaw);
                 camera.update(
                     camWidth,
@@ -619,6 +632,22 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
 
         // Map manager streaming/visibility update.
         profiler.startPhase("mapMgr");
+        if (scenePreview) {
+            // No player to stream around, so the camera is the focal point. The
+            // base is quantised so the streaming grid is not rebuilt every frame.
+            const previewTileX = camera.getPosX();
+            const previewTileZ = camera.getPosZ();
+            host.playerPosUni[0] = previewTileX;
+            host.playerPosUni[1] = previewTileZ;
+            ClientState.baseX = Math.max(
+                0,
+                (Math.floor(previewTileX / 8) * 8 - SCENE_PREVIEW_HALF_TILES) | 0,
+            );
+            ClientState.baseY = Math.max(
+                0,
+                (Math.floor(previewTileZ / 8) * 8 - SCENE_PREVIEW_HALF_TILES) | 0,
+            );
+        }
         host.mapManager.update(
             host.playerPosUni[0],
             host.playerPosUni[1],
@@ -785,7 +814,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
         // Restore baseline camera before actor2d-style overlays (OSRS drawEntities restore semantics).
         if (cameraShakeApplied) {
             camera.snapToPosition(restoreCameraX, restoreCameraY, restoreCameraZ);
-            camera.snapToPitch(restoreCameraPitch);
+            camera.setScenePitchOverride(restoreCameraPitchOverride);
             camera.snapToYaw(restoreCameraYaw);
             camera.update(
                 camWidth,
@@ -975,7 +1004,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                 }
             } catch {}
 
-            // Render overhead prayer icons for all players
+            // Render overhead skull and prayer icons for all players.
             try {
                 const pe = host.osrsClient.playerEcs;
                 const count = pe.size?.() ?? (pe as any).size?.() ?? 0;
@@ -983,8 +1012,9 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                     for (let i = 0; i < count; i++) {
                         if (overheadPrayers.length >= overheadPrayerMaxEntries) break;
                         if (!host.shouldRenderPlayerIndex(i)) continue;
+                        const headIconPk = pe.getHeadIconPk(i);
                         const headIconPrayer = pe.getHeadIconPrayer(i);
-                        if (headIconPrayer < 0) continue;
+                        if (headIconPk < 0 && headIconPrayer < 0) continue;
 
                         const px = pe.getX(i) | 0;
                         const py = pe.getY(i) | 0;
@@ -1001,6 +1031,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                             false,
                             pe.getServerIdForIndex?.(i) ?? 0,
                         );
+                        entry.headIconPk = headIconPk;
                         entry.headIconPrayer = headIconPrayer;
                         // Position above the player head, above any health bars/hitsplats
                         entry.heightOffsetTiles = host.resolvePlayerHeadIconOffset(
@@ -1551,6 +1582,13 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
             }
         } catch {}
         profiler.endPhase();
+
+        if ((host.osrsClient.widgetManager?.rootInterface ?? -1) === WELCOME_SCREEN_GROUP_ID) {
+            // Keep the loaded scene hot, but hide its final image behind the Welcome Screen.
+            host.app.disable(PicoGL.SCISSOR_TEST);
+            host.app.clearColor(0, 0, 0, 1);
+            host.app.defaultDrawFramebuffer().clear();
+        }
 
         host.ensureWorldEntityOverlaysLoaded(time);
 

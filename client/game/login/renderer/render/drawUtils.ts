@@ -46,7 +46,7 @@ export function drawLogoToCtx(host: LoginRendererHost, ctx: RenderContext): void
     
 }
 
-export function drawButton(host: LoginRendererHost, ctx: RenderContext, centerX: number, centerY: number, text: string, font: BitmapFont = host.fontBold12!) {
+export function drawButton(host: LoginRendererHost, ctx: RenderContext, centerX: number, centerY: number, text: string, font: BitmapFont = host.fontBold12!, alpha = 1) {
 
         if (!host.titlebuttonSprite || !font) return;
 
@@ -55,8 +55,11 @@ export function drawButton(host: LoginRendererHost, ctx: RenderContext, centerX:
         const buttonX = Math.floor(centerX - buttonW / 2);
         const buttonY = Math.floor(centerY - buttonH / 2);
 
+        ctx.save();
+        ctx.globalAlpha = alpha;
         drawSprite(host, ctx, host.titlebuttonSprite, buttonX, buttonY);
         drawCenteredText(host, ctx, font, text, centerX, centerY + 5, 0xffffff, true);
+        ctx.restore();
     
 }
 

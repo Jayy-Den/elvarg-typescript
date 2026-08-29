@@ -246,6 +246,15 @@ export class LoginState {
     /** Current server name displayed on the button */
     serverName: string = getDefaultServerName();
 
+    /**
+     * Dev builds only: the edit mode plugin is on, so the welcome screen offers
+     * "Edit Mode" in place of "New User".
+     */
+    editModeAvailable: boolean = false;
+
+    /** The world definition has loaded, so Edit Mode can frame its preview safely. */
+    editModeReady: boolean = false;
+
     /** Whether the current server uses secure WebSocket */
     serverSecure: boolean = getDefaultServerSecure();
 
