@@ -104,6 +104,7 @@ addDirectory(path.join(server, "data", "definitions"), "data/definitions");
 for (const name of ["Bans.txt", "IPBans.txt", "IPMutes.txt", "Mutes.txt"]) {
     addFile(`data/saves/${name}`, fs.readFileSync(path.join(server, "data/saves", name), "utf8"));
 }
+addFile("data/plugins.json", fs.readFileSync(path.join(server, "data/plugins.json"), "utf8"));
 addFile("target.txt", fs.readFileSync(path.join(server, "target.txt"), "utf8"));
 addFile("package.json", `${JSON.stringify({ private: true, dependencies }, null, 2)}\n`);
 
@@ -124,6 +125,7 @@ for (const name of [
     "plugins/combat/DragonfireProtection.js",
     "plugins/interface/PresetsState.js",
     "data/definitions/item-gameplay.json",
+    "data/plugins.json",
     "data/definitions/npc_spawns.json",
 ]) {
     if (!packagedFiles.has(name)) throw new Error(`Browser runtime is missing ${name}`);

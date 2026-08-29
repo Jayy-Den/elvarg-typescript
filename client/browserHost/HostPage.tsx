@@ -5,6 +5,7 @@ import { getWebRtcRelayConfig } from "../config/clientEnv";
 import { BrowserWorldConnector } from "./BrowserWorldConnector";
 import { DEFAULT_MY_SERVER_PLUGIN } from "./MyServerPlugin";
 import { REGION_PACK_MESSAGE, type RegionPackMessage } from "./regionPackMessage";
+import { appendTerminalLog } from "./terminalLog";
 import "./host.css";
 
 type RuntimeSnapshot = {
@@ -42,10 +43,7 @@ export default function HostPage() {
     const regionPacksRef = useRef(new Map<number, Uint8Array>());
 
     const addLog = useCallback((message: string) => {
-        const ansiColor = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
-        const lines = message.replace(ansiColor, "").split(/\r?\n/).filter(Boolean);
-        if (lines.length === 0) return;
-        setLogs((current) => [...current, ...lines].slice(-300));
+        setLogs((current) => appendTerminalLog(current, message));
     }, []);
 
     useEffect(() => {
