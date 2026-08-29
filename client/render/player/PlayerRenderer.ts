@@ -2026,7 +2026,7 @@ export class PlayerRenderer {
             if (!app) continue;
 
             let effectiveApp = app;
-            if (useActionSequence) {
+            if (useActionSequence && (app.npcTransformationId ?? -1) < 0) {
                 try {
                     const seqType = this.renderer.osrsClient.seqTypeLoader.load(actionSeqId | 0);
                     if (seqType && (seqType.leftHandItem >= 0 || seqType.rightHandItem >= 0)) {
@@ -2357,7 +2357,7 @@ export class PlayerRenderer {
                 }
 
                 let effectiveApp = app;
-                if (useActionSequence) {
+                if (useActionSequence && (app.npcTransformationId ?? -1) < 0) {
                     try {
                         const seqType = this.renderer.osrsClient.seqTypeLoader.load(
                             actionSeqId | 0,
@@ -2608,7 +2608,7 @@ export class PlayerRenderer {
         this.framePlayerAlphaCounts.clear();
     }
 
-    private getRenderPlayersForMap(map: WebGLMapSquare): number[] {
+    getRenderPlayersForMap(map: WebGLMapSquare): number[] {
         this.resetRenderSelectionFrameIfNeeded();
 
         const key = ((map.mapX & 0xffff) << 16) | (map.mapY & 0xffff);
