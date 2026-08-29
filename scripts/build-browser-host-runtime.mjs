@@ -16,10 +16,10 @@ const browserExcludedPluginEntrypoints = new Set([
     "interface/DeveloperSetSkillLevel.plugin.js",
     "interface/ItemSpawner.plugin.js",
     "interface/VoiceChat.plugin.js",
-    "persistence/JsonPlayerPersistence.plugin.js",
+    "persistence/SqlitePlayerPersistence.plugin.js",
     "world/ProceduralRegionStream.plugin.js",
 ]);
-const expectedBrowserPluginEntrypoints = 56;
+const expectedBrowserPluginEntrypoints = 60;
 const runtimeDependencies = [
     "adm-zip",
     "async-lock",

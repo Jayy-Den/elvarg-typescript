@@ -1287,6 +1287,17 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     // Dev builds always offer the editor: the welcome screen's "Edit Mode"
     // button is the way in, and Ctrl+E arms it while logged in.
     plugin.setConfig({ enabled: true });
+    // /host opens the client with ?edit=1 so its "Edit Mode" button lands
+    // straight in the editor rather than on the welcome screen.
+    if (new URLSearchParams(window.location.search).has("edit")) {
+        // ponytail: polled, because the cache load and the world definition
+        // fetch settle independently and neither has a ready event to hook.
+        const timer = window.setInterval(() => {
+            if (!client.loadedCache || plugin.getState().world.loading) return;
+            window.clearInterval(timer);
+            plugin.setScenePreview(true);
+        }, 250);
+    }
     return plugin;
 }
 

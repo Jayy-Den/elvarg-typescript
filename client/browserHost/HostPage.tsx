@@ -4,6 +4,7 @@ import type { FileSystemTree, WebContainerProcess } from "@webcontainer/api";
 import { getWebRtcRelayConfig } from "../config/clientEnv";
 import { BrowserWorldConnector } from "./BrowserWorldConnector";
 import { DEFAULT_MY_SERVER_PLUGIN } from "./MyServerPlugin";
+import { REGION_PACK_MESSAGE, type RegionPackMessage } from "./regionPackMessage";
 import "./host.css";
 
 type RuntimeSnapshot = {
@@ -28,6 +29,7 @@ export default function HostPage() {
     const [memory, setMemory] = useState<string>();
     const [copyLabel, setCopyLabel] = useState("Copy");
     const [busy, setBusy] = useState(false);
+    const [regionPacks, setRegionPacks] = useState<{ regionId: number; bytes: number }[]>([]);
     const snapshotRef = useRef<RuntimeSnapshot | undefined>(undefined);
     const containerRef = useRef<import("@webcontainer/api").WebContainer | undefined>(undefined);
     const processRef = useRef<WebContainerProcess | undefined>(undefined);
@@ -36,6 +38,8 @@ export default function HostPage() {
     const installedRef = useRef(false);
     const mountedRef = useRef(false);
     const operationRef = useRef(0);
+    /** Exported region packs, kept so a restart (or a later Start) can re-apply them. */
+    const regionPacksRef = useRef(new Map<number, Uint8Array>());
 
     const addLog = useCallback((message: string) => {
         const ansiColor = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
@@ -101,6 +105,47 @@ export default function HostPage() {
         };
     }, [addLog]);
 
+    /** RegionManager reads data/regions/*.pack from the server cwd on startup. */
+    const writeRegionPacks = useCallback(async (
+        container: import("@webcontainer/api").WebContainer,
+    ) => {
+        if (regionPacksRef.current.size === 0) return;
+        await container.fs.mkdir("data/regions", { recursive: true });
+        for (const [regionId, data] of regionPacksRef.current) {
+            await container.fs.writeFile(`data/regions/${regionId}.pack`, data);
+        }
+    }, []);
+
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin) return;
+            const message = event.data as RegionPackMessage | undefined;
+            if (message?.type !== REGION_PACK_MESSAGE) return;
+            const regionId = Number(message.regionId);
+            const data = message.data;
+            if (!Number.isInteger(regionId) || regionId < 0 || regionId > 0xffff ||
+                !(data instanceof Uint8Array) || data.length < 28) {
+                addLog("[edit] ignored a malformed region pack from the editor");
+                return;
+            }
+            regionPacksRef.current.set(regionId, data);
+            setRegionPacks(
+                Array.from(regionPacksRef.current, ([id, pack]) => ({ regionId: id, bytes: pack.length }))
+                    .sort((a, b) => a.regionId - b.regionId),
+            );
+            const container = containerRef.current;
+            const write = container && mountedRef.current
+                ? writeRegionPacks(container)
+                : Promise.resolve();
+            void write.then(
+                () => addLog(`[edit] saved data/regions/${regionId}.pack (${data.length} bytes); Restart to apply`),
+                (error: Error) => addLog(`[edit] could not save ${regionId}.pack: ${error.message}`),
+            );
+        };
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, [addLog, writeRegionPacks]);
+
     const startWorld = async () => {
         const snapshot = snapshotRef.current;
         if (!snapshot) return;
@@ -148,6 +193,8 @@ export default function HostPage() {
                 installedRef.current = true;
             }
             if (operation !== operationRef.current) return;
+
+            await writeRegionPacks(container);
 
             setStatus("checking MyServer plugin");
             await container.fs.writeFile("plugins/MyServer.plugin.js", pluginSource);
@@ -266,7 +313,10 @@ export default function HostPage() {
                     <h1>Start New Server</h1>
                     <p>Keep this host window visible; background tabs throttle the server.</p>
                 </div>
-                <button type="button" onClick={() => window.open("/", "elvarg-client", "popup,width=1280,height=800")}>Open Client Window</button>
+                <div className="host-header-actions">
+                    <button type="button" onClick={() => window.open("/", "elvarg-client", "popup,width=1280,height=800")}>Open Client Window</button>
+                    <button type="button" onClick={() => window.open("/?edit=1", "elvarg-editor", "popup,width=1440,height=900")}>Edit Mode</button>
+                </div>
             </header>
 
             <section className="host-settings" aria-label="World settings">
@@ -284,6 +334,14 @@ export default function HostPage() {
                 <span>WebRTC peers: <strong>{peerCount}</strong></span>
                 <button type="button" onClick={() => void measureMemory()}>Measure memory</button>
                 <span>{memory ?? ("measureUserAgentSpecificMemory" in performance ? "Not measured" : "Memory measurement unavailable")}</span>
+                <span>
+                    Edited regions:{" "}
+                    <strong>
+                        {regionPacks.length === 0
+                            ? "none"
+                            : regionPacks.map((pack) => `${pack.regionId}.pack`).join(", ")}
+                    </strong>
+                </span>
             </section>
 
             <section className="host-workspace">

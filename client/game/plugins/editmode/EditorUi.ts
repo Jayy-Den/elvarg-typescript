@@ -1,4 +1,5 @@
 import FileSaver from "file-saver";
+import { REGION_PACK_MESSAGE } from "../../../browserHost/regionPackMessage";
 import type { EditModePlugin } from "./EditModePlugin";
 import { EditorPalette, type PaletteMode } from "./EditorPalette";
 import {
@@ -957,6 +958,21 @@ class EditorChrome {
         try {
             const exported = this.plugin.exportActiveRegionPack();
             if (!exported) throw new Error("Active region is not ready");
+            // Opened from /host: hand the pack to the host tab instead of the
+            // download folder, so Restart there streams the edited region.
+            const host = window.opener as Window | null;
+            if (host && !host.closed) {
+                host.postMessage(
+                    {
+                        type: REGION_PACK_MESSAGE,
+                        regionId: exported.regionId,
+                        data: exported.data,
+                    },
+                    window.location.origin,
+                );
+                this.toast(`Sent ${exported.regionId}.pack to the host panel`);
+                return;
+            }
             const blob = new Blob([exported.data.slice().buffer], {
                 type: "application/octet-stream",
             });
@@ -966,6 +982,20 @@ class EditorChrome {
             console.error("[edit-mode] Region export failed", error);
             window.alert(`Region export failed: ${message}`);
         }
+    }
+
+    /** Transient confirmation; the editor chrome has no status bar of its own. */
+    private toast(message: string): void {
+        const element = document.createElement("div");
+        element.textContent = message;
+        Object.assign(element.style, PANEL_STYLE, {
+            left: "60px",
+            top: "12px",
+            width: "auto",
+            padding: "8px 12px",
+        });
+        document.body.appendChild(element);
+        window.setTimeout(() => element.remove(), 4000);
     }
 
     private closeAuxiliaryPanel(): void {

@@ -16,9 +16,22 @@ corepack yarn --cwd client start
 
 The final command also ensures the local OSRS cache exists so a second tab can run the normal client. Open `http://localhost:3000/host` in desktop Chrome or Edge. The dev server already supplies the COOP/COEP headers WebContainers require.
 
-The generated `client/public/browser-host/runtime.json` is intentionally ignored. It contains compiled `server/dist`, 56 browser-safe gameplay plugin entrypoints with their helpers and all server definitions. Generate it after server changes; Vercel's build command generates it automatically.
+The generated `client/public/browser-host/runtime.json` is intentionally ignored. It contains compiled `server/dist`, 60 browser-safe gameplay plugin entrypoints with their helpers and all server definitions. Generate it after server changes; Vercel's build command generates it automatically.
 
 On first Start, the WebContainer installs a small set of pure-JavaScript server dependencies and downloads the roughly 195 MiB OSRS cache from OpenRS2. Restart reuses both for the lifetime of the tab. The editor writes `plugins/MyServer.plugin.js`; Restart checks its JavaScript syntax and applies it.
+
+## Edit mode
+
+`Edit Mode` in the host header opens the client at `/?edit=1`, which drops straight into
+the dev map editor instead of the welcome screen. The editor's export icon detects the
+host tab that opened it and posts the `.pack` back rather than downloading it; the host
+writes it to `data/regions/<regionId>.pack` inside the WebContainer and lists it under
+`Edited regions`. Press Restart to reload the server, which loads every pack in that
+folder and streams the replaced regions to connected players.
+
+Exported packs live in the host tab's memory, so they survive Stop/Start and Restart but
+not a reload of `/host`. Export again, or drop the `.pack` into `server/data/regions` to
+keep it.
 
 ## Relay and two-browser test
 

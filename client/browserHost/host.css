@@ -133,3 +133,9 @@
     .host-workspace { flex: none; grid-template-columns: 1fr; height: auto; }
     .host-panel textarea, .host-panel pre { height: 55vh; }
 }
+
+.host-header-actions {
+    display: flex;
+    flex: none;
+    gap: 8px;
+}

@@ -413,7 +413,7 @@ export class OsrsClient {
                     this.loginState.editModeAvailable = plugin.getConfig().enabled === true;
                     const world = plugin.getState().world;
                     this.loginState.editModeReady =
-                        this.loginState.editModeAvailable && !world.loading && world.definition != null;
+                        this.loginState.editModeAvailable && !world.loading;
                     this.syncSidebarPlugins();
                 };
                 plugin.subscribe(syncEditMode);

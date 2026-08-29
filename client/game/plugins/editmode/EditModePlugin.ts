@@ -271,7 +271,9 @@ export class EditModePlugin {
         const host = this.host;
         if (!host) return;
         const spawn = this.world.definition?.spawn;
-        if (enabled && host.loadWorldDefinition && (this.world.loading || !spawn)) return;
+        // A missing definition (no development API, e.g. browser-hosted worlds)
+        // only costs the spawn framing, so it must not block the editor.
+        if (enabled && host.loadWorldDefinition && this.world.loading) return;
         host.setScenePreview(
             enabled,
             spawn && { tileX: spawn.x, tileY: spawn.y, plane: spawn.z },
