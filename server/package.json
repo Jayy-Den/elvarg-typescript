@@ -90,6 +90,7 @@
     "ensure-cache": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/ensure-cache.ts",
     "test:login": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/login-smoke.ts",
     "test:experience-rates": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/experience-rates-smoke.ts",
+    "test:indexeddb-persistence": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/indexeddb-persistence-smoke.ts",
     "test:protocol": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/login-protocol-harness.ts",
     "test:client-protocol": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/client-protocol-smoke.ts",
     "test:webrtc": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/webrtc-loopback-smoke.ts",

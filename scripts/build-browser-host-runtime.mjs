@@ -19,7 +19,7 @@ const browserExcludedPluginEntrypoints = new Set([
     "persistence/SqlitePlayerPersistence.plugin.js",
     "world/ProceduralRegionStream.plugin.js",
 ]);
-const expectedBrowserPluginEntrypoints = 60;
+const expectedBrowserPluginEntrypoints = 62;
 const runtimeDependencies = [
     "adm-zip",
     "async-lock",
