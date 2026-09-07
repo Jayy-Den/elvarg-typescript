@@ -40,6 +40,7 @@ const AVERNIC_TREADS_BONUSES = [
 ];
 const AVERNIC_TREADS_REQUIREMENTS = [0, 80, 80, 0, 80, 0, 80];
 const PEGASIAN_BOOTS_REQUIREMENTS = [0, 75, 0, 0, 75];
+const ANCESTRAL_ROBES_REQUIREMENTS = [0, 65, 0, 0, 0, 0, 75];
 
 function hydrateEquipmentType(raw) {
   const EquipmentType = getEquipmentType();
@@ -122,6 +123,13 @@ function loadItemDefinitions() {
   ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).bonuses = AVERNIC_TREADS_BONUSES;
   ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).requirements = AVERNIC_TREADS_REQUIREMENTS;
   ItemDefinition.forId(ItemIdentifiers.PEGASIAN_BOOTS).requirements = PEGASIAN_BOOTS_REQUIREMENTS;
+  for (const id of [
+    ItemIdentifiers.ANCESTRAL_HAT,
+    ItemIdentifiers.ANCESTRAL_ROBE_TOP,
+    ItemIdentifiers.ANCESTRAL_ROBE_BOTTOM,
+  ]) {
+    ItemDefinition.forId(id).requirements = ANCESTRAL_ROBES_REQUIREMENTS;
+  }
 
   return {
     filePath,

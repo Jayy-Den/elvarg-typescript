@@ -64,6 +64,13 @@ async function main() {
     ]);
     assert.deepEqual(ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).getRequirements(), [0, 80, 80, 0, 80, 0, 80]);
     assert.deepEqual(ItemDefinition.forId(ItemIdentifiers.PEGASIAN_BOOTS).getRequirements(), [0, 75, 0, 0, 75]);
+    for (const id of [
+        ItemIdentifiers.ANCESTRAL_HAT,
+        ItemIdentifiers.ANCESTRAL_ROBE_TOP,
+        ItemIdentifiers.ANCESTRAL_ROBE_BOTTOM,
+    ]) {
+        assert.deepEqual(ItemDefinition.forId(id).getRequirements(), [0, 65, 0, 0, 0, 0, 75]);
+    }
     RegionManager.init();
     assert.equal(ObjectDefinition.forId(2213)?.getName(), CacheDefinitions.getObject(2213).name);
     RegionManager.loadMapFiles(3200, 3200);
