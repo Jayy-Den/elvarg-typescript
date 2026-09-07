@@ -62,6 +62,7 @@ async function main() {
         21, 25, 25, 10, 10,
         4, 2, 1, 0,
     ]);
+    assert.deepEqual(ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).getRequirements(), [0, 80, 80, 0, 80, 0, 80]);
     assert.deepEqual(ItemDefinition.forId(ItemIdentifiers.PEGASIAN_BOOTS).getRequirements(), [0, 75, 0, 0, 75]);
     RegionManager.init();
     assert.equal(ObjectDefinition.forId(2213)?.getName(), CacheDefinitions.getObject(2213).name);

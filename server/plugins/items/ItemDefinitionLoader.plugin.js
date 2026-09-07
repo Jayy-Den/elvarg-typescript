@@ -38,6 +38,7 @@ const AVERNIC_TREADS_BONUSES = [
   21, 25, 25, 10, 10,
   4, 2, 1, 0,
 ];
+const AVERNIC_TREADS_REQUIREMENTS = [0, 80, 80, 0, 80, 0, 80];
 const PEGASIAN_BOOTS_REQUIREMENTS = [0, 75, 0, 0, 75];
 
 function hydrateEquipmentType(raw) {
@@ -119,6 +120,7 @@ function loadItemDefinitions() {
 
   const ItemIdentifiers = getItemIdentifiers();
   ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).bonuses = AVERNIC_TREADS_BONUSES;
+  ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).requirements = AVERNIC_TREADS_REQUIREMENTS;
   ItemDefinition.forId(ItemIdentifiers.PEGASIAN_BOOTS).requirements = PEGASIAN_BOOTS_REQUIREMENTS;
 
   return {
