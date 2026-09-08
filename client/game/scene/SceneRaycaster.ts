@@ -72,8 +72,8 @@ export interface SceneRaycastOptions {
 export class SceneRaycaster {
     private tmpVec: vec3 = vec3.create();
     private interactLocModelLoader?: LocModelLoader;
-    private resolvedLocTypeCache: Map<number, LocType | null> = new Map();
-    private locModelMeshCache: Map<string, LocModelMesh | null> = new Map();
+    private resolvedLocTypeCache: Map<number, LocType> = new Map();
+    private locModelMeshCache: Map<string, LocModelMesh> = new Map();
     worldEntityTransformProvider?: (map: WebGLMapSquare) => Float32Array | undefined;
 
     constructor(
@@ -390,7 +390,7 @@ export class SceneRaycaster {
 
         // Track seen LOCs to avoid duplicates from multi-tile objects
         const seenLocs = new Set<string>();
-        const resolvedLocTypes = new Map<number, LocType | null>();
+        const resolvedLocTypes = new Map<number, LocType>();
 
         // Vertical bounds for tile column intersection test
         // Use generous bounds to catch all objects at any height
@@ -433,7 +433,7 @@ export class SceneRaycaster {
         maxDistance: number,
         hits: SceneRaycastHit[],
         seenLocs?: Set<string>,
-        resolvedLocTypes?: Map<number, LocType | null>,
+        resolvedLocTypes?: Map<number, LocType>,
         basePlane?: number,
     ): void {
         const local = this.getMapLocalTile(map, worldTileX, worldTileY);
@@ -766,14 +766,12 @@ export class SceneRaycaster {
 
     private getResolvedLocType(
         locId: number,
-        scratch?: Map<number, LocType | null>,
+        scratch?: Map<number, LocType>,
     ): LocType | undefined {
         const id = locId | 0;
         const cache = scratch ? scratch : this.resolvedLocTypeCache;
-        if (cache.has(id)) {
-            const cached = cache.get(id);
-            return cached !== null ? cached : undefined;
-        }
+        const cached = cache.get(id);
+        if (cached) return cached;
 
         let resolved: LocType | undefined;
         try {
@@ -792,7 +790,7 @@ export class SceneRaycaster {
             resolved = undefined;
         }
 
-        cache.set(id, resolved !== undefined ? resolved : null);
+        if (resolved) cache.set(id, resolved);
         return resolved;
     }
 
@@ -854,13 +852,10 @@ export class SceneRaycaster {
     ): LocModelMesh | undefined {
         const key = `${locType.id | 0}|${modelType | 0}|${modelRotation | 0}`;
         const cached = this.locModelMeshCache.get(key);
-        if (cached !== undefined) {
-            return cached !== null ? cached : undefined;
-        }
+        if (cached) return cached;
 
         const locModelLoader = this.getInteractLocModelLoader();
         if (!locModelLoader) {
-            this.locModelMeshCache.set(key, null);
             return undefined;
         }
 
@@ -874,12 +869,11 @@ export class SceneRaycaster {
             !model.indices2 ||
             !model.indices3
         ) {
-            this.locModelMeshCache.set(key, null);
             return undefined;
         }
 
         const mesh = this.buildLocModelMesh(model);
-        this.locModelMeshCache.set(key, mesh !== undefined ? mesh : null);
+        if (mesh) this.locModelMeshCache.set(key, mesh);
         return mesh;
     }
 
