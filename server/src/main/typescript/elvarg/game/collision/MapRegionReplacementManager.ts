@@ -23,7 +23,9 @@ export type ReplaceMapRegionResult = {
 };
 
 export class MapRegionReplacementManager {
-  private static readonly MAX_PACKET_PAYLOAD = 0xffff;
+  // Region replacements use a three-byte variable-packet header, so the
+  // payload must leave room inside the browser transport's 64 KiB frame.
+  private static readonly MAX_PACKET_PAYLOAD = 0xfffd;
 
   private static replacements: Map<number, RegionReplacement> = new Map();
 

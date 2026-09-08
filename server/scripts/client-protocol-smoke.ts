@@ -368,6 +368,9 @@ const regionReplacement = encodeRegionReplacement(
   Uint8Array.from([4, 5])
 );
 assert.deepStrictEqual([...regionReplacement], [144, 0, 12, 48, 55, 0, 0, 3, 0, 2, 1, 2, 3, 4, 5]);
+const maxRegionReplacement = encodeRegionReplacement(12343, false, new Uint8Array(0xfffd - 7), null);
+assert.strictEqual(maxRegionReplacement.length, 0x10000);
+assert.throws(() => encodeRegionReplacement(12343, false, new Uint8Array(0xfffd - 6), null));
 assert.strictEqual(encodeShopOpen("1", "Shop", 995, false, 1, 1, [
   { slot: 0, itemId: 4151, quantity: 1 },
 ])[0], 150);

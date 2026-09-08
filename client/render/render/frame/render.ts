@@ -101,6 +101,7 @@ import {
 } from "../../../common/utils/DeviceUtil";
 import { clamp } from "../../../common/utils/MathUtil";
 import { ClientState } from "../../../game/ClientState";
+import { MapManager } from "../../../game/MapManager";
 import { GameRenderer } from "../../../game/GameRenderer";
 import type { HitsplatEventPayload } from "../../../game/GameRenderer";
 import { OsrsRendererType, WEBGL } from "../../../game/GameRenderers";
@@ -190,6 +191,8 @@ import { KNOWN_WATER_TEXTURE_IDS } from "../../water/WaterTextureIds";
 import type { WebGLOsrsRendererHost } from "../hostInterface";
 import { RENDER_CONSTANTS } from "../constants";
 
+/** Half a streamed scene, so the preview base centres the camera. */
+const SCENE_PREVIEW_HALF_TILES = MapManager.SCENE_STREAM_HALF_TILES;
 const WELCOME_SCREEN_GROUP_ID = 378;
 
 export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: number, resized: boolean): void {
@@ -328,7 +331,11 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
         // Non-game states only need title/login overlays, not world resources like textureArray.
         const inputManager = host.osrsClient.inputManager;
         host.syncMobileLoginInput(false);
-        if (!loggedIn) {
+        // Dev-only scene preview: render the world logged out instead of the
+        // login screen, streaming around the camera (see OsrsClient.scenePreviewEnabled).
+        const scenePreview =
+            !loggedIn && host.osrsClient.scenePreviewEnabled === true && !!host.osrsClient.loadedCache;
+        if (!loggedIn && !scenePreview) {
             // Transfer click state for this frame ()
             inputManager.onFrameStart();
             const uiMetrics = host.computeUiRenderMetrics(host.app.width, host.app.height);
@@ -625,6 +632,22 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
 
         // Map manager streaming/visibility update.
         profiler.startPhase("mapMgr");
+        if (scenePreview) {
+            // No player to stream around, so the camera is the focal point. The
+            // base is quantised so the streaming grid is not rebuilt every frame.
+            const previewTileX = camera.getPosX();
+            const previewTileZ = camera.getPosZ();
+            host.playerPosUni[0] = previewTileX;
+            host.playerPosUni[1] = previewTileZ;
+            ClientState.baseX = Math.max(
+                0,
+                (Math.floor(previewTileX / 8) * 8 - SCENE_PREVIEW_HALF_TILES) | 0,
+            );
+            ClientState.baseY = Math.max(
+                0,
+                (Math.floor(previewTileZ / 8) * 8 - SCENE_PREVIEW_HALF_TILES) | 0,
+            );
+        }
         host.mapManager.update(
             host.playerPosUni[0],
             host.playerPosUni[1],

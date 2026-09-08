@@ -14,4 +14,12 @@ export class NullPlayerPersistence extends PlayerPersistence {
   exists(username: string): boolean {
     return false;
   }
+
+  async encryptPassword(plainPassword: string): Promise<string> {
+    return plainPassword;
+  }
+
+  async checkPassword(password: string, playerSave: PlayerSave): Promise<boolean> {
+    return password === playerSave.getPasswordHashWithSalt();
+  }
 }

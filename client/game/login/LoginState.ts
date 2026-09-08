@@ -5,6 +5,7 @@ import {
     MIN_PASSWORD_LENGTH,
 } from "../../common/authentication";
 import {
+    getBrowserHostWorldConfig,
     getDefaultServerAddress,
     getDefaultServerName,
     getDefaultServerSecure,
@@ -60,6 +61,17 @@ export class LoginState {
     /** Load settings that should persist between sessions */
     private loadPersistedSettings(): void {
         this.titleMusicDisabled = getClientPreference("titleMusicDisabled");
+        const browserHostWorld = getBrowserHostWorldConfig();
+        if (browserHostWorld) {
+            this.serverName = "Browser World";
+            this.serverAddress = new URL(browserHostWorld.signalUrl).host;
+            this.serverSecure = true;
+            this.serverTransport = "webrtc";
+            this.serverSignalUrl = browserHostWorld.signalUrl;
+            this.serverWorldId = browserHostWorld.worldId;
+            this.serverIceServers = browserHostWorld.iceServers;
+            return;
+        }
         const lastServer = getClientPreference("lastServer");
         if (!lastServer) return;
 
@@ -256,6 +268,7 @@ export class LoginState {
 
     /** Persist the last selected server to localStorage */
     saveLastServer(): void {
+        if (getBrowserHostWorldConfig()) return;
         setClientPreference("lastServer", {
             name: this.serverName,
             address: this.serverAddress,
