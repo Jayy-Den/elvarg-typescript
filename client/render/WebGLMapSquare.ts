@@ -997,7 +997,6 @@ export class WebGLMapSquare {
             mapData.tileLocOffsetsByLevel,
             mapData.tileLocIdsByLevel,
             mapData.tileLocTypeRotByLevel,
-            mapData.itemLayerHeightsByLevel,
         );
         // Initialize occupancy counters to match initial flags
         for (const c of occInit) {
@@ -1094,7 +1093,6 @@ export class WebGLMapSquare {
         public tileLocOffsetsByLevel?: Uint32Array[],
         public tileLocIdsByLevel?: Int32Array[],
         public tileLocTypeRotByLevel?: Uint8Array[],
-        public itemLayerHeightsByLevel?: Uint16Array[],
     ) {
         this.id = getMapSquareId(mapX, mapY);
         /** When >= 0, all interaction/height queries on this map use this plane
@@ -1823,12 +1821,6 @@ export class WebGLMapSquare {
             this.locIdsAtLocalBuffer.length = 0;
             this.locTypeRotsAtLocalBuffer.length = 0;
         }
-        if (this.itemLayerHeightsByLevel) {
-            this.itemLayerHeightsByLevel.length = 0;
-            for (let level = 0; level < mapData.itemLayerHeightsByLevel.length; level++) {
-                this.itemLayerHeightsByLevel.push(mapData.itemLayerHeightsByLevel[level]);
-            }
-        }
         this.ambientSoundEmitters = undefined;
     }
 
@@ -2185,13 +2177,6 @@ export class WebGLMapSquare {
             this.locIdsAtLocalBuffer.length = 0;
             this.locTypeRotsAtLocalBuffer.length = 0;
         }
-        if (this.itemLayerHeightsByLevel) {
-            this.itemLayerHeightsByLevel.length = 0;
-            for (let level = 0; level < mapData.itemLayerHeightsByLevel.length; level++) {
-                this.itemLayerHeightsByLevel.push(mapData.itemLayerHeightsByLevel[level]);
-            }
-        }
-
         const loadTime = time ?? this.timeLoaded;
 
         releaseDrawCallRange(this.drawCall);
@@ -2614,17 +2599,4 @@ export class WebGLMapSquare {
         }
     }
 
-    getItemLayerHeightAtLocal(level: number, localX: number, localY: number): number {
-        try {
-            const layers = this.itemLayerHeightsByLevel;
-            if (!layers || level < 0 || level >= layers.length) return 0;
-            const heights = layers[level];
-            if (!heights) return 0;
-            const span = this.getLocalTileSpan();
-            if (localX < 0 || localY < 0 || localX >= span || localY >= span) return 0;
-            return heights[(localY | 0) * span + (localX | 0)] | 0;
-        } catch {
-            return 0;
-        }
-    }
 }

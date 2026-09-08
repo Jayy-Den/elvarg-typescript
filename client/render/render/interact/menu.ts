@@ -117,7 +117,7 @@ import {
     createActorHealthBarsState,
     createActorHitsplatState,
 } from "../../../game/actor/ActorOverlayState";
-import type { ClientGroundItemStack, GroundItemOverlayEntry } from "../../../game/data/ground/GroundItemStore";
+import type { ClientGroundItemStack } from "../../../game/data/ground/GroundItemStore";
 import { NpcEcs } from "../../../game/ecs/NpcEcs";
 import type { PlayerAnimKey } from "../../../game/ecs/PlayerEcs";
 import { GameState, LoginIndex } from "../../../game/login";
@@ -446,42 +446,6 @@ export function getMapLocalTile(host: WebGLOsrsRendererHost,
             return undefined;
         }
         return { x: localX | 0, y: localY | 0 };
-    
-}
-
-export function getGroundItemLayerHeightTiles(host: WebGLOsrsRendererHost, tileX: number, tileY: number, level: number): number {
-
-        const map = host.getPreferredMapForWorldTile(tileX, tileY);
-        if (!map) return 0;
-        const local = host.getMapLocalTile(map, tileX, tileY);
-        if (!local) return 0;
-        return Math.max(0, map.getItemLayerHeightAtLocal(level | 0, local.x, local.y)) / 128;
-    
-}
-
-export function withGroundItemOverlayHeights(host: WebGLOsrsRendererHost, 
-        entries: GroundItemOverlayEntry[],
-    ): GroundItemOverlayEntry[] {
-
-        if (entries.length === 0) return entries;
-        let output: GroundItemOverlayEntry[] | undefined;
-        for (let i = 0; i < entries.length; i++) {
-            const entry = entries[i];
-            const heightOffsetTiles = host.getGroundItemLayerHeightTiles(
-                entry.tileX | 0,
-                entry.tileY | 0,
-                entry.level | 0,
-            );
-            if (heightOffsetTiles <= 0) {
-                if (output) output.push(entry);
-                continue;
-            }
-            if (!output) {
-                output = entries.slice(0, i);
-            }
-            output.push({ ...entry, heightOffsetTiles });
-        }
-        return output ?? entries;
     
 }
 

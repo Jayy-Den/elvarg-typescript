@@ -117,7 +117,7 @@ import {
     createActorHealthBarsState,
     createActorHitsplatState,
 } from "../game/actor/ActorOverlayState";
-import type { ClientGroundItemStack, GroundItemOverlayEntry } from "../game/data/ground/GroundItemStore";
+import type { ClientGroundItemStack } from "../game/data/ground/GroundItemStore";
 import { NpcEcs } from "../game/ecs/NpcEcs";
 import type { PlayerAnimKey } from "../game/ecs/PlayerEcs";
 import { GameState, LoginIndex } from "../game/login";
@@ -2040,16 +2040,6 @@ export class WebGLOsrsRenderer extends GameRenderer<WebGLMapSquare> {
         tileY: number,
     ): { x: number; y: number } | undefined {
         return render.getMapLocalTile(this, map, tileX, tileY);
-    }
-
-    public getGroundItemLayerHeightTiles(tileX: number, tileY: number, level: number): number {
-        return render.getGroundItemLayerHeightTiles(this, tileX, tileY, level);
-    }
-
-    public withGroundItemOverlayHeights(
-        entries: GroundItemOverlayEntry[],
-    ): GroundItemOverlayEntry[] {
-        return render.withGroundItemOverlayHeights(this, entries);
     }
 
     public getEffectivePlaneForTile(tileX: number, tileY: number, basePlane: number): number {

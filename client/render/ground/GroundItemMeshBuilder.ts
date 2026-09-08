@@ -123,7 +123,6 @@ export function buildGroundItemGeometry(
         const basePlane = stack.tile.level | 0;
         // Resolve bridge-aware plane for height sampling (same as NPCs/projectiles)
         const heightSamplePlane = resolveHeightSamplePlaneForLocal(map, basePlane, localX, localY);
-        const itemLayerHeight = map.getItemLayerHeightAtLocal(basePlane, localX, localY);
         const sceneX = localX * 128 + 64;
         const sceneZ = localY * 128 + 64;
         vec3.set(tempVec, 0, 0, 0);
@@ -131,7 +130,7 @@ export function buildGroundItemGeometry(
         const info: ModelInfo = {
             sceneX,
             sceneZ,
-            heightOffset: itemLayerHeight,
+            heightOffset: 0,
             level: heightSamplePlane,
             planeCullLevel: basePlane,
             contourGround: ContourGroundType.CENTER_TILE,

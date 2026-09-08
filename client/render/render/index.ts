@@ -246,8 +246,6 @@ export { getMinTileHeightInRadius } from "./interact/menu";
 export { getNpcFootprintRadius } from "./interact/menu";
 export { getPreferredMapForWorldTile } from "./interact/menu";
 export { getMapLocalTile } from "./interact/menu";
-export { getGroundItemLayerHeightTiles } from "./interact/menu";
-export { withGroundItemOverlayHeights } from "./interact/menu";
 export { getEffectivePlaneForTile } from "./interact/menu";
 export { getHeightSamplePlaneForTile } from "./interact/menu";
 export { getOccupancyPlaneForTile } from "./interact/menu";

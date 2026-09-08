@@ -1235,13 +1235,11 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
             // Spot animations were previously collected from SpotAnimationManager; no-op now.
 
             if (playerWorldX != null && playerWorldZ != null) {
-                const overlayEntries = host.withGroundItemOverlayHeights(
-                    host.osrsClient.getGroundItemOverlayEntries(
-                        Math.floor(playerWorldX),
-                        Math.floor(playerWorldZ),
-                        playerLevel,
-                        { radius: groundOverlayRadius, maxEntries: groundOverlayMaxEntries },
-                    ),
+                const overlayEntries = host.osrsClient.getGroundItemOverlayEntries(
+                    Math.floor(playerWorldX),
+                    Math.floor(playerWorldZ),
+                    playerLevel,
+                    { radius: groundOverlayRadius, maxEntries: groundOverlayMaxEntries },
                 );
                 if (overlayEntries.length > 0) {
                     groundOverlayEntries = overlayEntries;
@@ -1250,12 +1248,10 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                         const camX = Math.floor(host.osrsClient.camera.getPosX());
                         const camY = Math.floor(host.osrsClient.camera.getPosZ());
                         const camLevel = resolveGroundItemStackPlane(host.getPlayerRawPlane() | 0);
-                        const camEntries = host.withGroundItemOverlayHeights(
-                            host.osrsClient.getGroundItemOverlayEntries(camX, camY, camLevel, {
-                                radius: groundOverlayRadius,
-                                maxEntries: groundOverlayMaxEntries,
-                            }),
-                        );
+                        const camEntries = host.osrsClient.getGroundItemOverlayEntries(camX, camY, camLevel, {
+                            radius: groundOverlayRadius,
+                            maxEntries: groundOverlayMaxEntries,
+                        });
                         if (camEntries.length > 0) {
                             groundOverlayEntries = camEntries;
                         }
@@ -1269,16 +1265,14 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
                         const fallbackX = (peHs.getX(idx) / 128.0) | 0;
                         const fallbackY = (peHs.getY(idx) / 128.0) | 0;
                         const fallbackLevel = peHs.getLevel(idx) | 0;
-                        const overlayEntries = host.withGroundItemOverlayHeights(
-                            host.osrsClient.getGroundItemOverlayEntries(
-                                fallbackX,
-                                fallbackY,
-                                fallbackLevel,
-                                {
-                                    radius: groundOverlayRadius,
-                                    maxEntries: groundOverlayMaxEntries,
-                                },
-                            ),
+                        const overlayEntries = host.osrsClient.getGroundItemOverlayEntries(
+                            fallbackX,
+                            fallbackY,
+                            fallbackLevel,
+                            {
+                                radius: groundOverlayRadius,
+                                maxEntries: groundOverlayMaxEntries,
+                            },
                         );
                         if (overlayEntries.length > 0) {
                             groundOverlayEntries = overlayEntries;
