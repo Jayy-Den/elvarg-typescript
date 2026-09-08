@@ -18,4 +18,9 @@ assert.equal(camera.getControlPitchAngle(), 128, "terrain pressure must not alte
 camera.setScenePitchOverride(undefined);
 assert.equal(camera.getScenePitchAngle(), 128, "clearing terrain pressure should restore control pitch");
 
+camera.setFirstPersonPitch(-256);
+assert.equal(camera.getScenePitchAngle(), -256, "first-person view must support looking upward");
+camera.setFirstPersonPitch(undefined);
+assert.equal(camera.getScenePitchAngle(), 128, "leaving first-person view should restore camera controls");
+
 console.log("camera control orientation ok");

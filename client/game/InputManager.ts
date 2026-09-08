@@ -134,6 +134,7 @@ export class InputManager {
 
     // When true, double-click may request Pointer Lock (hides cursor).
     enablePointerLock: boolean = false;
+    private firstPersonToggleRequested: boolean = false;
 
     // === OSRS Mouse State ===
 
@@ -462,6 +463,18 @@ export class InputManager {
         return document.pointerLockElement === this.element;
     }
 
+    consumeFirstPersonToggle(): boolean {
+        const requested = this.firstPersonToggleRequested;
+        this.firstPersonToggleRequested = false;
+        return requested;
+    }
+
+    releasePointerLock(): void {
+        if (this.isPointerLock()) {
+            document.exitPointerLock();
+        }
+    }
+
     isFocused(): boolean {
         return this.mouseX !== -1 && this.mouseY !== -1;
     }
@@ -592,11 +605,15 @@ export class InputManager {
         this.gamepadIndex = undefined;
     };
 
-    private onDoubleClick = (_event: MouseEvent) => {
-        if (!this.enablePointerLock) return;
+    private requestPointerLock(): void {
         if (!document.pointerLockElement && this.element) {
             this.element.requestPointerLock();
         }
+    }
+
+    private onDoubleClick = (_event: MouseEvent) => {
+        if (!this.enablePointerLock) return;
+        this.requestPointerLock();
     };
 
     private shouldSuppressSyntheticMouse(): boolean {
@@ -934,6 +951,12 @@ export class InputManager {
         event.preventDefault();
         this.idleTime = 0;
         this.lastInputTimeMs = this.nowMs();
+
+        if (event.code === "F4" && !event.repeat) {
+            this.firstPersonToggleRequested = true;
+            this.requestPointerLock();
+            return;
+        }
 
         const keyCode = event.keyCode;
         const charCode =

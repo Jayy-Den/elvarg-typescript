@@ -836,6 +836,9 @@ export class OsrsClient {
     // Camera behavior
     // When true, disables free-cam and keeps camera focused on Player[0]
     followPlayerCamera: boolean = true;
+    firstPersonMode: boolean = false;
+    private firstPersonRestoreRenderSelf: boolean | undefined;
+    private firstPersonRestoreFollowPlayerCamera: boolean | undefined;
     // OSRS-style zoom shape parameters (match vanilla defaults)
     // Used to convert pitch into camera distance with viewport scaling
     zoomHeight: number = 256;
@@ -846,6 +849,28 @@ export class OsrsClient {
     // Hide-roofs toggle: when true, every plane above the player's plane is hidden.
     // When false, roofs are only removed while the player/camera is inside a building.
     roofsHidden: boolean = true;
+
+    setFirstPersonMode(enabled: boolean): void {
+        if (this.firstPersonMode === enabled) return;
+        this.firstPersonMode = enabled;
+        if (enabled) {
+            this.firstPersonRestoreRenderSelf = this.renderSelf;
+            this.firstPersonRestoreFollowPlayerCamera = this.followPlayerCamera;
+            this.renderSelf = false;
+            this.followPlayerCamera = true;
+            this.camera.setFirstPersonPitch(0);
+            return;
+        }
+        this.camera.setFirstPersonPitch(undefined);
+        if (this.firstPersonRestoreRenderSelf !== undefined) {
+            this.renderSelf = this.firstPersonRestoreRenderSelf;
+            this.firstPersonRestoreRenderSelf = undefined;
+        }
+        if (this.firstPersonRestoreFollowPlayerCamera !== undefined) {
+            this.followPlayerCamera = this.firstPersonRestoreFollowPlayerCamera;
+            this.firstPersonRestoreFollowPlayerCamera = undefined;
+        }
+    }
 
     setRoofsHidden(roofsHidden: boolean): void {
         if (this.roofsHidden === roofsHidden) {
