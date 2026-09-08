@@ -12,6 +12,12 @@ type Loc = {
     rotation: number;
 };
 
+export type ParsedRegionPack = {
+    regionId: number;
+    objectData: Uint8Array;
+    terrainData: Uint8Array;
+};
+
 function bytes(data: Uint8Array | Int8Array): Uint8Array {
     return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 }
@@ -113,10 +119,14 @@ function applyLocEdits(
 ): Uint8Array {
     let locs = decodeLocs(data);
     for (const edit of edits) {
-        if (edit.kind !== "place" && edit.kind !== "delete") continue;
         if ((edit.tileX >> 6) !== mapX || (edit.tileY >> 6) !== mapY) continue;
         const x = edit.tileX & 0x3f;
         const y = edit.tileY & 0x3f;
+        if (edit.kind === "clear") {
+            locs = locs.filter((loc) => loc.x !== x || loc.y !== y);
+            continue;
+        }
+        if (edit.kind !== "place" && edit.kind !== "delete") continue;
         locs = locs.filter(
             (loc) =>
                 loc.x !== x ||
@@ -150,17 +160,26 @@ function patchTerrain(
     mapY: number,
     wide: boolean,
 ): Uint8Array {
-    const overrides = new Map<string, EditModeEdit>();
+    const overlays = new Map<string, EditModeEdit>();
+    const heights = new Map<string, number>();
+    const flags = new Map<string, number>();
     for (const edit of edits) {
-        if (
-            edit.kind === "terrain" &&
-            (edit.tileX >> 6) === mapX &&
-            (edit.tileY >> 6) === mapY
-        ) {
-            overrides.set(`${edit.plane}:${edit.tileX & 0x3f}:${edit.tileY & 0x3f}`, edit);
+        if ((edit.tileX >> 6) !== mapX || (edit.tileY >> 6) !== mapY) continue;
+        const x = edit.tileX & 0x3f;
+        const y = edit.tileY & 0x3f;
+        if (edit.kind === "clear") {
+            for (let plane = 0; plane < PLANE_COUNT; plane++) {
+                overlays.set(`${plane}:${x}:${y}`, edit);
+            }
+        } else if (edit.kind === "terrain") {
+            overlays.set(`${edit.plane}:${x}:${y}`, edit);
+        } else if (edit.kind === "height") {
+            heights.set(`${edit.plane}:${x}:${y}`, edit.locId);
+        } else if (edit.kind === "flag") {
+            flags.set(`${edit.plane}:${x}:${y}`, edit.locId);
         }
     }
-    if (overrides.size === 0) return data.slice();
+    if (overlays.size === 0 && heights.size === 0 && flags.size === 0) return data.slice();
 
     const width = wide ? 2 : 1;
     const output: number[] = [];
@@ -175,7 +194,9 @@ function patchTerrain(
     for (let plane = 0; plane < PLANE_COUNT; plane++) {
         for (let x = 0; x < MAP_SIZE; x++) {
             for (let y = 0; y < MAP_SIZE; y++) {
-                const edit = overrides.get(`${plane}:${x}:${y}`);
+                const overlay = overlays.get(`${plane}:${x}:${y}`);
+                const height = heights.get(`${plane}:${x}:${y}`);
+                const flag = flags.get(`${plane}:${x}:${y}`);
                 const tileParts: Uint8Array[] = [];
                 let terminator: Uint8Array;
                 const tileStart = offset;
@@ -193,16 +214,26 @@ function patchTerrain(
                         break;
                     }
                     if (opcode <= 49) readValue();
-                    if (!edit || opcode > 49) tileParts.push(data.subarray(partStart, offset));
+                    if ((!overlay || opcode > 49) && (flag === undefined || opcode < 50 || opcode > 81)) {
+                        tileParts.push(data.subarray(partStart, offset));
+                    }
                 }
-                if (!edit) {
+                if (!overlay && height === undefined && flag === undefined) {
                     output.push(...data.subarray(tileStart, offset));
                     continue;
                 }
                 for (const part of tileParts) output.push(...part);
-                writeTerrainValue(output, 2 + edit.shape * 4 + (edit.rotation & 3), wide);
-                writeTerrainValue(output, edit.locId, wide);
-                output.push(...terminator);
+                if (overlay?.kind === "terrain") {
+                    writeTerrainValue(output, 2 + overlay.shape * 4 + (overlay.rotation & 3), wide);
+                    writeTerrainValue(output, overlay.locId, wide);
+                }
+                if (flag !== undefined && flag > 0) writeTerrainValue(output, 49 + flag, wide);
+                if (height === undefined) {
+                    output.push(...terminator);
+                } else {
+                    writeTerrainValue(output, 1, wide);
+                    output.push(height & 0xff);
+                }
             }
         }
     }
@@ -243,4 +274,29 @@ export function buildRegionPack(
     view.setInt32(24 + objects.length, terrain.length);
     pack.set(terrain, 28 + objects.length);
     return pack;
+}
+
+/** Decode the same complete region pack consumed by the server replacement manager. */
+export function parseRegionPack(pack: Uint8Array): ParsedRegionPack {
+    if (pack.length < 28) throw new Error("Truncated region pack");
+    const view = new DataView(pack.buffer, pack.byteOffset, pack.byteLength);
+    if (view.getInt32(0) !== 1) throw new Error("Unsupported region pack version");
+    const mapX = view.getInt32(12);
+    const mapY = view.getInt32(16);
+    const objectLength = view.getInt32(20);
+    if (mapX < 0 || mapX > 0xff || mapY < 0 || mapY > 0xff || objectLength < 0) {
+        throw new Error("Invalid region pack header");
+    }
+    const terrainLengthOffset = 24 + objectLength;
+    if (terrainLengthOffset + 4 > pack.length) throw new Error("Truncated region object data");
+    const terrainLength = view.getInt32(terrainLengthOffset);
+    const terrainStart = terrainLengthOffset + 4;
+    if (terrainLength <= 0 || terrainStart + terrainLength !== pack.length) {
+        throw new Error("Invalid region terrain data");
+    }
+    return {
+        regionId: (mapX << 8) | mapY,
+        objectData: pack.subarray(24, terrainLengthOffset),
+        terrainData: pack.subarray(terrainStart),
+    };
 }

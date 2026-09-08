@@ -403,10 +403,8 @@ export class OsrsClient {
         registerDefaultClientSidebarEntries(this.sidebar, visibility);
     }
 
-    /**
-     * Dev-only. The dynamic import keeps the editor code out of production
-     * bundles - webpack folds the NODE_ENV check away and drops the call.
-     */
+    /** Load the editor lazily so it is available in deployed builds without
+     * delaying the normal client startup. */
     private loadEditModePlugin(): void {
         void import("./plugins/editmode/install")
             .then(({ installEditMode }) => {
@@ -1084,9 +1082,7 @@ export class OsrsClient {
         );
         this.splitPrivateChatPlugin = new SplitPrivateChatPlugin();
         this.syncSidebarPlugins(true);
-        if (process.env.NODE_ENV !== "production") {
-            this.loadEditModePlugin();
-        }
+        this.loadEditModePlugin();
         this.groundItemsPlugin.subscribe(() => {
             this.syncSidebarPlugins();
         });
@@ -5390,8 +5386,11 @@ export class OsrsClient {
     ): "new_user" | "existing_user" | "login" | "cancel" | "connect" | undefined {
         switch (action.type) {
             case "new_user":
-                // Dev builds: this button is labelled "Edit Mode" instead.
-                if (this.editModePlugin?.getConfig().enabled === true) {
+                // Edit mode is opt-in via ?edit; keep the normal login UI intact.
+                if (
+                    new URLSearchParams(window.location.search).has("edit") &&
+                    this.editModePlugin?.getConfig().enabled === true
+                ) {
                     if (!this.loginState.editModeReady) return undefined;
                     this.editModePlugin.setScenePreview(true);
                     this.loginState.virtualKeyboardVisible = false;

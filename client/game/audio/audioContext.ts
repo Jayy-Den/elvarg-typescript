@@ -24,6 +24,7 @@ const AUDIO_CONTEXT_RESUME_EVENTS: (keyof DocumentEventMap)[] = [
  * exactly like suspended ones, and doing so requires a fresh user gesture.
  */
 export function isAudioContextResumable(ctx: AudioContext): boolean {
+    if (audioSuspended) return false;
     const state = ctx.state as string;
     return state === "suspended" || state === "interrupted";
 }
@@ -51,6 +52,15 @@ let sharedMusicWorkletPromise: Promise<void> | null = null;
  * we auto-suspended when the page becomes visible again.
  */
 const managedAudioContexts = new Set<AudioContext>();
+let audioSuspended = false;
+
+/** Temporarily silence every client audio context, including ones created later. */
+export function setAudioSuspended(suspended: boolean): void {
+    if (audioSuspended === suspended) return;
+    audioSuspended = suspended;
+    if (suspended) suspendManagedAudioContexts();
+    else resumeAutoSuspendedAudioContexts();
+}
 const autoSuspendedAudioContexts = new Set<AudioContext>();
 let audioLifecycleListenersInstalled = false;
 
@@ -67,6 +77,7 @@ function suspendManagedAudioContexts(): void {
 }
 
 function resumeAutoSuspendedAudioContexts(): void {
+    if (audioSuspended) return;
     for (const ctx of Array.from(autoSuspendedAudioContexts)) {
         autoSuspendedAudioContexts.delete(ctx);
         if (managedAudioContexts.has(ctx) && isAudioContextResumable(ctx)) {
@@ -105,6 +116,10 @@ export function registerManagedAudioContext(ctx: AudioContext | null | undefined
     if (!ctx) return;
     managedAudioContexts.add(ctx);
     installAudioLifecycleListenersOnce();
+    if (audioSuspended) {
+        autoSuspendedAudioContexts.add(ctx);
+        ctx.suspend().catch(() => {});
+    }
 }
 
 /** Stop managing a context (call when the context is being closed/disposed). */

@@ -1,4 +1,5 @@
 import { ClientState } from "../../ClientState";
+import { setAudioSuspended } from "../../audio/audioContext";
 import type { App as PicoApp, UniformBuffer } from "picogl";
 import type { Ray } from "../../math/Raycast";
 import type { SceneRaycastHit, SceneRaycaster } from "../../scene/SceneRaycaster";
@@ -6,6 +7,7 @@ import { MenuTargetType } from "../../../rs/MenuEntry";
 import { IndexType } from "../../../rs/cache/IndexType";
 import { packWorldMapCoord } from "../../../rs/map/WorldMapArea";
 import { SpriteLoader } from "../../../rs/sprite/SpriteLoader";
+import { DIRECTION_TO_ORIENTATION } from "../../../common/Direction";
 import { InteractType } from "../../../render/InteractType";
 import type { MinimapIcon } from "../../../render/loader/SdMapData";
 import { isDoorLocType } from "../../../render/loc/SceneLocs";
@@ -14,25 +16,66 @@ import type {
     LocHighlightTarget,
 } from "../../../render/render/constants";
 import type { InteractHighlightDrawTarget } from "../../../ui/devoverlay/InteractHighlightOverlay";
+import type { Overlay } from "../../../ui/devoverlay/Overlay";
 import { spriteToCanvas } from "../../../ui/item/ItemIcon";
+import {
+    copyRegionPackBytes,
+    REGION_PACK_MESSAGE,
+    REGION_PACK_REQUEST_MESSAGE,
+    type RegionPackMessage,
+} from "./hostProtocol/regionPackMessage";
+import { browserHostOrigin, browserHostWindow } from "./hostProtocol/origin";
+import {
+    NPC_SPAWN_MESSAGE,
+    NPC_SPAWN_REQUEST_MESSAGE,
+    regionIdForTile,
+    type BrowserHostNpcSpawn,
+    type NpcSpawnMessage,
+} from "./hostProtocol/npcSpawnMessage";
+import {
+    NPC_INTERACTIONS_MESSAGE,
+    NPC_INTERACTIONS_REQUEST_MESSAGE,
+    type NpcInteractionsMessage,
+} from "./hostProtocol/npcInteractionsMessage";
+import { getNpcMenuOptions } from "../../menu/WorldMenuBuilder";
+import {
+    WORLD_DEFINITION_MESSAGE,
+    WORLD_DEFINITION_REQUEST_MESSAGE,
+    type WorldDefinitionMessage,
+} from "./hostProtocol/worldDefinitionMessage";
+import {
+    SHOP_DEFINITIONS_MESSAGE,
+    SHOP_DEFINITIONS_REQUEST_MESSAGE,
+    type ShopDefinitionsMessage,
+} from "./hostProtocol/shopsMessage";
 import type { OsrsClient } from "../../OsrsClient";
 import { createBrowserEditModePluginPersistence } from "./BrowserEditModePluginPersistence";
 import { detectRectangularBuilding, type DetectedBuilding } from "./BuildingDetector";
 import { EditModePlugin } from "./EditModePlugin";
+import { mountEditorUi } from "./EditorUi";
+import { EditorWorldMap } from "./EditorWorldMap";
 import {
     MapIconGroundOverlay,
     type MapIconGroundEntry,
 } from "./MapIconGroundOverlay";
-import { buildRegionPack } from "./RegionPack";
+import {
+    LocPlacementPreviewOverlay,
+    type LocPlacementPreviewClient,
+    type LocPlacementPreviewRenderer,
+} from "./LocPlacementPreviewOverlay";
+import { ModelImageCaptureOverlay } from "./ModelImageCaptureOverlay";
+import { buildRegionPack, parseRegionPack } from "./RegionPack";
 import {
     ZoneGroundOverlay,
     type ZoneGroundRect,
 } from "./ZoneGroundOverlay";
 import type {
     EditModeDefinitionSummary,
+    EditModeBuildingProfile,
     EditModeEdit,
     EditModeSearchKind,
     EditModeSearchResult,
+    EditModeNpcInteractions,
     EditModeShop,
     EditModeTile,
     EditModeWorldDefinition,
@@ -48,6 +91,8 @@ const EDITOR_HOVER_TILE_SLOT = 254;
 const EDITOR_HOVER_TILE_GROUP = 254;
 const EDITOR_SPAWN_TILE_SLOT = 253;
 const EDITOR_SPAWN_TILE_GROUP = 253;
+const EDITOR_PATH_TILE_SLOT = 252;
+const EDITOR_PATH_TILE_GROUP = 252;
 const TILE_HIGHLIGHT_ALWAYS_ON_TOP = 0x10;
 const EDITOR_SELECTION_MAX_SPAN = 128;
 const SEARCH_RESULT_LIMIT = 60;
@@ -58,6 +103,13 @@ const PVP_ZONE_COLOR = 0xef4444;
 const MULTI_COMBAT_ZONE_COLOR = 0xf59e0b;
 const ZONE_OVERLAY_ALPHA = 0.14;
 const SPAWN_TILE_COLOR = 0xa855f7;
+const PATH_PREVIEW_COLOR = 0xfbbf24;
+const WALL_PREVIEW_GROUND_COLOR = 0x78965f;
+
+type EditorRegionReplacement = {
+    terrainData: Uint8Array;
+    objectData?: Uint8Array;
+};
 
 /** Reuses the scene's exact model picker, but includes scenery hidden from the game menu. */
 export function raycastEditScene(
@@ -85,7 +137,8 @@ export function raycastEditScene(
 }
 /** Tiles the camera pulls back along its view ray when framing a tile. */
 const EDITOR_CAMERA_DISTANCE = 22;
-const WIDGET_SUMMARY_LIMIT = 200;
+/** Tighter opening frame so the editor starts near the configured world spawn. */
+const EDITOR_OPENING_CAMERA_DISTANCE = 14;
 /** Types decoded per frame while indexing, so the client keeps rendering. */
 const INDEX_CHUNK = 2000;
 
@@ -204,19 +257,6 @@ function describeDefinition(
     };
 }
 
-async function loadShops(client: OsrsClient): Promise<EditModeShop[]> {
-    const response = await fetch(`http://${window.location.hostname || "127.0.0.1"}:49600/shops`);
-    if (!response.ok) throw new Error(`Shop API returned ${response.status}`);
-    const shops = (await response.json()) as EditModeShop[];
-    return shops.map((shop) => ({
-        ...shop,
-        originalStock: shop.originalStock.map((item) => ({
-            ...item,
-            name: client.objTypeLoader?.load(item.id)?.name ?? `Item ${item.id}`,
-        })),
-    }));
-}
-
 const worldInteger = (value: unknown, label: string): number => {
     if (typeof value !== "number" || !Number.isInteger(value)) {
         throw new Error(`${label} must be an integer`);
@@ -245,6 +285,14 @@ export function parseEditModeWorldDefinition(value: unknown): EditModeWorldDefin
         throw new Error("World API returned an invalid spawn");
     }
     if (!Array.isArray(raw.zones)) throw new Error("World API returned invalid zones");
+    if (raw.experienceMultiplier !== undefined && (typeof raw.experienceMultiplier !== "number" || !Number.isFinite(raw.experienceMultiplier) || raw.experienceMultiplier <= 0)) {
+        throw new Error("World API returned invalid experienceMultiplier");
+    }
+    if (raw.disabledPlugins !== undefined && (
+        !Array.isArray(raw.disabledPlugins) || raw.disabledPlugins.some(
+            (name) => typeof name !== "string" || name.trim().length === 0,
+        )
+    )) throw new Error("World API returned invalid disabledPlugins");
     const spawn = raw.spawn as Record<string, unknown>;
     const zones: EditModeWorldZone[] = raw.zones.map((value, index) => {
         if (!value || Array.isArray(value) || typeof value !== "object") {
@@ -278,10 +326,166 @@ export function parseEditModeWorldDefinition(value: unknown): EditModeWorldDefin
             z: worldPlane(spawn.z, "World API spawn.z"),
         },
         zones,
+        disabledPlugins: (raw.disabledPlugins ?? []).map((name) => (name as string).trim()),
+        experienceMultiplier: raw.experienceMultiplier === undefined ? 1 : raw.experienceMultiplier,
     };
 }
 
+export function parseBrowserHostWorldSpawn(value: string | null): EditModeWorldDefinition {
+    const spawn = value?.split(",").map(Number);
+    if (!spawn || spawn.length !== 3 || !spawn.every(Number.isInteger)) {
+        throw new Error("Browser host did not provide a valid world spawn");
+    }
+    return parseEditModeWorldDefinition({
+        spawn: { x: spawn[0], y: spawn[1], z: spawn[2] },
+        zones: [],
+        disabledPlugins: [],
+        experienceMultiplier: 1,
+    });
+}
+
+export function parseBrowserHostWorldDefinition(value: string | null): EditModeWorldDefinition {
+    if (!value) throw new Error("Browser host did not provide a world definition");
+    try {
+        return parseEditModeWorldDefinition(JSON.parse(value));
+    } catch (error) {
+        throw new Error(
+            `Browser host provided an invalid world definition: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+        );
+    }
+}
+
+export function requestBrowserHostWorldDefinition(): Promise<EditModeWorldDefinition> {
+    const host = browserHostWindow();
+    if (!host) return Promise.reject(new Error("Browser host is unavailable"));
+    const hostOrigin = browserHostOrigin();
+    return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+            window.removeEventListener("message", onMessage);
+            reject(new Error("Browser host did not provide a world definition"));
+        }, 10_000);
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin !== hostOrigin || event.source !== host) return;
+            const message = event.data as WorldDefinitionMessage | undefined;
+            if (message?.type !== WORLD_DEFINITION_MESSAGE || typeof message.contents !== "string") return;
+            window.clearTimeout(timeout);
+            window.removeEventListener("message", onMessage);
+            try {
+                resolve(parseBrowserHostWorldDefinition(message.contents));
+            } catch (error) {
+                reject(error);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        host.postMessage({ type: WORLD_DEFINITION_REQUEST_MESSAGE }, hostOrigin);
+    });
+}
+
+export function parseBrowserHostShops(contents: string): EditModeShop[] {
+    const parsed: unknown = JSON.parse(contents);
+    if (!Array.isArray(parsed)) throw new Error("Browser host provided invalid shops.json");
+    return parsed.map((value, index) => {
+        if (!value || Array.isArray(value) || typeof value !== "object") {
+            throw new Error(`Shop ${index + 1} is invalid`);
+        }
+        const row = value as Record<string, unknown>;
+        const id = Number(row.id);
+        if (!Number.isInteger(id) || id < 0 || typeof row.name !== "string" || !Array.isArray(row.originalStock)) {
+            throw new Error(`Shop ${index + 1} is invalid`);
+        }
+        const originalStock = row.originalStock.map((entry, stockIndex) => {
+            if (!entry || Array.isArray(entry) || typeof entry !== "object") {
+                throw new Error(`Shop ${id} stock ${stockIndex + 1} is invalid`);
+            }
+            const stock = entry as Record<string, unknown>;
+            const itemId = Number(stock.id);
+            const amount = Number(stock.amount);
+            if (!Number.isInteger(itemId) || itemId <= 0 || !Number.isInteger(amount) || amount <= 0 || amount > 0x7fffffff) {
+                throw new Error(`Shop ${id} stock ${stockIndex + 1} is invalid`);
+            }
+            return { ...stock, id: itemId, amount };
+        });
+        return { ...row, id, name: row.name, originalStock };
+    });
+}
+
+export function parseBrowserHostNpcInteractions(contents: string): EditModeNpcInteractions {
+    const parsed: unknown = JSON.parse(contents);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+        throw new Error("Browser host provided invalid npc_interactions.json");
+    }
+    for (const [npcId, interactions] of Object.entries(parsed)) {
+        if (!Number.isInteger(Number(npcId)) || Number(npcId) < 0 || !interactions || Array.isArray(interactions) || typeof interactions !== "object") {
+            throw new Error("Browser host provided invalid npc_interactions.json");
+        }
+    }
+    return parsed as EditModeNpcInteractions;
+}
+
+function requestBrowserHostShops(): Promise<EditModeShop[]> {
+    const host = browserHostWindow();
+    if (!host) return Promise.reject(new Error("Browser host is unavailable"));
+    const hostOrigin = browserHostOrigin();
+    return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+            window.removeEventListener("message", onMessage);
+            reject(new Error("Browser host did not provide shops"));
+        }, 10_000);
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin !== hostOrigin || event.source !== host) return;
+            const message = event.data as ShopDefinitionsMessage | undefined;
+            if (message?.type !== SHOP_DEFINITIONS_MESSAGE || typeof message.contents !== "string") return;
+            window.clearTimeout(timeout);
+            window.removeEventListener("message", onMessage);
+            try {
+                resolve(parseBrowserHostShops(message.contents));
+            } catch (error) {
+                reject(error);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        host.postMessage({ type: SHOP_DEFINITIONS_REQUEST_MESSAGE }, hostOrigin);
+    });
+}
+
+function requestBrowserHostNpcInteractions(): Promise<EditModeNpcInteractions> {
+    const host = browserHostWindow();
+    if (!host) return Promise.reject(new Error("Browser host is unavailable"));
+    const hostOrigin = browserHostOrigin();
+    return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+            window.removeEventListener("message", onMessage);
+            reject(new Error("Browser host did not provide NPC interactions"));
+        }, 10_000);
+        const onMessage = (event: MessageEvent) => {
+            if (event.origin !== hostOrigin || event.source !== host) return;
+            const message = event.data as NpcInteractionsMessage | undefined;
+            if (message?.type !== NPC_INTERACTIONS_MESSAGE || typeof message.contents !== "string") return;
+            window.clearTimeout(timeout);
+            window.removeEventListener("message", onMessage);
+            try {
+                resolve(parseBrowserHostNpcInteractions(message.contents));
+            } catch (error) {
+                reject(error);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        host.postMessage({ type: NPC_INTERACTIONS_REQUEST_MESSAGE }, hostOrigin);
+    });
+}
+
 async function loadWorldDefinition(): Promise<EditModeWorldDefinition> {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("browser-host-client") === "1") {
+        const definition = params.get("browser-host-world-definition");
+        return definition
+            ? parseBrowserHostWorldDefinition(definition)
+            : params.get("browser-host-spawn")
+              ? parseBrowserHostWorldSpawn(params.get("browser-host-spawn"))
+              : requestBrowserHostWorldDefinition();
+    }
     const response = await fetch(`http://${window.location.hostname || "127.0.0.1"}:49600/world`);
     if (!response.ok) throw new Error(`World API returned ${response.status}`);
     return parseEditModeWorldDefinition(await response.json());
@@ -310,10 +514,25 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     const plugin = new EditModePlugin(
         createBrowserEditModePluginPersistence("osrs.plugin.edit_mode.v1"),
     );
-    let previewLoc: EditModeEdit | undefined;
+    const editorWorldMap = new EditorWorldMap(
+        client,
+        (tile) => frameCameraOnTile(client, tile, false),
+        () => {
+            const state = plugin.getState();
+            return state.world.definition
+                ? { zones: state.world.definition.zones, showPvp: state.config.showPvpZones, showMulti: state.config.showMultiCombatZones }
+                : undefined;
+        },
+        (index, bounds) => plugin.resizeWorldZone(index, bounds),
+        (bounds) => plugin.addWorldZone(bounds),
+        (index, tag) => plugin.setWorldZoneType(index, tag),
+        (index) => plugin.deleteWorldZone(index),
+        browserHostWindow() !== null,
+    );
     let previewNpc = false;
+    let previewNpcType = -1;
+    let previewNpcRotation = -1;
     let buildingPreviewTileKey: string | undefined;
-    let placementModelHighlight: InteractHighlightDrawTarget | undefined;
     let pointerModelHighlight: InteractHighlightDrawTarget | undefined;
     let buildingModelHighlight: InteractHighlightDrawTarget | undefined;
     let buildingSelectionHighlight: InteractHighlightDrawTarget | undefined;
@@ -332,22 +551,61 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     let mapIconTargets = new Map<string, LocHighlightTarget>();
     let mapIconGroundOverlay: MapIconGroundOverlay | undefined;
     let mapIconGroundManager: TerrainHost["overlayManager"];
+    let locPlacementPreviewOverlay: LocPlacementPreviewOverlay | undefined;
+    let locPlacementPreviewManager: TerrainHost["overlayManager"];
+    let modelImageCaptureOverlay: ModelImageCaptureOverlay | undefined;
+    let modelImageCaptureManager: TerrainHost["overlayManager"];
+    let selectedModelTarget: InteractHighlightTarget | undefined;
+    let wallGroundOverlay: ZoneGroundOverlay | undefined;
+    let wallGroundManager: TerrainHost["overlayManager"];
     let zoneFrame: number | undefined;
     let zoneGroundOverlay: ZoneGroundOverlay | undefined;
     let zoneGroundManager: TerrainHost["overlayManager"];
+    const editorRegionReplacements = new Map<number, EditorRegionReplacement>();
     const mapIconSprites = new Map<number, HTMLCanvasElement>();
     const mapIconLocs = new WeakMap<MinimapIcon, { locId: number; rotation?: number } | null>();
     let previousInteractHighlightConfig:
         | ReturnType<typeof client.interactHighlightPlugin.getConfig>
         | undefined;
+    let terrainPreviewSignature = "";
 
     const clearPlacementPreview = (): void => {
-        placementModelHighlight = undefined;
+        locPlacementPreviewOverlay?.clear();
+        wallGroundOverlay?.setRects([]);
         if (previewNpc) {
             despawnEditorNpc(client, EDITOR_NPC_PREVIEW_SERVER_ID);
             previewNpc = false;
         }
-        previewLoc = undefined;
+        previewNpcType = -1;
+        previewNpcRotation = -1;
+    };
+    const clearTerrainPreview = (): void => {
+        if (!terrainPreviewSignature) return;
+        terrainPreviewSignature = "";
+        client.tileHighlightManager.clear(EDITOR_PATH_TILE_SLOT);
+    };
+    const setTerrainPreview = (edits: readonly EditModeEdit[]): void => {
+        const signature = edits
+            .map((edit) => `${edit.tileX},${edit.tileY},${edit.plane},${edit.locId},${edit.shape},${edit.rotation}`)
+            .join(";");
+        if (terrainPreviewSignature === signature) return;
+        clearTerrainPreview();
+        if (edits.length === 0) return;
+        terrainPreviewSignature = signature;
+        client.tileHighlightManager.configure(
+            EDITOR_PATH_TILE_SLOT,
+            PATH_PREVIEW_COLOR,
+            2,
+            20,
+            TILE_HIGHLIGHT_ALWAYS_ON_TOP,
+        );
+        for (const edit of edits) {
+            client.tileHighlightManager.set(
+                packWorldMapCoord({ x: edit.tileX, y: edit.tileY, plane: edit.plane }),
+                EDITOR_PATH_TILE_SLOT,
+                EDITOR_PATH_TILE_GROUP,
+            );
+        }
     };
     const clearPointerPreview = (): void => {
         buildingPreviewTileKey = undefined;
@@ -372,6 +630,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     };
     const clearSelectionHighlight = (): void => {
         clearPointerPreview();
+        selectedModelTarget = undefined;
         buildingSelectionHighlight = undefined;
         client.tileHighlightManager.clear(EDITOR_SELECTION_TILE_SLOT);
         const renderer = terrainHost(client);
@@ -460,6 +719,30 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         mapIconGroundOverlay = overlay;
         return overlay;
     };
+    const ensureLocPlacementPreviewOverlay = (
+        renderer: TerrainHost,
+    ): LocPlacementPreviewOverlay | undefined => {
+        if (!renderer.overlayManager || !renderer.app || !renderer.sceneUniformBuffer) return undefined;
+        if (locPlacementPreviewManager === renderer.overlayManager) return locPlacementPreviewOverlay;
+        const overlay = new LocPlacementPreviewOverlay();
+        overlay.init({ app: renderer.app, sceneUniforms: renderer.sceneUniformBuffer });
+        renderer.overlayManager.add(overlay);
+        locPlacementPreviewManager = renderer.overlayManager;
+        locPlacementPreviewOverlay = overlay;
+        return overlay;
+    };
+    const ensureModelImageCaptureOverlay = (
+        renderer: TerrainHost,
+    ): ModelImageCaptureOverlay | undefined => {
+        if (!renderer.overlayManager || !renderer.app || !renderer.sceneUniformBuffer) return undefined;
+        if (modelImageCaptureManager === renderer.overlayManager) return modelImageCaptureOverlay;
+        const overlay = new ModelImageCaptureOverlay();
+        overlay.init({ app: renderer.app, sceneUniforms: renderer.sceneUniformBuffer });
+        renderer.overlayManager.add(overlay);
+        modelImageCaptureManager = renderer.overlayManager;
+        modelImageCaptureOverlay = overlay;
+        return overlay;
+    };
     const drawMapIcons = (): void => {
         mapIconFrame = undefined;
         const state = plugin.getState();
@@ -531,6 +814,18 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         renderer.overlayManager.add(overlay);
         zoneGroundManager = renderer.overlayManager;
         zoneGroundOverlay = overlay;
+        return overlay;
+    };
+    const ensureWallGroundOverlay = (
+        renderer: TerrainHost,
+    ): ZoneGroundOverlay | undefined => {
+        if (!renderer.overlayManager || !renderer.app || !renderer.sceneUniformBuffer) return undefined;
+        if (wallGroundManager === renderer.overlayManager) return wallGroundOverlay;
+        const overlay = new ZoneGroundOverlay(false);
+        overlay.init({ app: renderer.app, sceneUniforms: renderer.sceneUniformBuffer });
+        renderer.overlayManager.add(overlay);
+        wallGroundManager = renderer.overlayManager;
+        wallGroundOverlay = overlay;
         return overlay;
     };
     const drawWorldZones = (): void => {
@@ -642,7 +937,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             0xffffff,
             2,
             12,
-            0,
+            TILE_HIGHLIGHT_ALWAYS_ON_TOP,
         );
         for (let x = minX; x <= maxX; x++) {
             for (let y = minY; y <= maxY; y++) {
@@ -736,7 +1031,11 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     };
     const resolvePointerTarget = () => {
         const renderer = terrainHost(client);
-        return { renderer, target: renderer && resolveEditScenePick(renderer)?.target };
+        if (!renderer) return { renderer, target: undefined };
+        return {
+            renderer,
+            target: resolveEditScenePick(renderer)?.target,
+        };
     };
     const ensureBuildingHighlightRenderer = (renderer: TerrainHost): void => {
         if (buildingHighlightRenderer === renderer) return;
@@ -744,13 +1043,17 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         const getBaseTargets = renderer.getInteractHighlightDrawTargets.bind(renderer);
         renderer.getInteractHighlightDrawTargets = () => {
             const targets = getBaseTargets() as InteractHighlightDrawTarget[];
-            const editHighlight =
-                buildingModelHighlight ??
-                pointerModelHighlight ??
-                placementModelHighlight ??
-                buildingSelectionHighlight;
-            if (editHighlight) targets.splice(0, targets.length, editHighlight);
-            else if (previewLoc) targets.length = 0;
+            if (buildingSelectionHighlight) targets.push(buildingSelectionHighlight);
+            if (buildingModelHighlight) targets.push(buildingModelHighlight);
+            if (pointerModelHighlight) targets.push(pointerModelHighlight);
+            if (
+                !buildingSelectionHighlight &&
+                !buildingModelHighlight &&
+                !pointerModelHighlight &&
+                (plugin.getConfig().tool === "place" || plugin.getConfig().tool === "wall")
+            ) {
+                targets.length = 0;
+            }
             return targets;
         };
     };
@@ -777,9 +1080,8 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                 : getBaseRoofPlaneLimit();
         renderer.shouldRenderNpcFromMap = (map, ecsId) =>
             shouldRenderNpc(map, ecsId) &&
-            (plugin.getConfig().renderAllHeightLevels ||
-                !isEditing() ||
-                (client.npcEcs.getLevel(ecsId) | 0) <= plugin.getConfig().heightLevel);
+            (!isEditing() ||
+                (client.npcEcs.getLevel(ecsId) | 0) === plugin.getConfig().heightLevel);
         renderer.shouldRenderPlayerIndex = (ecsId) =>
             shouldRenderPlayer(ecsId) &&
             (plugin.getConfig().renderAllHeightLevels ||
@@ -822,6 +1124,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         let doorCount = 0;
         let roofCount = 0;
         let decorationCount = 0;
+        const profileObjects: EditModeBuildingProfile["objects"] = [];
         const roofTiles = new Set(building.tiles.map(({ x, y }) => `${x}:${y}`));
         const perimeterTiles = new Set(
             building.tiles
@@ -888,10 +1191,24 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                     if (seen.has(key)) continue;
                     seen.add(key);
                     objectCount++;
-                    if (door) doorCount++;
-                    else if (wallLike) wallCount++;
-                    else if (modelType >= 4 && modelType <= 8) decorationCount++;
-                    else if (modelType >= 12 && modelType <= 21) roofCount++;
+                    const role = door ? "door"
+                        : wallLike ? "wall"
+                        : modelType >= 4 && modelType <= 8 ? "decoration"
+                        : modelType >= 12 && modelType <= 21 ? "roof" : "other";
+                    if (role === "door") doorCount++;
+                    else if (role === "wall") wallCount++;
+                    else if (role === "decoration") decorationCount++;
+                    else if (role === "roof") roofCount++;
+                    profileObjects.push({
+                        id: loc.id,
+                        name: client.locTypeLoader.load(loc.id)?.name ?? "",
+                        role,
+                        x: x - building.minX,
+                        y: y - building.minY,
+                        z: plane - building.minPlane,
+                        shape: modelType,
+                        rotation: (loc.typeRot >>> 6) & 3,
+                    });
                     const points = renderer.buildHighlightTrianglePoints({
                         kind: "loc",
                         locId: loc.id,
@@ -905,6 +1222,11 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                 }
             }
         }
+        const commonId = (matches: (object: EditModeBuildingProfile["objects"][number]) => boolean) => {
+            const counts = new Map<number, number>();
+            for (const object of profileObjects.filter(matches)) counts.set(object.id, (counts.get(object.id) ?? 0) + 1);
+            return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+        };
         return {
             building,
             highlight: trianglePoints.length
@@ -915,6 +1237,15 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             doorCount,
             roofCount,
             decorationCount,
+            profileObjects,
+            materials: {
+                wallId: commonId((object) => object.role === "wall" && object.shape === 0),
+                diagonalWallId: commonId((object) => object.role === "wall" && (object.shape === 1 || object.shape === 9)),
+                doorId: commonId((object) => object.role === "door"),
+                roofEdgeId: commonId((object) => object.role === "roof" && (object.shape === 18 || object.shape === 19 || object.shape === 21)),
+                roofSlopeId: commonId((object) => object.role === "roof" && (object.shape === 12 || object.shape === 13 || object.shape === 16)),
+                roofFillId: commonId((object) => object.role === "roof" && object.shape === 17),
+            },
         };
     };
     const setBuildingTileFallback = (building: DetectedBuilding, slot: number): void => {
@@ -936,21 +1267,19 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         getPointerTile: () => {
             const renderer = terrainHost(client);
             if (renderer) ensureHeightLevelRenderer(renderer);
-            const scenePick =
-                renderer && plugin.getConfig().tool === "select"
-                    ? resolveEditScenePick(renderer)
-                    : undefined;
-            if (scenePick) return scenePick.tile;
             // Fresh terrain fallback: hoveredTile can lag a frame after camera movement.
             const tile =
                 renderer?.computeTileAt?.(client.inputManager.mouseX, client.inputManager.mouseY) ??
                 client.hoveredTile;
-            if (!tile) return undefined;
-            return {
-                tileX: tile.tileX | 0,
-                tileY: tile.tileY | 0,
-                plane: plugin.getConfig().heightLevel,
-            };
+            if (tile) {
+                return {
+                    tileX: tile.tileX | 0,
+                    tileY: tile.tileY | 0,
+                    plane: plugin.getConfig().heightLevel,
+                };
+            }
+            // Terrain picking has gaps where a loc is the only clickable surface.
+            return renderer ? resolveEditScenePick(renderer)?.tile : undefined;
         },
         previewPointer: (tile) => {
             clearPointerPreview();
@@ -1028,6 +1357,19 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                     analysis.roofCount -
                     analysis.decorationCount,
                 buildingWallId: building.wallId,
+                buildingProfile: {
+                    format: "elvarg-building-profile",
+                    version: 1,
+                    shape: building.shape,
+                    size: { width, depth, floors },
+                    materials: analysis.materials,
+                    footprint: building.tiles
+                        .map(({ x, y }) => ({ x: x - building.minX, y: y - building.minY }))
+                        .sort((a, b) => a.x - b.x || a.y - b.y),
+                    objects: analysis.profileObjects.sort(
+                        (a, b) => a.z - b.z || a.x - b.x || a.y - b.y || a.shape - b.shape || a.id - b.id,
+                    ),
+                },
             };
         },
         clearPointerPreview,
@@ -1041,6 +1383,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             clearSelectionHighlight();
             const { renderer, target } = resolvePointerTarget();
             if (renderer && target) {
+                selectedModelTarget = target;
                 configureInteractHighlight();
                 renderer.interactHighlightActiveTarget = target;
                 renderer.interactHighlightActiveFromInteraction = false;
@@ -1071,6 +1414,13 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
 
             return selectTileRange(tile, tile);
         },
+        captureSelectionImage: () => {
+            const renderer = terrainHost(client);
+            const target = selectedModelTarget;
+            if (!renderer || !target) return Promise.resolve(undefined);
+            const triangles = renderer.buildHighlightTrianglePoints(target);
+            return ensureModelImageCaptureOverlay(renderer)?.capture(triangles ?? []) ?? Promise.resolve(undefined);
+        },
         afterNextSceneFrame: (callback) => {
             if (typeof requestAnimationFrame !== "function") {
                 callback();
@@ -1087,38 +1437,94 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         selectTileRange,
         clearSelectionHighlight,
         setPlacementPreview: (kind, id, tile, shape, rotation) => {
-            clearPlacementPreview();
             if (kind === "npc") {
+                locPlacementPreviewOverlay?.clear();
+                const sameNpc =
+                    previewNpc &&
+                    previewNpcType === (id | 0) &&
+                    previewNpcRotation === (rotation | 0);
+                if (!sameNpc && previewNpc) {
+                    despawnEditorNpc(client, EDITOR_NPC_PREVIEW_SERVER_ID);
+                    previewNpc = false;
+                }
                 previewNpc =
                     spawnEditorNpc(client, id, tile, rotation, EDITOR_NPC_PREVIEW_SERVER_ID) !==
                     undefined;
+                previewNpcType = id | 0;
+                previewNpcRotation = rotation | 0;
                 return;
             }
 
+            if (previewNpc) despawnEditorNpc(client, EDITOR_NPC_PREVIEW_SERVER_ID);
+            previewNpc = false;
+            previewNpcType = -1;
+            previewNpcRotation = -1;
             const renderer = terrainHost(client);
             if (!renderer) return;
-            previewLoc = {
-                kind: "place",
+            ensureBuildingHighlightRenderer(renderer);
+            ensureLocPlacementPreviewOverlay(renderer)?.setPreview(
+                client as unknown as LocPlacementPreviewClient,
+                client.renderer as unknown as LocPlacementPreviewRenderer,
+                {
                 locId: id,
-                ...tile,
+                x: tile.tileX,
+                y: tile.tileY,
+                plane: tile.plane,
                 shape,
                 rotation,
-            };
-            ensureBuildingHighlightRenderer(renderer);
-            const trianglePoints = renderer.buildHighlightTrianglePoints({
-                kind: "loc",
-                locId: id,
-                tileX: tile.tileX,
-                tileY: tile.tileY,
-                plane: tile.plane,
-                locModelType: shape,
-                locRotation: rotation,
-            });
-            if (trianglePoints && trianglePoints.length >= 3) {
-                placementModelHighlight = { trianglePoints, color: 0xffffff, alpha: 0.45 };
+                },
+            );
+        },
+        setWallPreview: (walls, height) => {
+            if (walls.length === 0) {
+                clearPlacementPreview();
+                return;
             }
+            if (previewNpc) despawnEditorNpc(client, EDITOR_NPC_PREVIEW_SERVER_ID);
+            previewNpc = false;
+            previewNpcType = -1;
+            previewNpcRotation = -1;
+            const renderer = terrainHost(client);
+            if (!renderer) return;
+            const minX = Math.min(...walls.map((wall) => wall.tileX));
+            const maxX = Math.max(...walls.map((wall) => wall.tileX));
+            const minY = Math.min(...walls.map((wall) => wall.tileY));
+            const maxY = Math.max(...walls.map((wall) => wall.tileY));
+            ensureWallGroundOverlay(renderer)?.setRects(
+                height === undefined
+                    ? []
+                    : [{
+                        minX,
+                        maxX,
+                        minY,
+                        maxY,
+                        plane: walls[0].plane,
+                        colorRgb: WALL_PREVIEW_GROUND_COLOR,
+                        alpha: 0.65,
+                        height,
+                    }],
+            );
+            ensureBuildingHighlightRenderer(renderer);
+            ensureLocPlacementPreviewOverlay(renderer)?.setPreviews(
+                client as unknown as LocPlacementPreviewClient,
+                client.renderer as unknown as LocPlacementPreviewRenderer,
+                walls.map((wall) => ({
+                    locId: wall.locId,
+                    x: wall.tileX,
+                    y: wall.tileY,
+                    plane: wall.plane,
+                    shape: wall.shape,
+                    rotation: wall.rotation,
+                    height,
+                })),
+            );
         },
         clearPlacementPreview,
+        setAudioMuted: (muted) => {
+            setAudioSuspended(muted);
+            // Music also has an HTMLAudio fallback outside the Web Audio graph.
+            client.musicSystem?.setMuted(muted);
+        },
         onLocAddChange: (locId, tile, level, shape, rotation) => {
             const renderer = terrainHost(client);
             renderer?.pendingLocUpdates.add(renderer.getMapIdForWorldTile(tile.x, tile.y));
@@ -1143,7 +1549,30 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             return filterIndex(await getNameIndex(kind, loader), query);
         },
         describeDefinition: (kind, id) => describeDefinition(client, kind, id),
-        listShops: () => loadShops(client),
+        loadShops: requestBrowserHostShops,
+        loadNpcInteractions: requestBrowserHostNpcInteractions,
+        getNpcMenuOptions: (npcTypeId) => {
+            const npc = client.npcTypeLoader?.load(npcTypeId);
+            return npc ? getNpcMenuOptions(npc) : [];
+        },
+        getOverlaySwatches: () => {
+            const loader = client.loaderFactory?.getOverlayTypeLoader?.();
+            if (!loader) return [];
+            const swatches = [];
+            for (let id = 1; id < loader.getCount(); id++) {
+                try {
+                    const overlay = loader.load(id);
+                    swatches.push({
+                        id,
+                        colorRgb: overlay.primaryRgb & 0xffffff,
+                        name: overlay.name,
+                    });
+                } catch {
+                    // Sparse caches can still be fetching an overlay definition.
+                }
+            }
+            return swatches;
+        },
         loadWorldDefinition,
         spawnNpc: (npcTypeId, tile, rotation) => spawnEditorNpc(client, npcTypeId, tile, rotation),
         setFreeCamera: (enabled) => {
@@ -1166,6 +1595,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                     plane: plugin.getConfig().heightLevel,
                 },
                 true,
+                EDITOR_OPENING_CAMERA_DISTANCE,
             );
         },
         setHeightLevel: () => {
@@ -1181,33 +1611,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             frameCameraOnTile(client, tile, false);
         },
         exportRegionPack: (tile, edits) => {
-            const mapX = tile.tileX >> 6;
-            const mapY = tile.tileY >> 6;
-            const regionId = (mapX << 8) | mapY;
-            const mapFileLoader = client.loaderFactory.getMapFileLoader();
-            const replacement = terrainHost(client)?.mapRegionReplacements.get(regionId);
-            const xteas = client.loadedCache?.xteas;
-            const terrainData =
-                replacement?.terrainData ?? mapFileLoader.getTerrainData(mapX, mapY, xteas);
-            const objectData =
-                replacement?.objectData ??
-                (xteas ? mapFileLoader.getLocData(mapX, mapY, xteas) : undefined);
-            if (!terrainData || !objectData) {
-                throw new Error(`Region ${regionId} is not loaded`);
-            }
-            return {
-                regionId,
-                data: buildRegionPack(
-                    regionId,
-                    client.mapFileIndex.getLocArchiveId(mapX, mapY),
-                    client.mapFileIndex.getTerrainArchiveId(mapX, mapY),
-                    objectData,
-                    terrainData,
-                    edits,
-                    client.loadedCache?.info.game === "oldschool" &&
-                        (client.loadedCache?.info.revision ?? 0) >= 209,
-                ),
-            };
+            return buildEditorRegionPack(client, tile, edits, editorRegionReplacements);
         },
         rotateCamera: (deltaX, deltaY) => {
             const camera = client.camera;
@@ -1236,23 +1640,10 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                 true,
             );
         },
-        listInterfaceGroups: () => client.widgetManager?.getAvailableGroups() ?? [],
-        openInterface: (groupId) => {
-            client.widgetManager?.setRootInterface(groupId | 0);
+        toggleWorldMap: () => {
+            editorWorldMap.toggle(plugin.getCameraTile());
         },
-        describeInterface: (groupId) =>
-            (client.widgetManager?.getWidgetsForGroup(groupId | 0) ?? [])
-                .slice(0, WIDGET_SUMMARY_LIMIT)
-                .map((widget) => ({
-                    uid: widget.uid | 0,
-                    fileId: widget.fileId | 0,
-                    type: widget.type ?? -1,
-                    x: widget.x | 0,
-                    y: widget.y | 0,
-                    width: widget.width | 0,
-                    height: widget.height | 0,
-                    text: widget.text,
-                })),
+        isEditorModalOpen: () => editorWorldMap.isOpen(),
         setTerrainOverlay: (tile, overlay, shape, rotation) => {
             const renderer = terrainHost(client);
             if (!renderer) return;
@@ -1264,12 +1655,50 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             reloadTile(renderer, tile);
             zoneGroundOverlay?.invalidate();
         },
+        setTerrainPreview,
+        clearTerrainPreview,
         clearTerrainOverride: (tile) => {
             const renderer = terrainHost(client);
             if (!renderer) return;
             renderer.terrainOverrides.delete(`${tile.tileX},${tile.tileY},${tile.plane}`);
             reloadTile(renderer, tile);
             zoneGroundOverlay?.invalidate();
+        },
+        getTerrainHeight: (tile) => {
+            const renderer = terrainHost(client);
+            if (!renderer?.getPreferredMapForWorldTile(tile.tileX, tile.tileY)) return undefined;
+            return renderer.getTileHeightAtPlane(tile.tileX, tile.tileY, tile.plane);
+        },
+        refreshEditedRegions: (regionIds, edits) => {
+            for (const regionId of regionIds) {
+                try {
+                    const pack = buildEditorRegionPack(client, {
+                        tileX: (regionId >> 8) << 6,
+                        tileY: (regionId & 0xff) << 6,
+                        plane: 0,
+                    }, edits, editorRegionReplacements);
+                    const replacement = parseRegionPack(pack.data);
+                    editorRegionReplacements.set(replacement.regionId, replacement);
+                    client.onRegionReplacement({ ...replacement, allowReload: true });
+                } catch (error) {
+                    console.warn(`[edit-mode] failed to rebuild region ${regionId}`, error);
+                }
+            }
+        },
+        refreshMap: () => {
+            const renderer = terrainHost(client);
+            if (!renderer) return;
+            const reload = () => {
+                for (const map of renderer.mapManager.visibleMaps) {
+                    renderer.pendingLocUpdates.add((map.mapX << 8) | map.mapY);
+                    renderer.scheduleLocReload(map.mapX, map.mapY);
+                }
+            };
+            reload();
+            // ponytail: the worker reload API has no completion event; bounded follow-ups
+            // supersede stale loc/terrain batches. Replace with an awaitable reload when available.
+            window.setTimeout(reload, 150);
+            window.setTimeout(reload, 500);
         },
         despawnNpc: (serverId) => {
             // Dev-only: reuse the server despawn path rather than duplicating
@@ -1284,11 +1713,126 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         syncWorldSpawnHighlight();
     });
 
-    // Dev builds always offer the editor: the welcome screen's "Edit Mode"
-    // button is the way in, and Ctrl+E arms it while logged in.
+    // The welcome screen's "Edit Mode" button is the way in, and Ctrl+E arms
+    // it while logged in.
     plugin.setConfig({ enabled: true });
-    // /host opens the client with ?edit=1 so its "Edit Mode" button lands
-    // straight in the editor rather than on the welcome screen.
+    const params = new URLSearchParams(window.location.search);
+    const host = browserHostWindow();
+    if (params.get("browser-host-client") === "1" && host) {
+        const hostOrigin = browserHostOrigin();
+        const loadedNpcSpawnRegions = new Map<
+            number,
+            Array<{ spawn: BrowserHostNpcSpawn; serverId: number }>
+        >();
+        const pendingNpcSpawnRegions = new Set<number>();
+        const npcRuntimeReady = () => !!(client as unknown as { npcMovementSync?: unknown }).npcMovementSync;
+        const syncNpcSpawnRegions = () => {
+            // Do not enqueue NPC geometry into the title screen's unrelated map grid.
+            // The scene preview establishes the editor's map grid first.
+            if (!plugin.getState().scenePreview || !npcRuntimeReady()) return;
+            const camera = plugin.getCameraTile();
+            if (!camera) return;
+            const mapX = camera.tileX >> 6;
+            const mapY = camera.tileY >> 6;
+            const wanted = new Set<number>();
+            for (let offsetX = -1; offsetX <= 1; offsetX++) {
+                for (let offsetY = -1; offsetY <= 1; offsetY++) {
+                    const nextMapX = mapX + offsetX;
+                    const nextMapY = mapY + offsetY;
+                    if (nextMapX >= 0 && nextMapX <= 0xff && nextMapY >= 0 && nextMapY <= 0xff) {
+                        wanted.add((nextMapX << 8) | nextMapY);
+                    }
+                }
+            }
+            for (const [regionId, entries] of loadedNpcSpawnRegions) {
+                if (wanted.has(regionId)) continue;
+                for (const { serverId } of entries) despawnEditorNpc(client, serverId);
+                loadedNpcSpawnRegions.delete(regionId);
+            }
+            const missing = [...wanted].filter((regionId) =>
+                !loadedNpcSpawnRegions.has(regionId) && !pendingNpcSpawnRegions.has(regionId),
+            );
+            if (missing.length === 0) return;
+            for (const regionId of missing) pendingNpcSpawnRegions.add(regionId);
+            host.postMessage(
+                { type: NPC_SPAWN_REQUEST_MESSAGE, regionIds: missing },
+                hostOrigin,
+            );
+        };
+        window.addEventListener("message", (event: MessageEvent) => {
+            if (event.origin !== hostOrigin) return;
+            const message = event.data as RegionPackMessage | NpcSpawnMessage | undefined;
+            if (message?.type === NPC_SPAWN_MESSAGE) {
+                const regionIds = Array.isArray(message.regionIds) ? message.regionIds : [];
+                if (!npcRuntimeReady()) {
+                    for (const regionId of regionIds) pendingNpcSpawnRegions.delete(regionId);
+                    return;
+                }
+                const byRegion = new Map<number, BrowserHostNpcSpawn[]>();
+                for (const spawn of Array.isArray(message.spawns) ? message.spawns : []) {
+                    if (![spawn.id, spawn.tileX, spawn.tileY, spawn.plane].every(Number.isInteger)) continue;
+                    const regionId = regionIdForTile(spawn.tileX, spawn.tileY);
+                    const entries = byRegion.get(regionId);
+                    if (entries) entries.push(spawn);
+                    else byRegion.set(regionId, [spawn]);
+                }
+                for (const regionId of regionIds) {
+                    pendingNpcSpawnRegions.delete(regionId);
+                    if (loadedNpcSpawnRegions.has(regionId)) continue;
+                    const entries = (byRegion.get(regionId) ?? []).flatMap((spawn) => {
+                        const serverId = spawnStaticEditorNpc(client, spawn);
+                        return serverId === undefined ? [] : [{ spawn, serverId }];
+                    });
+                    loadedNpcSpawnRegions.set(regionId, entries);
+                }
+                return;
+            }
+            const data = message && copyRegionPackBytes(message.data);
+            if (message?.type !== REGION_PACK_MESSAGE || !data) return;
+            try {
+                const pack = parseRegionPack(data);
+                if (pack.regionId !== message.regionId) throw new Error("Region id does not match pack");
+                editorRegionReplacements.set(pack.regionId, pack);
+                client.onRegionReplacement({ ...pack, allowReload: true });
+            } catch (error) {
+                console.warn("[edit-mode] ignored invalid host region pack", error);
+            }
+        });
+        const mapManager = client.renderer.mapManager;
+        const onMapAdded = mapManager.onMapAdded;
+        mapManager.onMapAdded = (mapX, mapY) => {
+            onMapAdded?.(mapX, mapY);
+            const regionId = (mapX << 8) | mapY;
+            const replacement = editorRegionReplacements.get(regionId);
+            if (replacement && !terrainHost(client)?.mapRegionReplacements.has(regionId)) {
+                client.onRegionReplacement({ regionId, ...replacement, allowReload: true });
+            }
+            plugin.reapplyNpcsForMap(mapX, mapY);
+            for (const entry of loadedNpcSpawnRegions.get(regionId) ?? []) {
+                if (client.npcEcs.getEcsIdForServer(entry.serverId) === undefined) {
+                    spawnStaticEditorNpc(client, entry.spawn, entry.serverId);
+                }
+            }
+        };
+        host.postMessage({ type: REGION_PACK_REQUEST_MESSAGE }, hostOrigin);
+        window.setInterval(syncNpcSpawnRegions, 500);
+        syncNpcSpawnRegions();
+    }
+    let teardownEditorUi: (() => void) | undefined;
+    const syncEditorUi = () => {
+        const state = plugin.getState();
+        const active = state.config.enabled && (state.scenePreview || state.config.active);
+        if (active && !teardownEditorUi) teardownEditorUi = mountEditorUi(plugin);
+        else if (!active && teardownEditorUi) {
+            teardownEditorUi();
+            teardownEditorUi = undefined;
+        }
+    };
+    plugin.subscribe(syncEditorUi);
+    syncEditorUi();
+
+    // ?edit=1 opens the client straight in the editor instead of changing the
+    // normal welcome-screen button.
     if (new URLSearchParams(window.location.search).has("edit")) {
         // ponytail: polled, because the cache load and the world definition
         // fetch settle independently and neither has a ready event to hook.
@@ -1309,7 +1853,7 @@ type TerrainHost = {
     currentFrameCount: number;
     app?: PicoApp;
     sceneUniformBuffer?: UniformBuffer;
-    overlayManager?: { add(overlay: MapIconGroundOverlay | ZoneGroundOverlay): unknown };
+    overlayManager?: { add(overlay: Overlay): unknown };
     mapManager: {
         visibleMapCount: number;
         visibleMaps: Array<{
@@ -1381,6 +1925,8 @@ type TerrainHost = {
         number,
         { terrainData: Int8Array; objectData?: Int8Array }
     >;
+    getPreferredMapForWorldTile(tileX: number, tileY: number): unknown;
+    getTileHeightAtPlane(tileX: number, tileY: number, plane: number): number;
     pendingLocUpdates: Set<number>;
     getMapIdForWorldTile(x: number, y: number): number;
     scheduleLocReload(mapX: number, mapY: number): void;
@@ -1399,12 +1945,48 @@ function reloadTile(renderer: TerrainHost, tile: EditModeTile): void {
     renderer.scheduleLocReload(mapId >> 8, mapId & 0xff);
 }
 
+function buildEditorRegionPack(
+    client: OsrsClient,
+    tile: EditModeTile,
+    edits: readonly EditModeEdit[],
+    replacements: ReadonlyMap<number, EditorRegionReplacement>,
+): { regionId: number; data: Uint8Array } {
+    const mapX = tile.tileX >> 6;
+    const mapY = tile.tileY >> 6;
+    const regionId = (mapX << 8) | mapY;
+    const mapFileLoader = client.loaderFactory.getMapFileLoader();
+    const replacement = replacements.get(regionId) ?? terrainHost(client)?.mapRegionReplacements.get(regionId);
+    const xteas = client.loadedCache?.xteas;
+    const terrainData = replacement?.terrainData ?? mapFileLoader.getTerrainData(mapX, mapY, xteas);
+    const objectData =
+        replacement?.objectData ?? (xteas ? mapFileLoader.getLocData(mapX, mapY, xteas) : undefined);
+    if (!terrainData || !objectData) throw new Error(`Region ${regionId} is not loaded`);
+    return {
+        regionId,
+        data: buildRegionPack(
+            regionId,
+            client.mapFileIndex.getLocArchiveId(mapX, mapY),
+            client.mapFileIndex.getTerrainArchiveId(mapX, mapY),
+            objectData,
+            terrainData,
+            edits,
+            client.loadedCache?.info.game === "oldschool" &&
+                (client.loadedCache?.info.revision ?? 0) >= 209,
+        ),
+    };
+}
+
 /**
  * Puts the camera on the tile at ground level, then pulls it back along its own
  * view ray so the tile sits mid-screen - the same shape as the follow camera's
  * orbit, which is what makes the view read as a normal RS one.
  */
-function frameCameraOnTile(client: OsrsClient, tile: EditModeTile, resetAngles: boolean): void {
+function frameCameraOnTile(
+    client: OsrsClient,
+    tile: EditModeTile,
+    resetAngles: boolean,
+    distance = EDITOR_CAMERA_DISTANCE,
+): void {
     const camera = client.camera;
     if (resetAngles) {
         camera.snapToYaw(EDITOR_CAMERA_YAW);
@@ -1423,10 +2005,36 @@ function frameCameraOnTile(client: OsrsClient, tile: EditModeTile, resetAngles: 
         typeof height === "number" && Number.isFinite(height) ? height : undefined,
         centreZ,
     );
-    camera.move(0, 0, EDITOR_CAMERA_DISTANCE, true);
+    camera.move(0, 0, distance, true);
 }
 
 let nextEditorNpcServerId = EDITOR_NPC_SERVER_ID_BASE;
+
+/** Browser-host spawn records are static editor scenery, never part of gameplay movement. */
+function spawnStaticEditorNpc(
+    client: OsrsClient,
+    spawn: BrowserHostNpcSpawn,
+    forcedServerId?: number,
+): number | undefined {
+    let cacheDirection: number | undefined;
+    try {
+        cacheDirection = client.npcTypeLoader?.load(spawn.id)?.spawnDirection;
+    } catch {
+        return undefined;
+    }
+    const direction = Number.isInteger(spawn.direction)
+        ? spawn.direction!
+        : Number.isInteger(cacheDirection)
+          ? cacheDirection
+          : 6;
+    return spawnEditorNpcWithOrientation(
+        client,
+        spawn.id,
+        { tileX: spawn.tileX, tileY: spawn.tileY, plane: spawn.plane },
+        DIRECTION_TO_ORIENTATION[direction & 7] ?? 0,
+        forcedServerId,
+    );
+}
 
 /**
  * Spawns a cache NPC through the same path the server's NPC add stream uses,
@@ -1441,6 +2049,23 @@ function spawnEditorNpc(
     rotation: number,
     forcedServerId?: number,
 ): number | undefined {
+    return spawnEditorNpcWithOrientation(
+        client,
+        npcTypeId,
+        tile,
+        (rotation & 0x3) * 512,
+        forcedServerId,
+    );
+}
+
+function spawnEditorNpcWithOrientation(
+    client: OsrsClient,
+    npcTypeId: number,
+    tile: EditModeTile,
+    orientation: number,
+    forcedServerId?: number,
+): number | undefined {
+    if (!(client as unknown as { npcMovementSync?: unknown }).npcMovementSync) return undefined;
     const spawnNpcBinary = (
         client as unknown as {
             spawnNpcBinary(
@@ -1469,8 +2094,7 @@ function spawnEditorNpc(
             tileX: tile.tileX | 0,
             tileY: tile.tileY | 0,
             level: tile.plane | 0,
-            // Cache rotations are 0-3; the client stores angles in 0-2047.
-            rot: (rotation & 0x3) * 512,
+            rot: orientation & 2047,
             teleport: true,
             worldViewId: -1,
         },

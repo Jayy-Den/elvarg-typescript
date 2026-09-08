@@ -1,7 +1,7 @@
 import { Socket } from "net";
 import { RawData, WebSocket } from "ws";
 
-export const MAX_GAME_MESSAGE_BYTES = 4096;
+export const MAX_GAME_MESSAGE_BYTES = 64 * 1024;
 
 export type BinaryChannelKind = "websocket" | "webrtc" | "tcp";
 

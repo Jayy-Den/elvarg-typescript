@@ -26,6 +26,8 @@ export type WebRtcRelayConfig = {
     iceServers: RTCIceServer[];
 };
 
+export type BrowserHostWorldConfig = WebRtcRelayConfig & { worldId: string };
+
 const DEFAULT_WEBRTC_SIGNAL_URL = "wss://worlds.rsps.app";
 const DEFAULT_WEBRTC_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.rsps.app:3478" }];
 
@@ -52,7 +54,10 @@ function isIceServer(value: unknown): value is RTCIceServer {
 /** Base URL for OSRS cache files. Trailing slash always present. */
 export function getCacheBaseUrl(): string {
     const fromEnv = read(process.env.REACT_APP_CACHE_BASE_URL);
-    if (!fromEnv) return "/caches/";
+    if (!fromEnv) {
+        const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
+        return `${publicUrl}/caches/`;
+    }
     return fromEnv.endsWith("/") ? fromEnv : `${fromEnv}/`;
 }
 
@@ -115,7 +120,25 @@ export function getConfiguredServers(): ConfiguredServer[] | undefined {
 }
 
 /** Public relay directory used to discover WebRTC worlds. */
+export function getPublicWebRtcRelayConfig(): WebRtcRelayConfig {
+    return { signalUrl: DEFAULT_WEBRTC_SIGNAL_URL, iceServers: DEFAULT_WEBRTC_ICE_SERVERS };
+}
+
+export function getBrowserHostWorldConfig(): BrowserHostWorldConfig | undefined {
+    if (typeof window === "undefined") return undefined;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("browser-host-client") !== "1") return undefined;
+    const worldId = params.get("browser-host-world");
+    if (!worldId || !/^[A-Za-z0-9._-]{1,64}$/.test(worldId)) return undefined;
+    return { ...getPublicWebRtcRelayConfig(), worldId };
+}
+
+/** Public relay directory used to discover WebRTC worlds. */
 export function getWebRtcRelayConfig(): WebRtcRelayConfig | undefined {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("browser-host-client")) {
+        return getPublicWebRtcRelayConfig();
+    }
+
     const signalUrl = read(process.env.REACT_APP_WEBRTC_SIGNAL_URL) ?? DEFAULT_WEBRTC_SIGNAL_URL;
 
     const rawIceServers = read(process.env.REACT_APP_WEBRTC_ICE_SERVERS);
@@ -134,10 +157,9 @@ export function getWebRtcRelayConfig(): WebRtcRelayConfig | undefined {
 
 /** Optional override for the remote server-list URL. */
 export function getServerListUrl(): string {
+    const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
     return (
         read(process.env.REACT_APP_SERVER_LIST_URL) ??
-        (typeof window !== "undefined"
-            ? `${window.location.origin}/servers.json`
-            : "/servers.json")
+        `${publicUrl}/servers.json`
     );
 }

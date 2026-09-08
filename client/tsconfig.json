@@ -19,7 +19,6 @@
   },
   "include": [
     "common",
-    "browserHost",
     "components",
     "config",
     "custom",

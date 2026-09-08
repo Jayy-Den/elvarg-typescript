@@ -7,6 +7,8 @@ import { SpriteLoader } from "../../../rs/sprite/SpriteLoader";
 import { LoginScreenAnimation } from "../LoginScreenAnimation";
 import type { LoginRendererHost } from "./host";
 
+const PUBLIC_PATH = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
+
 function loadSprite(spriteIndex: CacheIndex, name: string) {
 
         try {
@@ -50,7 +52,7 @@ export function loadLogoImage(host: LoginRendererHost): Promise<boolean> {
                 host.logoImageLoaded = false;
                 resolve(false);
             };
-            host.logoImage.src = "/images/logo.png";
+            host.logoImage.src = `${PUBLIC_PATH}/images/logo.png`;
         });
     
 }
@@ -58,7 +60,7 @@ export function loadLogoImage(host: LoginRendererHost): Promise<boolean> {
 export async function loadTitleBackground(host: LoginRendererHost): Promise<boolean> {
 
         try {
-            const response = await fetch("/images/loading-bg.jpg");
+            const response = await fetch(`${PUBLIC_PATH}/images/loading-bg.jpg`);
             if (response.ok) {
                 const blob = await response.blob();
                 const imageBitmap = await createImageBitmap(blob);

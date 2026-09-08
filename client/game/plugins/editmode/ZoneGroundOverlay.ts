@@ -18,6 +18,8 @@ export interface ZoneGroundRect {
     plane: number;
     colorRgb: number;
     alpha: number;
+    /** A flat editor preview plane instead of sampling the existing terrain. */
+    height?: number;
 }
 
 // World Y is negative-up, so this holds the overlay above the terrain.
@@ -93,10 +95,11 @@ export function buildZoneGroundGeometry(
                 const key = `${x}:${y}:${rect.plane}:${rect.colorRgb}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
-                const a = sampleHeight(x, y, rect.plane) - TERRAIN_CLEARANCE;
-                const b = sampleHeight(x + 1, y, rect.plane) - TERRAIN_CLEARANCE;
-                const c = sampleHeight(x + 1, y + 1, rect.plane) - TERRAIN_CLEARANCE;
-                const d = sampleHeight(x, y + 1, rect.plane) - TERRAIN_CLEARANCE;
+                const height = rect.height;
+                const a = (height ?? sampleHeight(x, y, rect.plane)) - TERRAIN_CLEARANCE;
+                const b = (height ?? sampleHeight(x + 1, y, rect.plane)) - TERRAIN_CLEARANCE;
+                const c = (height ?? sampleHeight(x + 1, y + 1, rect.plane)) - TERRAIN_CLEARANCE;
+                const d = (height ?? sampleHeight(x, y + 1, rect.plane)) - TERRAIN_CLEARANCE;
                 positions.set(
                     [
                         x, a, y,
@@ -137,6 +140,8 @@ export class ZoneGroundOverlay implements Overlay {
     private dirty = true;
     private vertexCapacity = 0;
 
+    constructor(private readonly depthTest = true) {}
+
     setRects(rects: readonly ZoneGroundRect[]): void {
         const key = rects
             .map((rect) =>
@@ -148,6 +153,7 @@ export class ZoneGroundOverlay implements Overlay {
                     rect.plane,
                     rect.colorRgb,
                     rect.alpha,
+                    rect.height,
                 ].join(":"),
             )
             .join(";");
@@ -202,7 +208,8 @@ export class ZoneGroundOverlay implements Overlay {
         }
         if (this.array.numElements === 0) return;
 
-        this.app.enable(this.gl.DEPTH_TEST);
+        if (this.depthTest) this.app.enable(this.gl.DEPTH_TEST);
+        else this.app.disable(this.gl.DEPTH_TEST);
         this.app.depthMask(false);
         this.app.disable(this.gl.CULL_FACE as any);
         this.app.enable(this.gl.BLEND);
@@ -210,6 +217,7 @@ export class ZoneGroundOverlay implements Overlay {
         this.drawCall.draw();
         this.app.depthMask(true);
         this.app.disable(this.gl.BLEND);
+        this.app.enable(this.gl.DEPTH_TEST);
     }
 
     dispose(): void {

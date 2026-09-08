@@ -11,14 +11,16 @@ export function createBrowserEditModePluginPersistence(
         load: (): Partial<EditModePluginConfig> | undefined => {
             try {
                 const raw = window.localStorage.getItem(storageKey);
-                return raw ? (JSON.parse(raw) as Partial<EditModePluginConfig>) : undefined;
+                return raw
+                    ? { ...(JSON.parse(raw) as Partial<EditModePluginConfig>), edits: [] }
+                    : undefined;
             } catch {
                 return undefined;
             }
         },
         save: (config: EditModePluginConfig): void => {
             try {
-                window.localStorage.setItem(storageKey, JSON.stringify(config));
+                window.localStorage.setItem(storageKey, JSON.stringify({ ...config, edits: [] }));
             } catch {}
         },
     };

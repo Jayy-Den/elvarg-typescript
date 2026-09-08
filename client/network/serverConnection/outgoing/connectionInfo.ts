@@ -1,4 +1,5 @@
 import { send } from "../connection/send";
+import { getBrowserHostWorldConfig } from "../../../config/clientEnv";
 import { state } from "../state";
 import type { WebRtcConnectionConfig } from "../connection/GameSocket";
 
@@ -16,6 +17,11 @@ export function getLastUrl(): string {
 }
 
 export function setServerUrl(url: string, webRtcConfig?: WebRtcConnectionConfig): void {
+    const browserHostWorld = getBrowserHostWorldConfig();
+    if (browserHostWorld) {
+        url = browserHostWorld.signalUrl;
+        webRtcConfig = browserHostWorld;
+    }
     const changed = state.lastUrl !== url
         || JSON.stringify(state.webRtcConfig) !== JSON.stringify(webRtcConfig);
     if (changed && state.socket) {

@@ -1,29 +1,43 @@
 import FileSaver from "file-saver";
-import { REGION_PACK_MESSAGE } from "../../../browserHost/regionPackMessage";
+import {
+    REGION_PACK_MESSAGE,
+} from "./hostProtocol/regionPackMessage";
+import { browserHostOrigin, browserHostWindow } from "./hostProtocol/origin";
 import type { EditModePlugin } from "./EditModePlugin";
 import { EditorPalette, type PaletteMode } from "./EditorPalette";
 import {
+    createCameraIcon,
     EditorToolbar,
     createCloseIcon,
     createDuplicateIcon,
-    createExportIcon,
-    createInterfacesIcon,
+    createDownloadIcon,
     createLayersIcon,
+    createOverlayIcon,
     createPathIcon,
-    createPlayIcon,
+    createPaintIcon,
     createPointerIcon,
     createRotateIcon,
+    createRefreshIcon,
     createSearchIcon,
+    createSaveIcon,
     createShopIcon,
+    createSpawnIcon,
     createTrashIcon,
     createWorldMapIcon,
 } from "./EditorToolbar";
+import { WORLD_DEFINITION_MESSAGE } from "./hostProtocol/worldDefinitionMessage";
+import { CUSTOM_NPC_SPAWNS_MESSAGE } from "./hostProtocol/npcSpawnMessage";
+import { SHOP_DEFINITIONS_MESSAGE } from "./hostProtocol/shopsMessage";
+import { NPC_INTERACTIONS_MESSAGE } from "./hostProtocol/npcInteractionsMessage";
+import { MenuOpcode } from "../../../ui/menu/MenuState";
 import type {
     EditModeDefinitionSummary,
+    EditModeOverlaySwatch,
     EditModeSearchKind,
+    EditModeNpcInteractions,
     EditModeShop,
-    EditModeWidgetSummary,
 } from "./types";
+import { BUILDING_SHAPES, BUILDING_STYLES, type BuildingShape, type BuildingStyle } from "./BuildingGenerator";
 
 const PANEL_STYLE: Partial<CSSStyleDeclaration> = {
     position: "fixed",
@@ -50,6 +64,19 @@ const INPUT_STYLE: Partial<CSSStyleDeclaration> = {
     background: "#111318",
     font: "13px sans-serif",
 };
+
+function npcClickKey(opcode: number): "first_click" | "second_click" | "third_click" | "fourth_click" | undefined {
+    switch (opcode) {
+        case MenuOpcode.NpcFirstOption: return "first_click";
+        case MenuOpcode.NpcSecondOption: return "second_click";
+        case MenuOpcode.NpcThirdOption: return "third_click";
+        case MenuOpcode.NpcFourthOption: return "fourth_click";
+    }
+}
+
+function camelNpcClickKey(key: string): string {
+    return key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
 
 function stopClientInput(element: HTMLElement): void {
     for (const eventName of ["mousedown", "click", "keydown", "keyup"] as const) {
@@ -108,45 +135,21 @@ function createActionButton(
     button.setAttribute("aria-label", title);
     button.appendChild(icon());
     Object.assign(button.style, {
-        width: "30px",
-        height: "30px",
-        display: "grid",
-        placeItems: "center",
-        padding: "0",
+        width: "100%",
+        minHeight: "32px",
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "6px 8px",
         border: "1px solid rgba(255,255,255,0.16)",
         borderRadius: "4px",
         color: "#cbd5e1",
         background: "rgba(255,255,255,0.06)",
         cursor: "pointer",
-    });
-    button.addEventListener("click", action);
-    return button;
-}
-
-function createResultButton(text: string, action: () => void): HTMLButtonElement {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = text;
-    Object.assign(button.style, {
-        width: "100%",
-        minHeight: "34px",
-        padding: "7px 8px",
-        border: "1px solid transparent",
-        borderRadius: "4px",
-        color: "#e5e7eb",
-        background: "transparent",
-        cursor: "pointer",
         font: "13px sans-serif",
         textAlign: "left",
     });
-    button.addEventListener("mouseenter", () => {
-        button.style.background = "rgba(59,130,246,0.22)";
-        button.style.borderColor = "rgba(96,165,250,0.35)";
-    });
-    button.addEventListener("mouseleave", () => {
-        button.style.background = "transparent";
-        button.style.borderColor = "transparent";
-    });
+    button.append(" ", title);
     button.addEventListener("click", action);
     return button;
 }
@@ -154,7 +157,6 @@ function createResultButton(text: string, action: () => void): HTMLButtonElement
 class EditorChrome {
     private readonly toolbar: EditorToolbar;
     private readonly palette: EditorPalette;
-    private readonly overlay: HTMLDivElement;
     private readonly selectionDetails: HTMLDivElement;
     private readonly bottomBar: HTMLDivElement;
     private readonly heightInput: HTMLInputElement;
@@ -165,12 +167,37 @@ class EditorChrome {
     private readonly unsubscribe: () => void;
     private readonly canvasShell?: HTMLElement;
     private readonly previousCanvasBottom: string;
-    private auxiliaryPanel?: HTMLElement;
     private detailPanel?: HTMLElement;
-    private shops?: EditModeShop[];
+    private overlayPalette?: HTMLElement;
+    private shopBrowser?: HTMLElement;
+    private shopBrowserResults?: HTMLElement;
+    private shopEditor?: HTMLElement;
+    private activeShop?: EditModeShop;
+    private shops: EditModeShop[] = [];
+    private shopsLoaded = false;
+    private shopsLoading = false;
+    private shopsDirty = false;
+    private npcInteractions: EditModeNpcInteractions = {};
+    private npcInteractionsLoaded = false;
+    private npcInteractionsLoading = false;
+    private npcInteractionsDirty = false;
+    private npcInteractionError?: string;
+    private npcShopPickTarget?: { npcId: number; clickKey: "first_click" | "second_click" | "third_click" | "fourth_click" };
+    private shopError?: string;
+    private shopSearchToken = 0;
+    private shopIconRetryTimer?: number;
+    private shopIconRetryCount = 0;
+    private shopPreviewScrollTop = 0;
+    private overlaySwatches: readonly EditModeOverlaySwatch[] = [];
+    private selectionImage?: { key: string; dataUrl: string; loading: boolean };
+    private buildingStyle: BuildingStyle = "Varrock";
+    private buildingShape: BuildingShape = "Rectangle";
+    private buildingFloors = 1;
     private lastVersion = -1;
 
     constructor(private readonly plugin: EditModePlugin) {
+        const hostConnected = browserHostWindow() !== null;
+        this.overlaySwatches = plugin.getOverlaySwatches();
         this.palette = new EditorPalette({
             onModeChange: (mode) => this.search(mode),
             onQueryChange: (query) => this.plugin.searchCache(query, this.currentSearchMode()),
@@ -180,65 +207,46 @@ class EditorChrome {
 
         this.toolbar = new EditorToolbar(
             [
-                { id: "select", label: "Pointer · Select objects", icon: createPointerIcon },
+                { id: "select", label: "Selection tool", icon: createPointerIcon },
                 {
                     id: "cache-search",
-                    label: "Search cache",
+                    label: "Search NPCs / Objects / Items",
                     icon: createSearchIcon,
                     action: () => this.togglePalette(),
                 },
-                { id: "path", label: "Draw path", icon: createPathIcon },
                 {
+                    id: "overlay",
+                    label: "Choose overlay",
+                    icon: () => createOverlayIcon(this.overlayColor(plugin.getConfig().overlayId)),
+                    action: () => this.toggleOverlayPalette(),
+                },
+                { id: "path", label: "Draw path", icon: createPathIcon },
+                ...(hostConnected ? [{
                     id: "shops",
                     label: "Browse shops",
                     icon: createShopIcon,
-                    action: () => void this.toggleShops(),
-                },
-                {
-                    id: "interfaces",
-                    label: "Browse interfaces",
-                    icon: createInterfacesIcon,
-                    action: () => this.toggleInterfaces(),
-                },
+                    action: () => this.toggleShopBrowser(),
+                }] : []),
                 {
                     id: "world-map",
-                    label: "Open world map",
+                    label: "World map",
                     icon: createWorldMapIcon,
                     action: () => this.toggleWorldMap(),
                 },
                 {
                     id: "export-region",
-                    label: "Export active region (.pack)",
-                    icon: createExportIcon,
-                    action: () => this.exportRegion(),
-                },
-                {
-                    id: "play",
-                    label: "Play game",
-                    icon: createPlayIcon,
-                    action: () => this.plugin.setConfig({ active: false }),
+                    label: browserHostWindow() ? "Save changes to world" : "Download edited regions",
+                    icon: () => browserHostWindow() ? createSaveIcon() : createDownloadIcon(),
+                    dividerBefore: true,
+                    action: () => this.exportRegions(),
                 },
             ],
             "select",
-            (toolId) => this.plugin.setConfig({ tool: toolId === "path" ? "path" : "select" }),
+            (toolId) =>
+                this.plugin.setConfig({
+                    tool: toolId === "path" ? toolId : "select",
+                }),
         );
-
-        this.overlay = document.createElement("div");
-        this.overlay.dataset.mapEditor = "controls";
-        Object.assign(this.overlay.style, {
-            position: "fixed",
-            left: "62px",
-            top: "12px",
-            zIndex: "10000",
-            padding: "10px 12px",
-            borderRadius: "4px",
-            color: "#fff",
-            background: "rgba(18,20,24,0.86)",
-            font: "13px/1.45 sans-serif",
-            pointerEvents: "none",
-            whiteSpace: "pre-line",
-        });
-        document.body.appendChild(this.overlay);
 
         this.selectionDetails = document.createElement("div");
         this.selectionDetails.dataset.mapEditor = "selection-details";
@@ -363,9 +371,28 @@ class EditorChrome {
             increment,
             renderAllLabel,
             mapIconsLabel,
-            pvpZones.label,
-            multiCombatZones.label,
         );
+        if (hostConnected) this.bottomBar.append(pvpZones.label, multiCombatZones.label);
+        const refreshMap = document.createElement("button");
+        refreshMap.type = "button";
+        refreshMap.replaceChildren(createRefreshIcon(), document.createTextNode("Refresh map"));
+        refreshMap.title = "Rebuild all loaded map squares";
+        Object.assign(refreshMap.style, {
+            height: "28px",
+            marginLeft: "auto",
+            padding: "0 10px",
+            border: "1px solid rgba(255,255,255,0.2)",
+            borderRadius: "4px",
+            color: "#fff",
+            background: "rgba(255,255,255,0.07)",
+            cursor: "pointer",
+            font: "13px sans-serif",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+        });
+        refreshMap.addEventListener("click", () => this.plugin.refreshMap());
+        this.bottomBar.appendChild(refreshMap);
 
         const viewport = document.querySelector<HTMLElement>(".game-viewport");
         this.canvasShell =
@@ -385,13 +412,14 @@ class EditorChrome {
         this.unsubscribe();
         this.toolbar.remove();
         this.palette.remove();
-        this.overlay.remove();
         this.selectionDetails.remove();
         this.bottomBar.remove();
         if (this.canvasShell) this.canvasShell.style.bottom = this.previousCanvasBottom;
         requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
-        this.auxiliaryPanel?.remove();
         this.detailPanel?.remove();
+        this.overlayPalette?.remove();
+        this.closeShopBrowser();
+        this.closeShopEditor();
     }
 
     private currentSearchMode(): EditModeSearchKind {
@@ -443,8 +471,64 @@ class EditorChrome {
     }
 
     private togglePalette(): void {
-        this.closeAuxiliaryPanel();
         this.palette.toggle();
+    }
+
+    private overlayColor(id: number): number {
+        return this.overlaySwatches.find((swatch) => swatch.id === id)?.colorRgb ?? 0x64748b;
+    }
+
+    private toggleOverlayPalette(): void {
+        if (this.overlayPalette) {
+            this.overlayPalette.remove();
+            this.overlayPalette = undefined;
+            return;
+        }
+        this.palette.setVisible(false);
+        this.overlaySwatches = this.plugin.getOverlaySwatches();
+        const panel = createPanel("overlay-palette", "300px");
+        Object.assign(panel.style, {
+            top: "12px",
+            maxHeight: "calc(100vh - 24px)",
+            overflowY: "auto",
+            zIndex: "10004",
+        });
+        this.overlayPalette = panel;
+        panel.appendChild(createHeader("Choose terrain overlay", () => this.toggleOverlayPalette()));
+        const swatches = document.createElement("div");
+        Object.assign(swatches.style, {
+            display: "grid",
+            gridTemplateColumns: "repeat(5, 1fr)",
+            gap: "5px",
+        });
+        const appendSwatch = (id: number, colorRgb: number, name?: string): void => {
+            const swatch = document.createElement("button");
+            swatch.type = "button";
+            swatch.textContent = String(id);
+            swatch.title = name ? `Overlay ${id} · ${name}` : `Overlay ${id}`;
+            swatch.setAttribute("aria-label", swatch.title);
+            Object.assign(swatch.style, {
+                height: "38px",
+                padding: "0",
+                border: `2px solid ${id === this.plugin.getConfig().overlayId ? "#60a5fa" : "rgba(255,255,255,0.2)"}`,
+                borderRadius: "4px",
+                color: "#fff",
+                background: `#${(colorRgb & 0xffffff).toString(16).padStart(6, "0")}`,
+                cursor: "pointer",
+                font: "11px sans-serif",
+                textShadow: "0 1px 2px #000",
+            });
+            swatch.addEventListener("click", () => {
+                this.plugin.setConfig({ overlayId: id });
+                this.toggleOverlayPalette();
+            });
+            swatches.appendChild(swatch);
+        };
+        appendSwatch(0, 0x27303a, "Clear");
+        for (const swatch of this.overlaySwatches) {
+            appendSwatch(swatch.id, swatch.colorRgb, swatch.name);
+        }
+        panel.appendChild(swatches);
     }
 
     private sync(): void {
@@ -454,11 +538,14 @@ class EditorChrome {
         this.mapIconsInput.checked = state.config.showMapIcons;
         this.pvpZonesInput.checked = state.config.showPvpZones;
         this.multiCombatZonesInput.checked = state.config.showMultiCombatZones;
+        this.toolbar.setIcon("overlay", () => createOverlayIcon(this.overlayColor(state.config.overlayId)));
         this.toolbar.select(
             state.config.tool === "place"
                 ? "cache-search"
                   : state.config.tool === "path"
                   ? "path"
+                  : state.config.tool === "wall"
+                    ? "wall"
                   : "select",
         );
         this.palette.setMode(state.search.kind);
@@ -470,34 +557,18 @@ class EditorChrome {
             this.palette.renderResults(state.search.results, state.search.loading);
         }
 
-        const tile = state.selection ?? this.plugin.getCameraTile();
-        const location = tile ? `${tile.tileX}, ${tile.tileY}, ${tile.plane}` : "unknown";
-        const worldStatus = state.world.loading
-            ? "zones loading"
-            : state.world.error
-              ? "zones unavailable"
-              : `${state.world.definition?.zones.length ?? 0} zones`;
-        const help =
-            state.config.tool === "place"
-                ? `Place ${state.config.placeKind === "npc" ? "NPC" : "object"}: click terrain · R: rotate`
-                : state.config.tool === "path"
-                  ? state.pathStart
-                      ? "Path: move to preview · click to place · Esc: cancel"
-                      : "Path: click to start"
-                  : "Pointer: click object to select · Shift+click: select building";
-        this.overlay.textContent =
-            `Edit Mode · Scene window loaded\n` +
-            `World ${location} · ${state.config.edits.length} stored edits · ${worldStatus}\n` +
-            `${help} · Right/middle drag: rotate\nWheel: zoom · WASD: move · Shift: faster`;
         this.renderSelection();
     }
 
     private renderSelection(): void {
         const selection = this.plugin.getState().selection;
         if (!selection) {
+            this.selectionImage = undefined;
             this.selectionDetails.style.display = "none";
             return;
         }
+        const imageKey = `${selection.kind}:${selection.locId}:${selection.tileX}:${selection.tileY}:${selection.plane}`;
+        if (this.selectionImage && this.selectionImage.key !== imageKey) this.selectionImage = undefined;
         this.selectionDetails.replaceChildren();
         if (selection.kind === "building") {
             const title = document.createElement("div");
@@ -524,7 +595,17 @@ class EditorChrome {
                 selection.buildingWallId === undefined
                     ? "Wall type: mixed/unknown"
                     : `Primary wall ID ${selection.buildingWallId}`;
-            this.selectionDetails.append(title, location, dimensions, objects, wall);
+            const actions = document.createElement("div");
+            Object.assign(actions.style, { display: "grid", gap: "5px", marginTop: "8px" });
+            const copy = createActionButton("Copy building", createDuplicateIcon, () => {
+                if (!selection.buildingProfile) return;
+                void navigator.clipboard.writeText(`${JSON.stringify(selection.buildingProfile, null, 2)}\n`).then(
+                    () => { copy.lastChild!.textContent = " Copied"; },
+                    () => { copy.lastChild!.textContent = " Copy failed"; },
+                );
+            });
+            actions.appendChild(copy);
+            this.selectionDetails.append(title, location, dimensions, objects, wall, actions);
             this.selectionDetails.style.display = "block";
             return;
         }
@@ -533,6 +614,7 @@ class EditorChrome {
             selection.tileEndX !== undefined &&
             selection.tileEndY !== undefined &&
             (selection.tileEndX !== selection.tileX || selection.tileEndY !== selection.tileY);
+        const isGroundSelection = selection.kind !== "loc" && selection.kind !== "npc";
         title.textContent =
             selection.locId >= 0
                 ? `${selection.locName || (selection.kind === "npc" ? "Unknown NPC" : "Unknown object")} · ${selection.kind === "npc" ? "NPC" : "ID"} ${selection.locId}`
@@ -549,6 +631,11 @@ class EditorChrome {
             selection.kind === "loc" && selection.rotation !== undefined
                 ? `Object rotation ${selection.rotation}`
                 : `Placement rotation ${this.plugin.getConfig().rotation}`;
+        const definition =
+            selection.kind === "loc" || selection.kind === "npc"
+                ? this.plugin.describeDefinition(selection.kind, selection.locId)
+                : undefined;
+        const gameActions = definition?.fields.find(([name]) => name === "actions")?.[1];
         const divider = document.createElement("div");
         Object.assign(divider.style, {
             height: "1px",
@@ -556,38 +643,154 @@ class EditorChrome {
             background: "rgba(255,255,255,0.1)",
         });
         const actions = document.createElement("div");
-        Object.assign(actions.style, { display: "flex", gap: "5px" });
-        actions.append(
-            createActionButton("Paint configured overlay", createLayersIcon, () =>
-                this.plugin.paintSelection(),
-            ),
-            createActionButton("Rotate object", createRotateIcon, () => this.plugin.rotateSelection()),
-            createActionButton("Duplicate object", createDuplicateIcon, () =>
-                this.plugin.duplicateSelection(),
-            ),
-            createActionButton("Delete object", createTrashIcon, () =>
-                this.plugin.deleteSelection(),
-            ),
-        );
-        const overlayRow = document.createElement("label");
-        Object.assign(overlayRow.style, {
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginTop: "8px",
-        });
-        overlayRow.textContent = "Overlay";
-        const input = document.createElement("input");
-        input.type = "number";
-        input.min = "0";
-        input.value = String(this.plugin.getConfig().overlayId);
-        Object.assign(input.style, INPUT_STYLE, { width: "76px", marginLeft: "auto" });
-        input.addEventListener("change", () =>
-            this.plugin.setConfig({ overlayId: Number(input.value) | 0 }),
-        );
-        overlayRow.appendChild(input);
-        this.selectionDetails.append(title, location, rotation, divider, actions, overlayRow);
+        Object.assign(actions.style, { display: "grid", gap: "5px" });
+        if (isGroundSelection) {
+            actions.append(
+                createActionButton("Paint overlay", createPaintIcon, () =>
+                    this.plugin.paintSelection(),
+                ),
+            );
+        }
+        if (selection.kind === "loc") {
+            actions.append(
+                createActionButton("Rotate object", createRotateIcon, () => this.plugin.rotateSelection()),
+                createActionButton("Duplicate object", createDuplicateIcon, () =>
+                    this.plugin.duplicateSelection(),
+                ),
+                createActionButton("Delete object", createTrashIcon, () =>
+                    this.plugin.deleteSelection(),
+                ),
+            );
+        }
+        if (selection.kind === "loc" || selection.kind === "npc") {
+            actions.append(
+                createActionButton("Capture image", createCameraIcon, () =>
+                    this.captureSelectionImage(imageKey),
+                ),
+            );
+            if (this.selectionImage?.key === imageKey && this.selectionImage.loading) {
+                const status = document.createElement("div");
+                status.textContent = "Capturing image…";
+                status.style.color = "#94a3b8";
+                actions.appendChild(status);
+            } else if (this.selectionImage?.key === imageKey) {
+                const image = document.createElement("img");
+                image.src = this.selectionImage.dataUrl;
+                image.alt = `Captured ${selection.kind === "npc" ? "NPC" : "object"} image`;
+                Object.assign(image.style, {
+                    display: "block",
+                    width: "100%",
+                    maxHeight: "240px",
+                    objectFit: "contain",
+                    borderRadius: "4px",
+                    background: "rgba(0,0,0,0.22)",
+                });
+                actions.appendChild(image);
+            }
+        }
+        if (isGroundSelection && !hasTileRange && browserHostWindow()) {
+            actions.append(
+                createActionButton("Set spawn point", createSpawnIcon, () => this.plugin.setSpawnPoint()),
+            );
+        }
+        if (hasTileRange) {
+            actions.append(
+                createActionButton("Clear area", createTrashIcon, () => this.plugin.clearArea()),
+                createActionButton("Flatten area", createLayersIcon, () => this.plugin.flattenArea()),
+            );
+            const width = Math.abs(selection.tileEndX! - selection.tileX) + 1;
+            const depth = Math.abs(selection.tileEndY! - selection.tileY) + 1;
+            if (width > 2 && depth > 2 && selection.plane === 0) {
+                const options = document.createElement("div");
+                Object.assign(options.style, { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "5px" });
+                const style = document.createElement("select");
+                for (const name of BUILDING_STYLES) style.add(new Option(name, name, name === this.buildingStyle, name === this.buildingStyle));
+                style.addEventListener("change", () => { this.buildingStyle = style.value as BuildingStyle; });
+                const floors = document.createElement("select");
+                for (let count = 1; count <= 3; count++) floors.add(new Option(`${count} floor${count === 1 ? "" : "s"}`, String(count), count === this.buildingFloors, count === this.buildingFloors));
+                floors.addEventListener("change", () => { this.buildingFloors = Number(floors.value); });
+                const shape = document.createElement("select");
+                for (const name of BUILDING_SHAPES) shape.add(new Option(name, name, name === this.buildingShape, name === this.buildingShape));
+                shape.addEventListener("change", () => { this.buildingShape = shape.value as BuildingShape; });
+                for (const select of [style, floors, shape]) Object.assign(select.style, { minWidth: "0", padding: "5px", color: "#cbd5e1", background: "#20242b", border: "1px solid rgba(255,255,255,0.16)", borderRadius: "4px" });
+                options.append(style, floors, shape);
+                actions.append(options, createActionButton("Generate building", createLayersIcon, () =>
+                    this.plugin.generateBuilding(this.buildingStyle, this.buildingFloors, this.buildingShape),
+                ));
+            }
+        }
+        this.selectionDetails.append(title, location, rotation);
+        if (definition && selection.kind === "npc") {
+            const menu = document.createElement("table");
+            Object.assign(menu.style, {
+                width: "100%", marginTop: "6px", borderCollapse: "collapse", color: "#fff",
+                background: "#5d5447", font: "bold 12px Arial, Helvetica, sans-serif", textShadow: "1px 1px #000",
+            });
+            for (const option of this.plugin.getNpcMenuOptions(selection.locId)) {
+                const clickKey = !option.isAttack ? npcClickKey(option.opcode) : undefined;
+                if (!clickKey) continue;
+                const row = menu.insertRow();
+                const action = row.insertCell();
+                action.textContent = option.option;
+                Object.assign(action.style, { padding: "2px 4px", color: "#ffff00" });
+                const binding = this.npcInteractions[String(selection.locId)] ?? {};
+                const bindingKey = Object.hasOwn(binding, camelNpcClickKey(clickKey)) ? camelNpcClickKey(clickKey) : clickKey;
+                const current = binding[bindingKey] as Record<string, unknown> | undefined;
+                const shopId = current?.method === "core.shops.open" ? Number((current.args as Record<string, unknown> | undefined)?.shopId) : undefined;
+                const shop = row.insertCell();
+                shop.textContent = Number.isInteger(shopId) ? `Shop ${shopId}` : "No shop";
+                Object.assign(shop.style, { padding: "2px 4px", color: Number.isInteger(shopId) ? "#00ffff" : "#d6d3d1" });
+                const pick = row.insertCell();
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = "Select shop";
+                button.disabled = !browserHostWindow();
+                button.title = browserHostWindow() ? `Assign a shop to ${option.option}` : "Shop actions require /host";
+                Object.assign(button.style, { padding: "2px 5px", border: "1px solid rgba(255,255,255,0.18)", borderRadius: "3px", color: "#fff", background: "rgba(0,0,0,0.22)", cursor: browserHostWindow() ? "pointer" : "not-allowed", font: "inherit" });
+                button.addEventListener("click", () => this.openNpcShopPicker(selection.locId, clickKey));
+                pick.appendChild(button);
+            }
+            if (menu.rows.length) this.selectionDetails.appendChild(menu);
+            if (browserHostWindow() && !this.npcInteractionsLoaded && !this.npcInteractionsLoading) {
+                void this.loadNpcInteractions();
+            }
+        } else if (definition) {
+            const menuActions = gameActions && gameActions !== "—" ? gameActions.split(", ") : [];
+            menuActions.push("Examine");
+            const menu = document.createElement("table");
+            Object.assign(menu.style, {
+                width: "100%",
+                marginTop: "6px",
+                borderCollapse: "collapse",
+                color: "#fff",
+                background: "#5d5447",
+                font: "bold 12px Arial, Helvetica, sans-serif",
+                textShadow: "1px 1px #000",
+            });
+            const targetColor = selection.kind === "npc" ? "#ffff00" : "#00ffff";
+            for (const option of menuActions) {
+                const row = menu.insertRow();
+                const action = row.insertCell();
+                const target = row.insertCell();
+                action.textContent = option;
+                target.textContent = selection.locName;
+                Object.assign(action.style, { padding: "2px 4px" });
+                Object.assign(target.style, { padding: "2px 4px", color: targetColor });
+            }
+            this.selectionDetails.appendChild(menu);
+        }
+        this.selectionDetails.append(divider, actions);
         this.selectionDetails.style.display = "block";
+    }
+
+    private captureSelectionImage(key: string): void {
+        this.selectionImage = { key, dataUrl: "", loading: true };
+        this.renderSelection();
+        void this.plugin.captureSelectionImage().then((dataUrl) => {
+            if (this.selectionImage?.key !== key) return;
+            this.selectionImage = dataUrl ? { key, dataUrl, loading: false } : undefined;
+            this.renderSelection();
+        });
     }
 
     private showDefinition(kind: EditModeSearchKind, id: number): void {
@@ -636,100 +839,19 @@ class EditorChrome {
         }
     }
 
-    private toggleInterfaces(): void {
-        if (this.auxiliaryPanel?.dataset.mapEditor === "interface-browser") {
-            this.closeAuxiliaryPanel();
+    private toggleWorldMap(): void {
+        this.plugin.toggleWorldMap();
+    }
+
+    private toggleShopBrowser(): void {
+        if (this.shopBrowser) {
+            this.closeShopBrowser();
             return;
         }
         this.palette.setVisible(false);
-        this.closeAuxiliaryPanel();
-        this.plugin.refreshInterfaces();
-        const panel = createPanel("interface-browser");
-        this.auxiliaryPanel = panel;
-        panel.appendChild(createHeader("Interfaces", () => this.closeAuxiliaryPanel()));
-        const input = document.createElement("input");
-        input.type = "search";
-        input.placeholder = "Search interface text or ID";
-        input.setAttribute("aria-label", "Search interface cache");
-        Object.assign(input.style, INPUT_STYLE);
-        const results = document.createElement("div");
-        Object.assign(results.style, {
-            maxHeight: "390px",
-            marginTop: "8px",
-            overflowY: "auto",
-        });
-        const render = () => {
-            const query = input.value.trim().toLowerCase();
-            results.replaceChildren();
-            for (const groupId of this.plugin
-                .getState()
-                .interfaces.groups.filter((group) => !query || String(group).includes(query))) {
-                results.appendChild(
-                    createResultButton(`Interface ${groupId}`, () => {
-                        this.plugin.selectInterface(groupId);
-                        this.showInterfaceViewer(
-                            groupId,
-                            this.plugin.getState().interfaces.widgets,
-                        );
-                    }),
-                );
-            }
-        };
-        input.addEventListener("input", render);
-        panel.append(input, results);
-        render();
-        input.focus();
-    }
-
-    private showInterfaceViewer(groupId: number, widgets: EditModeWidgetSummary[]): void {
-        this.detailPanel?.remove();
-        const panel = createPanel("interface-viewer", "min(720px, calc(100vw - 32px))");
-        this.detailPanel = panel;
-        Object.assign(panel.style, {
-            left: "50%",
-            top: "50%",
-            transform: "translate(-50%,-50%)",
-            zIndex: "10005",
-            maxHeight: "calc(100vh - 32px)",
-            overflowY: "auto",
-        });
-        panel.appendChild(createHeader(`Interface ${groupId}`, () => this.closeDetailPanel()));
-        const metadata = document.createElement("div");
-        metadata.textContent = `${widgets.length} decoded widgets`;
-        Object.assign(metadata.style, { marginBottom: "8px", color: "#94a3b8" });
-        const open = document.createElement("button");
-        open.type = "button";
-        open.textContent = "Open in client";
-        Object.assign(open.style, INPUT_STYLE, {
-            width: "auto",
-            marginBottom: "8px",
-            cursor: "pointer",
-        });
-        open.addEventListener("click", () => this.plugin.openInterface(groupId));
-        const table = document.createElement("div");
-        Object.assign(table.style, { font: "11px/1.5 ui-monospace, monospace" });
-        for (const widget of widgets) {
-            const row = document.createElement("div");
-            row.textContent = `${widget.fileId} · type ${widget.type} · ${widget.x},${widget.y} · ${widget.width}×${widget.height}${widget.text ? ` · ${widget.text.replace(/<[^>]+>/g, " ")}` : ""}`;
-            Object.assign(row.style, {
-                padding: "3px 0",
-                borderTop: "1px solid rgba(255,255,255,0.06)",
-            });
-            table.appendChild(row);
-        }
-        panel.append(metadata, open, table);
-    }
-
-    private async toggleShops(): Promise<void> {
-        if (this.auxiliaryPanel?.dataset.mapEditor === "shop-browser") {
-            this.closeAuxiliaryPanel();
-            return;
-        }
-        this.palette.setVisible(false);
-        this.closeAuxiliaryPanel();
         const panel = createPanel("shop-browser");
-        this.auxiliaryPanel = panel;
-        panel.appendChild(createHeader("Shops", () => this.closeAuxiliaryPanel()));
+        this.shopBrowser = panel;
+        panel.appendChild(createHeader(this.npcShopPickTarget ? "Select shop" : "Shops", () => this.closeShopBrowser()));
         const input = document.createElement("input");
         input.type = "search";
         input.placeholder = "Search shop name or ID";
@@ -737,246 +859,346 @@ class EditorChrome {
         Object.assign(input.style, INPUT_STYLE);
         const results = document.createElement("div");
         Object.assign(results.style, {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2px",
             maxHeight: "390px",
             marginTop: "8px",
             overflowY: "auto",
         });
+        input.addEventListener("input", () => this.renderShopBrowser(input.value));
         panel.append(input, results);
-        const render = () => {
-            const query = input.value.trim().toLowerCase();
-            results.replaceChildren();
-            if (!this.shops) {
-                results.textContent = "Loading shop definitions…";
-                return;
-            }
-            const matches = this.shops.filter(
-                (shop) =>
-                    !query ||
-                    String(shop.id).startsWith(query) ||
-                    shop.name.toLowerCase().includes(query),
-            );
-            for (const shop of matches) {
-                results.appendChild(
-                    createResultButton(
-                        `${shop.id} · ${shop.name} · ${shop.originalStock.length} items`,
-                        () => this.showShop(shop),
-                    ),
-                );
-            }
-            if (!matches.length) results.textContent = "No matching shops.";
-        };
-        input.addEventListener("input", render);
-        render();
-        try {
-            this.shops ??= await this.plugin.listShops();
-        } catch {
-            if (this.auxiliaryPanel === panel) {
-                results.textContent =
-                    "Shop definitions are unavailable. Start the development API on port 49600.";
-            }
-            return;
-        }
-        if (this.auxiliaryPanel === panel) render();
+        this.shopBrowserResults = results;
+        this.renderShopBrowser(input.value);
+        void this.loadShops().then(() => this.renderShopBrowser(input.value));
         input.focus();
     }
 
-    private showShop(shop: EditModeShop): void {
-        this.detailPanel?.remove();
-        const panel = createPanel("shop-editor", "440px");
-        this.detailPanel = panel;
-        Object.assign(panel.style, {
-            right: "12px",
-            top: "12px",
-            left: "auto",
-            zIndex: "10005",
-            maxHeight: "calc(100vh - 24px)",
-            overflowY: "auto",
-        });
-        panel.appendChild(createHeader(`${shop.name} · ${shop.id}`, () => this.closeDetailPanel()));
-        const metadata = document.createElement("div");
-        metadata.textContent = `Currency: ${shop.currency || "COINS"}`;
-        Object.assign(metadata.style, { marginBottom: "8px", color: "#94a3b8" });
-        panel.appendChild(metadata);
-        for (const item of shop.originalStock) {
-            const row = document.createElement("div");
-            Object.assign(row.style, {
-                display: "grid",
-                gridTemplateColumns: "52px 1fr auto",
-                gap: "8px",
-                padding: "7px 4px",
-                borderTop: "1px solid rgba(255,255,255,0.06)",
-            });
-            const id = document.createElement("span");
-            id.textContent = String(item.id);
-            id.style.color = "#93c5fd";
-            const name = document.createElement("span");
-            name.textContent = item.name || `Item ${item.id}`;
-            const amount = document.createElement("span");
-            amount.textContent = `× ${item.amount}`;
-            amount.style.color = "#94a3b8";
-            row.append(id, name, amount);
-            panel.appendChild(row);
+    private closeShopBrowser(): void {
+        this.shopBrowser?.remove();
+        this.shopBrowser = undefined;
+        this.shopBrowserResults = undefined;
+        this.npcShopPickTarget = undefined;
+    }
+
+    private closeShopEditor(): void {
+        if (this.shopIconRetryTimer !== undefined) window.clearTimeout(this.shopIconRetryTimer);
+        this.shopIconRetryTimer = undefined;
+        this.shopEditor?.remove();
+        this.shopEditor = undefined;
+        this.activeShop = undefined;
+    }
+
+    private async loadShops(): Promise<void> {
+        if (this.shopsLoaded || this.shopsLoading) return;
+        this.shopsLoading = true;
+        this.shopError = undefined;
+        try {
+            this.shops = await this.plugin.loadShops();
+            this.shopsLoaded = true;
+        } catch (error) {
+            this.shopError = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.shopsLoading = false;
         }
     }
 
-    private toggleWorldMap(): void {
-        if (this.auxiliaryPanel?.dataset.mapEditor === "world-map") {
-            this.closeAuxiliaryPanel();
+    private renderShopBrowser(query: string): void {
+        const results = this.shopBrowserResults;
+        if (!results) return;
+        results.replaceChildren();
+        if (this.shopsLoading) {
+            results.textContent = "Loading shops…";
             return;
         }
-        this.palette.setVisible(false);
-        this.closeAuxiliaryPanel();
-        const tile = this.plugin.getCameraTile() ?? {
-            tileX: 3222,
-            tileY: 3218,
-            plane: 0,
-        };
-        const panel = createPanel("world-map", "min(900px, calc(100vw - 32px))");
-        this.auxiliaryPanel = panel;
-        Object.assign(panel.style, {
-            left: "50%",
-            top: "50%",
-            transform: "translate(-50%,-50%)",
-            height: "min(720px, calc(100vh - 32px))",
-            display: "flex",
-            flexDirection: "column",
-            zIndex: "10006",
-        });
-        panel.appendChild(createHeader("World map", () => this.closeAuxiliaryPanel()));
-        const controls = document.createElement("form");
-        Object.assign(controls.style, {
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 80px auto",
-            gap: "6px",
-            marginBottom: "8px",
-        });
-        const x = document.createElement("input");
-        const y = document.createElement("input");
-        const plane = document.createElement("input");
-        for (const [input, value, label] of [
-            [x, tile.tileX, "World X"],
-            [y, tile.tileY, "World Y"],
-            [plane, tile.plane, "Plane"],
-        ] as const) {
-            input.type = "number";
-            input.value = String(value);
-            input.placeholder = label;
-            input.setAttribute("aria-label", label);
-            Object.assign(input.style, INPUT_STYLE);
+        if (this.shopError) {
+            results.textContent = `Could not load shops: ${this.shopError}`;
+            return;
         }
-        const jump = document.createElement("button");
-        jump.type = "submit";
-        jump.textContent = "Jump";
-        Object.assign(jump.style, INPUT_STYLE, { width: "auto", cursor: "pointer" });
-        controls.append(x, y, plane, jump);
-        const canvas = document.createElement("canvas");
-        canvas.width = 840;
-        canvas.height = 620;
-        Object.assign(canvas.style, {
-            flex: "1",
-            minHeight: "0",
-            width: "100%",
-            background: "#090b0f",
-            cursor: "crosshair",
-        });
-        // ponytail: grid navigation replaces full cache-region rasterization; port WorldMapRenderer when visual terrain editing needs it.
-        const draw = (centerX: number, centerY: number) => {
-            const context = canvas.getContext("2d");
-            if (!context) return;
-            context.fillStyle = "#090b0f";
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            context.strokeStyle = "rgba(148,163,184,0.28)";
-            context.fillStyle = "#64748b";
-            context.font = "11px monospace";
-            const scale = 2;
-            const minX = centerX - canvas.width / scale / 2;
-            const maxY = centerY + canvas.height / scale / 2;
-            for (
-                let worldX = Math.floor(minX / 64) * 64;
-                worldX < minX + canvas.width / scale;
-                worldX += 64
-            ) {
-                const px = (worldX - minX) * scale;
-                context.beginPath();
-                context.moveTo(px, 0);
-                context.lineTo(px, canvas.height);
-                context.stroke();
-                context.fillText(String(worldX >> 6), px + 4, 14);
-            }
-            for (
-                let worldY = Math.floor((maxY - canvas.height / scale) / 64) * 64;
-                worldY < maxY;
-                worldY += 64
-            ) {
-                const py = (maxY - worldY) * scale;
-                context.beginPath();
-                context.moveTo(0, py);
-                context.lineTo(canvas.width, py);
-                context.stroke();
-                context.fillText(String(worldY >> 6), 4, py - 4);
-            }
-            context.fillStyle = "#3b82f6";
-            context.strokeStyle = "#fff";
-            context.beginPath();
-            context.arc(canvas.width / 2, canvas.height / 2, 6, 0, Math.PI * 2);
-            context.fill();
-            context.stroke();
-            canvas.dataset.centerX = String(centerX);
-            canvas.dataset.centerY = String(centerY);
-        };
-        controls.addEventListener("submit", (event) => {
-            event.preventDefault();
-            const nextX = Number(x.value) | 0;
-            const nextY = Number(y.value) | 0;
-            this.plugin.jumpToTile(nextX, nextY, Number(plane.value) | 0);
-            draw(nextX, nextY);
-        });
-        canvas.addEventListener("click", (event) => {
-            const bounds = canvas.getBoundingClientRect();
-            const centerX = Number(canvas.dataset.centerX);
-            const centerY = Number(canvas.dataset.centerY);
-            const worldX = Math.round(
-                centerX +
-                    ((event.clientX - bounds.left) / bounds.width - 0.5) *
-                        (canvas.width / 2),
-            );
-            const worldY = Math.round(
-                centerY -
-                    ((event.clientY - bounds.top) / bounds.height - 0.5) *
-                        (canvas.height / 2),
-            );
-            x.value = String(worldX);
-            y.value = String(worldY);
-            this.plugin.jumpToTile(worldX, worldY, Number(plane.value) | 0);
-            draw(worldX, worldY);
-        });
-        panel.append(controls, canvas);
-        draw(tile.tileX, tile.tileY);
+        const needle = query.trim().toLowerCase();
+        const shops = this.shops
+            .filter((shop) => !needle || String(shop.id).startsWith(needle) || shop.name.toLowerCase().includes(needle))
+            .sort((left, right) => left.id - right.id);
+        for (const shop of shops) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = `${shop.id} · ${shop.name} (${shop.originalStock.length} item${shop.originalStock.length === 1 ? "" : "s"})`;
+            Object.assign(button.style, {
+                minHeight: "38px", padding: "6px 8px", border: "1px solid transparent", borderRadius: "4px",
+                color: "#e5e7eb", background: "transparent", cursor: "pointer", font: "13px sans-serif", textAlign: "left",
+            });
+            button.addEventListener("mouseenter", () => { button.style.background = "rgba(59,130,246,0.22)"; });
+            button.addEventListener("mouseleave", () => { button.style.background = "transparent"; });
+            button.addEventListener("click", () => {
+                const target = this.npcShopPickTarget;
+                if (target) {
+                    this.setNpcShop(target.npcId, target.clickKey, shop.id);
+                    this.closeShopBrowser();
+                    this.renderSelection();
+                } else this.openShopEditor(shop);
+            });
+            results.appendChild(button);
+        }
+        if (!shops.length) results.textContent = this.shopsLoaded ? "No matching shops." : "No shop definitions were loaded.";
     }
 
-    private exportRegion(): void {
+    private openShopEditor(shop: EditModeShop): void {
+        this.closeShopEditor();
+        this.activeShop = shop;
+        this.shopIconRetryCount = 0;
+        this.shopPreviewScrollTop = 0;
+        const panel = createPanel("shop-editor", "560px");
+        Object.assign(panel.style, {
+            right: "12px", top: "12px", left: "auto", maxWidth: "calc(100vw - 32px)",
+            maxHeight: "calc(100vh - 24px)", overflowY: "auto", zIndex: "10005",
+        });
+        this.shopEditor = panel;
+        this.renderShopEditor();
+    }
+
+    private openNpcShopPicker(npcId: number, clickKey: "first_click" | "second_click" | "third_click" | "fourth_click"): void {
+        this.npcShopPickTarget = { npcId, clickKey };
+        if (!this.shopBrowser) this.toggleShopBrowser();
+    }
+
+    private async loadNpcInteractions(): Promise<void> {
+        this.npcInteractionsLoading = true;
+        this.npcInteractionError = undefined;
         try {
-            const exported = this.plugin.exportActiveRegionPack();
-            if (!exported) throw new Error("Active region is not ready");
-            // Opened from /host: hand the pack to the host tab instead of the
-            // download folder, so Restart there streams the edited region.
-            const host = window.opener as Window | null;
-            if (host && !host.closed) {
-                host.postMessage(
-                    {
-                        type: REGION_PACK_MESSAGE,
-                        regionId: exported.regionId,
-                        data: exported.data,
-                    },
-                    window.location.origin,
-                );
-                this.toast(`Sent ${exported.regionId}.pack to the host panel`);
+            this.npcInteractions = await this.plugin.loadNpcInteractions();
+            this.npcInteractionsLoaded = true;
+        } catch (error) {
+            this.npcInteractionError = error instanceof Error ? error.message : String(error);
+        } finally {
+            this.npcInteractionsLoading = false;
+            this.renderSelection();
+        }
+    }
+
+    private setNpcShop(npcId: number, clickKey: "first_click" | "second_click" | "third_click" | "fourth_click", shopId: number): void {
+        const bindings = this.npcInteractions[String(npcId)] ?? (this.npcInteractions[String(npcId)] = {});
+        const key = Object.hasOwn(bindings, camelNpcClickKey(clickKey)) ? camelNpcClickKey(clickKey) : clickKey;
+        bindings[key] = { method: "core.shops.open", args: { shopId } };
+        this.npcInteractionsDirty = true;
+    }
+
+    private itemName(id: number): string {
+        return this.plugin.describeDefinition("item", id)?.name ?? `Item ${id}`;
+    }
+
+    private itemIcon(id: number, amount: number): HTMLCanvasElement | undefined {
+        return window.osrsClient?.renderer?.itemIconRenderer?.renderToCanvas(id, amount, {
+            outline: 1,
+            quantityMode: 2,
+        });
+    }
+
+    private retryShopIcons(): void {
+        if (this.shopIconRetryTimer !== undefined || this.shopIconRetryCount >= 30) return;
+        this.shopIconRetryTimer = window.setTimeout(() => {
+            this.shopIconRetryTimer = undefined;
+            this.shopIconRetryCount++;
+            this.renderShopEditor(false);
+        }, 100);
+    }
+
+    private renderShopEditor(focusSearch = true): void {
+        const panel = this.shopEditor;
+        const shop = this.activeShop;
+        if (!panel || !shop) return;
+        panel.replaceChildren();
+        panel.appendChild(createHeader(`${shop.name} · ${shop.id}`, () => this.closeShopEditor()));
+        const metadata = document.createElement("div");
+        metadata.textContent = `Currency: ${shop.currency || "COINS"}`;
+        Object.assign(metadata.style, { marginBottom: "8px", color: "#94a3b8", fontSize: "12px" });
+        const preview = document.createElement("div");
+        preview.setAttribute("aria-label", "Shop preview");
+        Object.assign(preview.style, {
+            display: "grid", gridTemplateColumns: "repeat(8, 40px)", columnGap: "9px", rowGap: "6px", padding: "8px",
+            marginBottom: "10px", maxHeight: "220px", overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable",
+            border: "0", background: "#494034",
+        });
+        preview.scrollTop = this.shopPreviewScrollTop;
+        preview.addEventListener("scroll", () => { this.shopPreviewScrollTop = preview.scrollTop; });
+        let missingIcon = false;
+        for (let slot = 0; slot < Math.max(40, shop.originalStock.length); slot++) {
+            const entry = shop.originalStock[slot];
+            const cell = document.createElement("div");
+            cell.title = entry ? `${this.itemName(entry.id)} · ${entry.amount}` : "Empty slot";
+            Object.assign(cell.style, {
+                width: "40px", height: "36px", display: "grid", placeItems: "center", overflow: "hidden",
+            });
+            if (entry) {
+                const icon = this.itemIcon(entry.id, entry.amount);
+                if (icon) {
+                    icon.style.imageRendering = "pixelated";
+                    cell.appendChild(icon);
+                } else missingIcon = true;
+            }
+            preview.appendChild(cell);
+        }
+        if (missingIcon) this.retryShopIcons();
+        const searchLabel = document.createElement("strong");
+        searchLabel.textContent = "Add item";
+        const input = document.createElement("input");
+        input.type = "search";
+        input.placeholder = "Search current-cache item name or ID";
+        input.setAttribute("aria-label", `Search items to add to ${shop.name}`);
+        Object.assign(input.style, INPUT_STYLE, { marginTop: "5px" });
+        const matches = document.createElement("div");
+        Object.assign(matches.style, { display: "grid", gap: "2px", maxHeight: "130px", marginTop: "4px", overflowY: "auto" });
+        input.addEventListener("input", () => {
+            const token = ++this.shopSearchToken;
+            const query = input.value.trim();
+            matches.replaceChildren();
+            if (!query) return;
+            void this.plugin.searchItems(query).then((items) => {
+                if (token !== this.shopSearchToken || !this.shopEditor) return;
+                for (const item of items.slice(0, 25)) {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.textContent = `${item.id} · ${item.name}`;
+                    Object.assign(button.style, {
+                        padding: "4px 6px", border: "0", borderRadius: "3px", color: "#cbd5e1", background: "rgba(255,255,255,0.06)",
+                        cursor: "pointer", font: "12px sans-serif", textAlign: "left",
+                    });
+                    button.addEventListener("click", () => this.addShopItem(item.id));
+                    matches.appendChild(button);
+                }
+                if (!items.length) matches.textContent = "No matching items.";
+            });
+        });
+        const divider = document.createElement("hr");
+        Object.assign(divider.style, { margin: "10px 0 6px", border: "0", borderTop: "1px solid rgba(255,255,255,0.12)" });
+        const stock = document.createElement("div");
+        Object.assign(stock.style, { display: "grid", gap: "3px" });
+        for (const entry of shop.originalStock) {
+            const row = document.createElement("div");
+            Object.assign(row.style, { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 88px 28px", gap: "6px", alignItems: "center" });
+            const name = document.createElement("span");
+            name.textContent = `${entry.id} · ${this.itemName(entry.id)}`;
+            name.title = name.textContent;
+            Object.assign(name.style, { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" });
+            const amount = document.createElement("input");
+            amount.type = "number";
+            amount.min = "1";
+            amount.max = String(0x7fffffff);
+            amount.value = String(entry.amount);
+            amount.setAttribute("aria-label", `Amount of ${this.itemName(entry.id)}`);
+            Object.assign(amount.style, INPUT_STYLE, { height: "28px", padding: "3px 5px" });
+            amount.addEventListener("change", () => this.setShopItemAmount(entry, Number(amount.value)));
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "×";
+            remove.title = `Remove ${this.itemName(entry.id)}`;
+            Object.assign(remove.style, { height: "28px", border: "0", borderRadius: "3px", color: "#fecaca", background: "rgba(239,68,68,0.18)", cursor: "pointer", fontSize: "18px" });
+            remove.addEventListener("click", () => this.removeShopItem(entry));
+            row.append(name, amount, remove);
+            stock.appendChild(row);
+        }
+        if (!shop.originalStock.length) stock.textContent = "No stock. Add an item above.";
+        panel.append(metadata, preview, searchLabel, input, matches, divider, stock);
+        if (focusSearch) input.focus();
+    }
+
+    private addShopItem(id: number): void {
+        const shop = this.activeShop;
+        if (!shop) return;
+        const existing = shop.originalStock.find((entry) => entry.id === id);
+        if (existing) existing.amount = Math.min(0x7fffffff, existing.amount + 1);
+        else shop.originalStock.push({ id, amount: 1 });
+        this.shopsDirty = true;
+        this.renderShopEditor();
+    }
+
+    private setShopItemAmount(entry: EditModeShop["originalStock"][number], amount: number): void {
+        if (!Number.isInteger(amount) || amount < 1 || amount > 0x7fffffff) return;
+        entry.amount = amount;
+        this.shopsDirty = true;
+        this.renderShopEditor();
+    }
+
+    private removeShopItem(entry: EditModeShop["originalStock"][number]): void {
+        const shop = this.activeShop;
+        if (!shop) return;
+        shop.originalStock.splice(shop.originalStock.indexOf(entry), 1);
+        this.shopsDirty = true;
+        this.renderShopEditor();
+    }
+
+    private exportRegions(): void {
+        try {
+            const exported = this.plugin.exportModifiedRegionPacks();
+            const world = this.plugin.getWorldDefinitionForSave();
+            const shopsDirty = this.shopsDirty;
+            const npcInteractionsDirty = this.npcInteractionsDirty;
+            const customNpcs = this.plugin.getConfig().edits
+                .filter((edit) => edit.kind === "npc")
+                .map((edit) => ({ id: edit.locId, tileX: edit.tileX, tileY: edit.tileY, plane: edit.plane, direction: edit.rotation }));
+            if (exported.length === 0 && !world && customNpcs.length === 0 && !shopsDirty && !npcInteractionsDirty) {
+                this.toast("No world or map edits to save");
                 return;
             }
-            const blob = new Blob([exported.data.slice().buffer], {
-                type: "application/octet-stream",
-            });
-            FileSaver.saveAs(blob, `${exported.regionId}.pack`);
+            // Opened from /host: hand the pack to the host tab instead of the
+            // download folder, so Restart there streams the edited region.
+            const host = browserHostWindow();
+            if (host && !host.closed) {
+                const hostOrigin = browserHostOrigin();
+                for (const pack of exported) {
+                    const message = { type: REGION_PACK_MESSAGE, ...pack } as const;
+                    host.postMessage(message, hostOrigin);
+                }
+                if (world) {
+                    host.postMessage(
+                        { type: WORLD_DEFINITION_MESSAGE, contents: JSON.stringify(world, null, 2) + "\n" },
+                        hostOrigin,
+                    );
+                    this.plugin.markWorldDefinitionSaved();
+                }
+                if (customNpcs.length) host.postMessage({ type: CUSTOM_NPC_SPAWNS_MESSAGE, spawns: customNpcs }, hostOrigin);
+                if (shopsDirty) {
+                    host.postMessage(
+                        { type: SHOP_DEFINITIONS_MESSAGE, contents: JSON.stringify(this.shops, null, 2) + "\n" },
+                        hostOrigin,
+                    );
+                    this.shopsDirty = false;
+                }
+                if (npcInteractionsDirty) {
+                    host.postMessage(
+                        { type: NPC_INTERACTIONS_MESSAGE, contents: JSON.stringify(this.npcInteractions, null, 2) + "\n" },
+                        hostOrigin,
+                    );
+                    this.npcInteractionsDirty = false;
+                }
+                const saved = [
+                    exported.length ? `${exported.length} edited region pack${exported.length === 1 ? "" : "s"}` : "",
+                    world ? "world spawn" : "",
+                    customNpcs.length ? `${customNpcs.length} custom NPC spawn${customNpcs.length === 1 ? "" : "s"}` : "",
+                    shopsDirty ? "shops" : "",
+                    npcInteractionsDirty ? "NPC shop actions" : "",
+                ].filter(Boolean).join(" and ");
+                this.toast(`Saved ${saved}`);
+                return;
+            }
+            for (const pack of exported) {
+                const blob = new Blob([pack.data.slice().buffer], {
+                    type: "application/octet-stream",
+                });
+                FileSaver.saveAs(blob, `${pack.regionId}.pack`);
+            }
+            if (world) {
+                FileSaver.saveAs(
+                    new Blob([JSON.stringify(world, null, 2) + "\n"], { type: "application/json" }),
+                    "world.json",
+                );
+                this.plugin.markWorldDefinitionSaved();
+            }
+            if (customNpcs.length) {
+                FileSaver.saveAs(
+                    new Blob([JSON.stringify(customNpcs.map(({ id, tileX: x, tileY: y, plane: level, direction }) => ({ id, x, y, level, direction })), null, 2) + "\n"], { type: "application/json" }),
+                    "npc_spawns.json",
+                );
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.error("[edit-mode] Region export failed", error);
@@ -996,11 +1218,6 @@ class EditorChrome {
         });
         document.body.appendChild(element);
         window.setTimeout(() => element.remove(), 4000);
-    }
-
-    private closeAuxiliaryPanel(): void {
-        this.auxiliaryPanel?.remove();
-        this.auxiliaryPanel = undefined;
     }
 
     private closeDetailPanel(): void {

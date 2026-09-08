@@ -25,6 +25,7 @@ assert.doesNotMatch(packets, /sendMapRegion|encodeRebuildNormal/);
 assert.match(session, /replayedSceneLevel !== current\.level/);
 assert.match(session, /replayedPrivateArea !== privateArea/);
 assert.match(session, /sendVisibleReplacementsToPlayer\([\s\S]*?this\.sceneBaseX \+ 48/);
+assert.match(session, /sendVisibleReplacementsToPlayer\([\s\S]*?\[\],\s*true\s*\)/);
 assert.match(session, /sendClientPacket\(playerSync\)[\s\S]*?ObjectManager\.onRegionChange/);
 assert.match(objects, /SCENE_SIZE = 104/);
 assert.doesNotMatch(objects, /isWithinDistance\(object\.getLocation\(\), 64\)/);

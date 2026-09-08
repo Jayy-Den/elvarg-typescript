@@ -273,9 +273,11 @@ function OsrsClientApp() {
                 if (!complete) {
                     cacheInvalidated = true;
                     await removeCacheManifestEntry(cacheInfo.name);
-                    addStorageWarning(
-                        "Cached RuneScape data was cleared by the browser; assets will be re-downloaded.",
-                    );
+                    if (!new URLSearchParams(window.location.search).has("edit")) {
+                        addStorageWarning(
+                            "Cached RuneScape data was cleared by the browser; assets will be re-downloaded.",
+                        );
+                    }
                 }
             }
 

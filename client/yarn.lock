@@ -4060,13 +4060,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@webcontainer/api@npm:^1.6.4":
-  version: 1.6.4
-  resolution: "@webcontainer/api@npm:1.6.4"
-  checksum: 10c0/6889a07aa8e3062f5c00ee8d052b4b2f1f6566f40b64e1d2b402a74ae7f5b399a5bc37fa043071bbf1371d5eb771c4da2d4e63451b9a5f7bf6cb3593266e2c16
-  languageName: node
-  linkType: hard
-
 "@xrsps/client@workspace:.":
   version: 0.0.0-use.local
   resolution: "@xrsps/client@workspace:."
@@ -4083,7 +4076,6 @@ __metadata:
     "@types/react-modal": "npm:^3.16.3"
     "@types/webfontloader": "npm:^1.6.38"
     "@wasm-audio-decoders/ogg-vorbis": "npm:^0.1.20"
-    "@webcontainer/api": "npm:^1.6.4"
     bzip2: "npm:^0.1.1"
     denque: "npm:^2.1.0"
     fast-memoize: "npm:^2.5.2"

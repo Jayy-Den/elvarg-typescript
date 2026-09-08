@@ -1,7 +1,6 @@
 /**
  * Ported from the elvarg-web-client map editor. Pure geometry: given the tiles
- * a path covers, work out which overlay shape and rotation each tile needs so
- * corners and end caps read correctly.
+ * a path covers, return the exact tiles that need painting.
  */
 
 export interface PathTile {
@@ -59,24 +58,18 @@ export function createPathTiles(start: PathTile, end: PathTile): PathTile[] {
     }
 }
 
-/**
- * @param path every tile the path covers, as "x:y" keys
- * @param editable the tiles to emit overlays for (usually the same set)
- * @param inBounds guards the cap/boundary tiles the path bleeds into
- */
-export function buildPathOverlays(
+/** Rounds bends without adding caps beyond either clicked endpoint. */
+export function buildPathCorners(
     path: ReadonlySet<string>,
     editable: ReadonlySet<string>,
-    inBounds: (x: number, y: number) => boolean,
 ): PathOverlayTile[] {
     const result = new Map<string, PathOverlayTile>();
 
-    for (const tileKey of Array.from(editable)) {
+    for (const tileKey of editable) {
         const [x, y] = tileKey.split(":").map(Number);
         const neighbours = DIRECTIONS.map((direction) => path.has(key(x + direction.x, y + direction.y)));
         const connected = neighbours.flatMap((present, index) => (present ? [index] : []));
         const tile: PathOverlayTile = { x, y, overlayShape: 0, overlayRotation: 0 };
-
         if (connected.length === 2 && connected[0] % 2 !== connected[1] % 2) {
             const first = DIRECTIONS[connected[0]];
             const second = DIRECTIONS[connected[1]];
@@ -89,53 +82,25 @@ export function buildPathOverlays(
             }
         }
         result.set(tileKey, tile);
-
-        if (connected.length === 1) {
-            const [direction] = connected;
-            const neighbour = DIRECTIONS[direction];
-            const capX = x - neighbour.x;
-            const capY = y - neighbour.y;
-            if (inBounds(capX, capY) && !path.has(key(capX, capY))) {
-                result.set(key(capX, capY), {
-                    x: capX,
-                    y: capY,
-                    overlayShape: 11,
-                    overlayRotation: [1, 2, 3, 0][direction],
-                });
-            }
-        }
     }
 
-    const boundary = new Set<string>();
-    for (const tileKey of Array.from(editable)) {
+    for (const tileKey of editable) {
         const [x, y] = tileKey.split(":").map(Number);
         for (const direction of DIRECTIONS) {
-            const boundaryX = x + direction.x;
-            const boundaryY = y + direction.y;
-            const boundaryKey = key(boundaryX, boundaryY);
-            if (
-                inBounds(boundaryX, boundaryY) &&
-                !path.has(boundaryKey) &&
-                !result.has(boundaryKey)
-            ) {
-                boundary.add(boundaryKey);
-            }
-        }
-    }
-
-    for (const boundaryKey of Array.from(boundary)) {
-        const [x, y] = boundaryKey.split(":").map(Number);
-        const neighbours = DIRECTIONS.map((direction) => path.has(key(x + direction.x, y + direction.y)));
-        const adjacent = neighbours.filter(Boolean).length;
-        if (adjacent === 2 && !(neighbours[0] && neighbours[2]) && !(neighbours[1] && neighbours[3])) {
-            result.set(boundaryKey, {
-                x,
-                y,
+            const cornerX = x + direction.x;
+            const cornerY = y + direction.y;
+            const cornerKey = key(cornerX, cornerY);
+            if (path.has(cornerKey) || result.has(cornerKey)) continue;
+            const neighbours = DIRECTIONS.map((neighbour) => path.has(key(cornerX + neighbour.x, cornerY + neighbour.y)));
+            if (neighbours.filter(Boolean).length !== 2 || (neighbours[0] && neighbours[2]) || (neighbours[1] && neighbours[3])) continue;
+            result.set(cornerKey, {
+                x: cornerX,
+                y: cornerY,
                 overlayShape: 1,
                 overlayRotation: cornerRotation(neighbours),
             });
         }
     }
 
-    return Array.from(result.values());
+    return [...result.values()];
 }

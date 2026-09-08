@@ -172,13 +172,3 @@
     max-width: 48px !important;
     overflow: hidden;
 }
-
-/* Dev-only editor panel: its own Leva store, parked under the renderer's. */
-.leva-edit-mode > div {
-    position: fixed;
-    left: 10px !important;
-    right: auto !important;
-    top: 300px !important;
-    width: 280px;
-    z-index: 1000;
-}

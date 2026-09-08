@@ -2,8 +2,8 @@
 // Import style adjusted for this fork's tsconfig (no esModuleInterop), same
 // fix already applied in CachePipeline.ts.
 import AdmZip = require("adm-zip");
-import fs = require("fs");
-import path = require("path");
+import fs = require("node:fs");
+import path = require("node:path");
 
 const OPENRS2_API = "https://archive.openrs2.org";
 /** server/ package root (this file lives in server/scripts/) */

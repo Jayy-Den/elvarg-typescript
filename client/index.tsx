@@ -6,9 +6,7 @@ import "./index.css";
 import reportWebVitals from "./reportWebVitals";
 import { registerServiceWorker } from "./serviceWorkerRegistration";
 
-const Page = /^\/host\/?$/.test(window.location.pathname)
-    ? lazy(() => import("./browserHost/HostPage"))
-    : lazy(() => import("./game/GamePage"));
+const Page = lazy(() => import("./game/GamePage"));
 
 const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
 root.render(

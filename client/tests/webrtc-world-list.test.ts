@@ -1,13 +1,37 @@
 import assert from "node:assert/strict";
 
-import { getWebRtcRelayConfig } from "../config/clientEnv";
+import { getBrowserHostWorldConfig, getCacheBaseUrl, getServerListUrl, getWebRtcRelayConfig } from "../config/clientEnv";
 import { handleServerListClick } from "../game/login/renderer/input/mouseClick";
 import { forumProfileUrl, relayWorldEntries, replaceRelayWorlds } from "../game/login/renderer/serverList";
+import { setServerUrl } from "../network/serverConnection/outgoing/connectionInfo";
+import { state as connectionState } from "../network/serverConnection/state";
 
 assert.deepEqual(getWebRtcRelayConfig(), {
     signalUrl: "wss://worlds.rsps.app",
     iceServers: [{ urls: "stun:stun.rsps.app:3478" }],
 });
+
+const previousPublicUrl = process.env.PUBLIC_URL;
+process.env.PUBLIC_URL = "/play";
+assert.equal(getServerListUrl(), "/play/servers.json");
+assert.equal(getCacheBaseUrl(), "/play/caches/");
+if (previousPublicUrl === undefined) delete process.env.PUBLIC_URL;
+else process.env.PUBLIC_URL = previousPublicUrl;
+
+const previousSignalUrl = process.env.REACT_APP_WEBRTC_SIGNAL_URL;
+process.env.REACT_APP_WEBRTC_SIGNAL_URL = "ws://127.0.0.1:8787";
+(globalThis as any).window = { location: { search: "?browser-host-client=1&browser-host-world=browser-test" } };
+assert.equal(getWebRtcRelayConfig()?.signalUrl, "wss://worlds.rsps.app");
+assert.deepEqual(getBrowserHostWorldConfig(), {
+    signalUrl: "wss://worlds.rsps.app",
+    iceServers: [{ urls: "stun:stun.rsps.app:3478" }],
+    worldId: "browser-test",
+});
+setServerUrl("ws://127.0.0.1:43594");
+assert.deepEqual(connectionState.webRtcConfig, getBrowserHostWorldConfig());
+delete (globalThis as any).window;
+if (previousSignalUrl === undefined) delete process.env.REACT_APP_WEBRTC_SIGNAL_URL;
+else process.env.REACT_APP_WEBRTC_SIGNAL_URL = previousSignalUrl;
 
 const discovered = relayWorldEntries("ws://127.0.0.1:8787", [], {
     worlds: [

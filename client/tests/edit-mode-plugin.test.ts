@@ -1,26 +1,155 @@
 import assert from "node:assert/strict";
 
+import { createBrowserEditModePluginPersistence } from "../game/plugins/editmode/BrowserEditModePluginPersistence";
 import { EditModePlugin } from "../game/plugins/editmode/EditModePlugin";
 import { detectRectangularBuilding } from "../game/plugins/editmode/BuildingDetector";
+import { generateBuildingEdits } from "../game/plugins/editmode/BuildingGenerator";
 import {
+    parseBrowserHostWorldDefinition,
+    parseBrowserHostWorldSpawn,
     parseEditModeWorldDefinition,
     raycastEditScene,
 } from "../game/plugins/editmode/install";
 import { InteractType } from "../render/InteractType";
 import type { EditModePluginConfig } from "../game/plugins/editmode/types";
 import { buildMapIconGroundVertices } from "../game/plugins/editmode/MapIconGroundOverlay";
-import { buildRegionPack } from "../game/plugins/editmode/RegionPack";
+import { buildRegionPack, parseRegionPack } from "../game/plugins/editmode/RegionPack";
 import { buildZoneGroundGeometry } from "../game/plugins/editmode/ZoneGroundOverlay";
+import { getNpcMenuOptions } from "../game/menu/WorldMenuBuilder";
+import { MenuOpcode } from "../ui/menu/MenuState";
 
 type Call = [string, ...unknown[]];
+
+{
+    const options = getNpcMenuOptions({ actions: ["Talk-to", "Attack", "Trade", "", "Examine"] } as any);
+    assert.deepEqual(
+        options.map(({ opcode, isAttack }) => [opcode, isAttack]),
+        [
+            [MenuOpcode.NpcFirstOption, false],
+            [MenuOpcode.NpcSecondOption, true],
+            [MenuOpcode.NpcThirdOption, false],
+            [MenuOpcode.NpcFifthOption, false],
+        ],
+        "NPC menu options retain their real click opcodes and combat marker",
+    );
+}
+
+{
+    let focused = false;
+    const muted: boolean[] = [];
+    const plugin = new EditModePlugin();
+    plugin.attach({
+        getCanvas: () => ({ focus: () => { focused = true; } }) as unknown as HTMLCanvasElement,
+        setAudioMuted: (value) => muted.push(value),
+        getPointerTile: () => undefined,
+        getPointerLoc: () => undefined,
+        getLocName: () => "",
+        getNpcName: () => "",
+        search: async () => [],
+        spawnNpc: () => undefined,
+        despawnNpc: () => {},
+        setTerrainOverlay: () => {},
+        clearTerrainOverride: () => {},
+        setFreeCamera: () => {},
+        setScenePreview: () => {},
+        jumpCameraToTile: () => {},
+        onLocAddChange: () => {},
+        onLocDel: () => {},
+        cancelPendingClick: () => {},
+        levelCamera: () => {},
+        isLoggedIn: () => true,
+    });
+    plugin.setConfig({ enabled: true, active: true });
+    assert.equal(focused, true, "arming Edit Mode focuses the canvas for WASD input");
+    assert.deepEqual(muted, [false, true], "Edit Mode mutes audio without changing game settings");
+    plugin.setConfig({ active: false });
+    assert.deepEqual(muted, [false, true, false], "leaving Edit Mode restores audio");
+}
+
+{
+    assert.deepEqual(generateBuildingEdits({ minX: 1, maxX: 2, minY: 1, maxY: 3, plane: 0 }, "Varrock", 1), []);
+    const building = generateBuildingEdits(
+        { minX: 10, maxX: 12, minY: 20, maxY: 22, plane: 0 },
+        "Classic",
+        1,
+        { tileX: 11, tileY: 15, plane: 0 },
+    );
+    assert.ok(building.some((edit) => edit.kind === "place" && edit.locId === 1535 && edit.tileY === 19), "door faces the camera");
+    assert.ok(building.some((edit) => edit.kind === "place" && edit.locId === 1640 && edit.plane === 1 && edit.shape === 17), "roof fills the top plane");
+    assert.equal(building.filter((edit) => edit.kind === "flag" && edit.plane === 0).length, 9);
+    const diagonal = generateBuildingEdits(
+        { minX: 10, maxX: 14, minY: 20, maxY: 24, plane: 0 }, "Classic", 2, undefined, undefined, "Diagonal",
+    );
+    assert.equal(diagonal.filter((edit) => edit.kind === "place" && edit.locId === 1902 && edit.shape === 1).length, 16);
+    assert.ok(diagonal.some((edit) => edit.kind === "place" && edit.locId === 1902 && edit.shape === 9));
+    assert.ok(diagonal.some((edit) => edit.kind === "place" && edit.locId === 1793 && edit.shape === 19));
+    assert.ok(diagonal.some((edit) => edit.kind === "place" && edit.locId === 1933 && edit.shape === 13));
+    assert.ok(diagonal.some((edit) => edit.kind === "place" && edit.locId === 16683 && edit.plane === 0 && edit.tileX === 12 && edit.tileY === 22));
+    assert.ok(diagonal.some((edit) => edit.kind === "place" && edit.locId === 16679 && edit.plane === 1 && edit.tileX === 12 && edit.tileY === 22));
+    assert.ok(diagonal.some((edit) => edit.kind === "terrain" && edit.locId === 0 && edit.plane === 1 && edit.tileX === 12 && edit.tileY === 22));
+    for (const [tileX, tileY, rotation] of [[10, 20, 2], [10, 24, 3], [14, 20, 1], [14, 24, 0]]) {
+        assert.ok(diagonal.some((edit) => edit.kind === "terrain" && edit.plane === 1 && edit.tileX === tileX && edit.tileY === tileY && edit.shape === 1 && edit.rotation === rotation));
+    }
+    assert.ok(diagonal.some((edit) => edit.kind === "terrain" && edit.plane === 1 && edit.tileX === 12 && edit.tileY === 22 && edit.shape === 0));
+    const threeFloors = generateBuildingEdits(
+        { minX: 10, maxX: 14, minY: 20, maxY: 24, plane: 0 }, "Classic", 3,
+    );
+    assert.ok(threeFloors.some((edit) => edit.kind === "place" && edit.locId === 16684 && edit.plane === 1));
+    for (const plane of [1, 2]) {
+        const ladderTerrain = threeFloors.filter((edit) => edit.kind === "terrain" && edit.plane === plane && edit.tileX === 12 && edit.tileY === 22);
+        assert.deepEqual(ladderTerrain.map((edit) => edit.locId), [0]);
+    }
+    const levelled = generateBuildingEdits(
+        { minX: 10, maxX: 12, minY: 20, maxY: 22, plane: 0 }, "Classic", 1, undefined,
+        () => -2,
+    ).filter((edit) => edit.kind === "height" && edit.plane === 0);
+    assert.equal(Math.min(...levelled.map((edit) => edit.tileX)), 9);
+    assert.equal(Math.max(...levelled.map((edit) => edit.tileX)), 14);
+    assert.equal(Math.min(...levelled.map((edit) => edit.tileY)), 19);
+    assert.equal(Math.max(...levelled.map((edit) => edit.tileY)), 24);
+}
+
+{
+    const entries = new Map<string, string>();
+    const originalWindow = globalThis.window;
+    Object.assign(globalThis, {
+        window: {
+            localStorage: {
+                getItem: (key: string) => entries.get(key) ?? null,
+                setItem: (key: string, value: string) => entries.set(key, value),
+            },
+        },
+    });
+    const persistence = createBrowserEditModePluginPersistence("edit-mode")!;
+    persistence.save({ edits: [{ kind: "place" }] } as EditModePluginConfig);
+    assert.deepEqual(JSON.parse(entries.get("edit-mode")!).edits, []);
+    entries.set("edit-mode", JSON.stringify({ edits: [{ kind: "place" }] }));
+    assert.deepEqual(persistence.load()!.edits, []);
+    Object.assign(globalThis, { window: originalWindow });
+}
 
 const parsedWorld = parseEditModeWorldDefinition({
     spawn: { x: 3089, y: 3524, z: 0 },
     zones: [
         { minX: 1, maxX: 2, minY: 3, maxY: 3, z: 0, tags: ["pvp"] },
     ],
+    disabledPlugins: ["NpcSpawns"],
+    experienceMultiplier: 1,
 });
 assert.equal(parsedWorld.zones[0].tags[0], "pvp");
+assert.deepEqual(parsedWorld.disabledPlugins, ["NpcSpawns"]);
+assert.deepEqual(parseBrowserHostWorldSpawn("3089,3524,0").spawn, parsedWorld.spawn);
+assert.deepEqual(parseBrowserHostWorldDefinition(JSON.stringify({
+    spawn: { x: 3089, y: 3524, z: 0 },
+    zones: [{ minX: 1, maxX: 2, minY: 3, maxY: 3, z: 0, tags: ["multi-combat"] }],
+    experienceMultiplier: 1,
+})), {
+    spawn: { x: 3089, y: 3524, z: 0 },
+    zones: [{ minX: 1, maxX: 2, minY: 3, maxY: 3, z: 0, tags: ["multi-combat"] }],
+    disabledPlugins: [],
+    experienceMultiplier: 1,
+});
+assert.throws(() => parseBrowserHostWorldSpawn("3089,3524"));
 assert.throws(() =>
     parseEditModeWorldDefinition({
         spawn: { x: 0, y: 0, z: 0 },
@@ -37,6 +166,16 @@ const zoneGeometry = buildZoneGroundGeometry(
 assert.equal(zoneGeometry.positions.length, 2 * 6 * 3, "overlapping same-tag zones render once");
 assert.equal(zoneGeometry.colors.length, 2 * 6 * 4);
 assert.ok(Math.abs(zoneGeometry.positions[1] + 0.05) < 0.000001, "zone overlays clear the terrain");
+const flatPreviewGeometry = buildZoneGroundGeometry(
+    [{ minX: 1, maxX: 1, minY: 3, maxY: 3, plane: 0, colorRgb: 0, alpha: 1, height: -2 }],
+    () => 100,
+);
+assert.ok(
+    Array.from(flatPreviewGeometry.positions)
+        .filter((_, index) => index % 3 === 1)
+        .every((height) => Math.abs(height + 2.05) < 0.000001),
+    "flat previews use their target height instead of the current terrain",
+);
 
 {
     const regionId = (48 << 8) | 55;
@@ -104,6 +243,36 @@ assert.ok(Math.abs(zoneGeometry.positions[1] + 0.05) < 0.000001, "zone overlays 
         ),
         [0, 9, 0, 2, 0, 0],
     );
+    const parsedPack = parseRegionPack(pack);
+    assert.equal(parsedPack.regionId, regionId);
+    assert.deepEqual(Array.from(parsedPack.objectData), [128, 201, 128, 197, 42, 0, 0]);
+    assert.deepEqual(
+        Array.from(parsedPack.terrainData.subarray(editedTileOffset, editedTileOffset + 6)),
+        [0, 9, 0, 2, 0, 0],
+    );
+    assert.throws(() => parseRegionPack(pack.subarray(0, 27)));
+
+    const cleared = parseRegionPack(buildRegionPack(
+        regionId,
+        40000,
+        39999,
+        objects,
+        terrain,
+        [{ kind: "clear", locId: 0, tileX: 48 * 64 + 1, tileY: 55 * 64 + 2, plane: 0, shape: 0, rotation: 0 }],
+        true,
+    ));
+    assert.deepEqual(Array.from(cleared.objectData), [0], "clear removes every loc type and plane");
+
+    const flattened = parseRegionPack(buildRegionPack(
+        regionId,
+        40000,
+        39999,
+        objects,
+        terrain,
+        [{ kind: "height", locId: 42, tileX: 48 * 64, tileY: 55 * 64, plane: 0, shape: 0, rotation: 0 }],
+        true,
+    ));
+    assert.deepEqual(Array.from(flattened.terrainData.subarray(0, 3)), [0, 1, 42]);
 }
 
 const buildingLocs = new Map<string, Array<{ id: number; level: number; typeRot: number }>>();
@@ -293,6 +462,28 @@ assert.deepEqual(
 const calls: Call[] = [];
 let saved: EditModePluginConfig | undefined;
 
+const regionPackPlugin = new EditModePlugin();
+const exportedRegions: number[] = [];
+regionPackPlugin.attach({
+    exportRegionPack: (tile) => {
+        const regionId = ((tile.tileX >> 6) << 8) | (tile.tileY >> 6);
+        exportedRegions.push(regionId);
+        return { regionId, data: Uint8Array.of(regionId >> 8, regionId & 0xff) };
+    },
+} as any);
+regionPackPlugin.setConfig({
+    edits: [
+        { kind: "place", locId: 1, tileX: 3200, tileY: 3200, plane: 0, shape: 10, rotation: 0 },
+        { kind: "terrain", locId: 2, tileX: 3264, tileY: 3200, plane: 0, shape: 0, rotation: 0 },
+        { kind: "npc", locId: 3, tileX: 3328, tileY: 3200, plane: 0, shape: 0, rotation: 0 },
+    ],
+});
+assert.deepEqual(
+    regionPackPlugin.exportModifiedRegionPacks().map((pack) => pack.regionId),
+    [((3200 >> 6) << 8) | (3200 >> 6), ((3264 >> 6) << 8) | (3200 >> 6)],
+);
+assert.deepEqual(exportedRegions, [((3200 >> 6) << 8) | (3200 >> 6), ((3264 >> 6) << 8) | (3200 >> 6)]);
+
 const plugin = new EditModePlugin({
     load: () => ({ enabled: true, locId: 1276, shape: 10, rotation: 0 }),
     save: (config) => {
@@ -343,12 +534,7 @@ plugin.attach({
     cancelPendingClick: () => calls.push(["cancelClick"]),
     setScenePreview: (enabled) => calls.push(["scenePreview", enabled]),
     isLoggedIn: () => false,
-    listInterfaceGroups: () => [548, 161, 162],
-    openInterface: (groupId) => calls.push(["openInterface", groupId]),
-    describeInterface: (groupId) =>
-        groupId === 161
-            ? [{ uid: 1, fileId: 0, type: 0, x: 0, y: 0, width: 100, height: 20, text: "hp" }]
-            : [],
+    toggleWorldMap: () => calls.push(["toggleWorldMap"]),
 });
 
 // Select records what is under the pointer without touching the scene.
@@ -434,9 +620,17 @@ assert.deepEqual(calls, [["spawnNpc", 3, { tileX: 3222, tileY: 3218, plane: 0 },
 assert.equal(saved?.edits[0].kind, "npc");
 assert.equal(saved?.edits[0].locId, 3);
 
+// Map reloads recreate only editor NPCs from the editor's own saved edits.
+calls.length = 0;
+plugin.reapplyNpcsForMap(50, 50);
+assert.deepEqual(calls, [
+    ["despawnNpc", 60000],
+    ["spawnNpc", 3, { tileX: 3222, tileY: 3218, plane: 0 }, 0],
+]);
+
 calls.length = 0;
 assert.equal(plugin.undo(), true);
-assert.deepEqual(calls, [["despawnNpc", 60000]]);
+assert.deepEqual(calls, [["despawnNpc", 60001]]);
 assert.equal(saved?.edits.length, 0);
 
 // Terrain tool paints the configured overlay on the pointer tile.
@@ -445,6 +639,36 @@ calls.length = 0;
 plugin.setConfig({ tool: "terrain", overlayId: 2 });
 plugin.applyAtPointer();
 assert.deepEqual(calls, [["terrain", { tileX: 3222, tileY: 3218, plane: 0 }, 2, 0, 0]]);
+
+// Painting a selected rectangle touches every tile, not just its start corner.
+plugin.clearEdits();
+calls.length = 0;
+(plugin as any).selection = {
+    kind: "ground",
+    tileX: 3222,
+    tileY: 3218,
+    tileEndX: 3223,
+    tileEndY: 3219,
+    plane: 0,
+    locId: -1,
+    locName: "",
+};
+plugin.setConfig({ overlayId: 3 });
+plugin.paintSelection();
+assert.deepEqual(calls, [
+    ["terrain", { tileX: 3222, tileY: 3218, plane: 0 }, 3, 0, 0],
+    ["terrain", { tileX: 3222, tileY: 3219, plane: 0 }, 3, 0, 0],
+    ["terrain", { tileX: 3223, tileY: 3218, plane: 0 }, 3, 0, 0],
+    ["terrain", { tileX: 3223, tileY: 3219, plane: 0 }, 3, 0, 0],
+]);
+
+// Building generation clears the selected area before placing anything new.
+plugin.clearEdits();
+(plugin as any).selection = { kind: "ground", tileX: 3222, tileY: 3218, tileEndX: 3224, tileEndY: 3220, plane: 0, locId: -1, locName: "" };
+plugin.generateBuilding("Classic", 1, "Rectangle");
+assert.equal(plugin.getConfig().edits[0]?.kind, "clear");
+assert.equal(plugin.getConfig().edits.slice(0, 9).every((edit) => edit.kind === "clear"), true);
+assert.ok(plugin.getConfig().edits.slice(9).some((edit) => edit.kind === "place"));
 
 // Path tool needs two clicks: the first only records the start.
 plugin.clearEdits();
@@ -469,32 +693,132 @@ pathPlugin.attach({
     spawnNpc: () => 1,
     despawnNpc: () => {},
     onLocAddChange: () => {},
-    onLocDel: () => {},
+    onLocDel: (...args) => pathCalls.push(["del", ...args]),
     setTerrainOverlay: (tile, overlay, shape, rotation) =>
         pathCalls.push(["terrain", tile.tileX, tile.tileY, overlay, shape, rotation]),
     clearTerrainOverride: (tile) => pathCalls.push(["clearTerrain", tile.tileX, tile.tileY]),
+    setTerrainPreview: (edits) => pathCalls.push(["preview", edits.length]),
+    clearTerrainPreview: () => pathCalls.push(["clearPreview"]),
     setFreeCamera: () => {},
     jumpCameraToTile: () => {},
     cancelPendingClick: () => {},
     setScenePreview: () => {},
-    isLoggedIn: () => false,
-    listInterfaceGroups: () => [],
-    openInterface: () => {},
-    describeInterface: () => [],
+    isLoggedIn: () => true,
 });
-pathPlugin.setConfig({ tool: "path", overlayId: 2 });
+pathPlugin.setConfig({ enabled: true, active: true, tool: "path", overlayId: 2 });
+(pathPlugin as any).refreshPlacementPreview();
+assert.deepEqual(pathCalls.at(-1), ["preview", 1]);
 pathPlugin.applyAtPointer();
 pathPointer = { tileX: 13, tileY: 10, plane: 0 };
+(pathPlugin as any).refreshPlacementPreview();
+assert.deepEqual(pathCalls.at(-1), ["preview", 4]);
+pathPointer = { tileX: 13, tileY: 10, plane: 0 };
 pathPlugin.applyAtPointer();
+assert.ok(pathCalls.some((call) => call[0] === "clearPreview"));
 
 const painted = pathCalls.filter((call) => call[0] === "terrain");
 const paintedTiles = painted.map((call) => `${call[1]},${call[2]}`);
-// The four tiles of the run, plus the end caps the generator adds.
-for (const tile of ["10,10", "11,10", "12,10", "13,10"]) {
-    assert.ok(paintedTiles.includes(tile), `expected ${tile} to be painted`);
-}
-assert.ok(painted.every((call) => call[3] === 2), "every tile uses the configured overlay");
+assert.deepEqual([...new Set(paintedTiles)].sort(), ["10,10", "11,10", "12,10", "13,10"]);
+assert.ok(painted.every((call) => call[3] === 2), "paths use the selected overlay");
+const clearedDecorations = pathCalls.filter((call) => call[0] === "del");
+assert.equal(clearedDecorations.length, 16, "paths clear every floor-decoration rotation");
+assert.ok(clearedDecorations.every((call) => call[3] === 22), "paths only clear floor decorations");
 assert.equal(pathPlugin.getState().pathStart, undefined);
+
+// Wall mode follows the path tool: click once to anchor, then click again to build.
+const wallCalls: Call[] = [];
+const wallPreviewCounts: number[] = [];
+const wallPreviewHeights: Array<number | undefined> = [];
+let wallPreview: readonly { rotation: number }[] = [];
+let wallPointer = {
+    tileX: 20,
+    tileY: 30,
+    plane: 0,
+};
+const wallPlugin = new EditModePlugin();
+wallPlugin.attach({
+    getCanvas: () => undefined,
+    getPointerTile: () => wallPointer,
+    getPointerLoc: () => undefined,
+    getLocName: () => "",
+    getNpcName: () => "",
+    search: async () => [],
+    spawnNpc: () => undefined,
+    despawnNpc: () => {},
+    onLocAddChange: (...args) => wallCalls.push(["wall", ...args]),
+    onLocDel: () => {},
+    setTerrainOverlay: () => {},
+    clearTerrainOverride: () => {},
+    getTerrainHeight: (tile) => -(tile.tileX - 19) / 16,
+    setWallPreview: (walls, height) => {
+        wallPreviewCounts.push(walls.length);
+        wallPreviewHeights.push(height);
+        wallPreview = walls;
+    },
+    clearPlacementPreview: () => {},
+    setFreeCamera: () => {},
+    jumpCameraToTile: () => {},
+    cancelPendingClick: () => {},
+    setScenePreview: () => {},
+    isLoggedIn: () => true,
+});
+wallPlugin.setConfig({ enabled: true, active: true, tool: "wall" });
+(wallPlugin as any).refreshPlacementPreview();
+assert.equal(wallPreviewCounts.at(-1), 1, "wall start has a one-tile preview");
+wallPlugin.applyAtPointer();
+wallPointer = { tileX: 23, tileY: 31, plane: 0 };
+(wallPlugin as any).refreshPlacementPreview();
+assert.equal(wallPreviewCounts.at(-1), 4, "wall move previews the complete run");
+assert.equal(wallPreviewHeights.at(-1), -3 / 16, "wall preview is levelled to its final median height");
+wallPlugin.applyAtPointer();
+assert.deepEqual(wallCalls, [
+    ["wall", 1902, { x: 20, y: 30 }, 0, 0, 1],
+    ["wall", 1902, { x: 21, y: 30 }, 0, 0, 1],
+    ["wall", 1902, { x: 22, y: 30 }, 0, 0, 1],
+    ["wall", 1902, { x: 23, y: 30 }, 0, 0, 1],
+]);
+assert.deepEqual(
+    wallPlugin
+        .getConfig()
+        .edits.filter((edit) => edit.kind === "height")
+        .map((edit) => [edit.tileX, edit.tileY, edit.locId]),
+    [
+        [20, 30, 3], [21, 30, 3], [21, 31, 3], [20, 31, 3], [22, 30, 3],
+        [22, 31, 3], [23, 30, 3], [23, 31, 3], [24, 30, 3], [24, 31, 3],
+    ],
+    "wall vertices are normalised to one height",
+);
+wallCalls.length = 0;
+wallPointer = { tileX: 40, tileY: 10, plane: 0 };
+wallPlugin.applyAtPointer();
+wallPointer = { tileX: 40, tileY: 12, plane: 0 };
+wallPlugin.applyAtPointer();
+assert.deepEqual(wallCalls, [
+    ["wall", 1902, { x: 40, y: 10 }, 0, 0, 0],
+    ["wall", 1902, { x: 40, y: 11 }, 0, 0, 0],
+    ["wall", 1902, { x: 40, y: 12 }, 0, 0, 0],
+]);
+wallPointer = { tileX: 50, tileY: 10, plane: 0 };
+wallPlugin.applyAtPointer();
+wallPlugin.rotate();
+wallPointer = { tileX: 50, tileY: 13, plane: 0 };
+(wallPlugin as any).refreshPlacementPreview();
+assert.ok(wallPreview.every((wall) => wall.rotation === 2), "R rotates the pending wall preview");
+
+// Joining an existing path rounds the inside and outside of the actual bend.
+pathCalls.length = 0;
+pathPointer = { tileX: 13, tileY: 10, plane: 0 };
+pathPlugin.applyAtPointer();
+pathPointer = { tileX: 13, tileY: 13, plane: 0 };
+pathPlugin.applyAtPointer();
+const joined = [...pathCalls]
+    .reverse()
+    .find((call) => call[0] === "terrain" && call[1] === 13 && call[2] === 10);
+assert.equal(joined?.[4], 5, "joining a path rounds its inside corner");
+assert.ok(
+    pathCalls.some((call) => call[0] === "terrain" && call[1] === 12 && call[2] === 11 && call[4] === 1),
+    "joining a path rounds its outside corner",
+);
 
 // Undo removes the last painted tile and clears its override.
 pathCalls.length = 0;
@@ -512,17 +836,13 @@ plugin.setConfig({ active: false });
 assert.deepEqual(calls.at(-1), ["freeCamera", false]);
 assert.equal(plugin.getState().freeCamera, false);
 
-// Navigation and the interface browser go through the host.
+// Navigation and the world map go through the host.
 calls.length = 0;
 plugin.jumpToTile(3100, 3200, 1);
 assert.deepEqual(calls.at(-1), ["jump", { tileX: 3100, tileY: 3200, plane: 1 }]);
 
-plugin.refreshInterfaces();
-assert.deepEqual(plugin.getState().interfaces.groups, [161, 162, 548]);
-plugin.openInterface(161);
-assert.deepEqual(calls.at(-1), ["openInterface", 161]);
-assert.equal(plugin.getState().interfaces.selected, 161);
-assert.equal(plugin.getState().interfaces.widgets[0].text, "hp");
+plugin.toggleWorldMap();
+assert.deepEqual(calls.at(-1), ["toggleWorldMap"]);
 
 // Armed on the login screen: clicks and keys must pass through to the client,
 // there is no scene to edit yet. (host.isLoggedIn() is false in this fake.)
@@ -592,12 +912,14 @@ const restored = new EditModePlugin({
         active: true,
         tool: "nonsense" as never,
         rotation: 99,
+        heightLevel: 2,
         edits: [{ kind: "place", locId: -5, tileX: 1, tileY: 2, plane: 9, shape: 999, rotation: 7 }],
     }),
     save: () => {},
 });
 assert.equal(restored.getConfig().tool, "select");
 assert.equal(restored.getConfig().rotation, 3);
+assert.equal(restored.getConfig().heightLevel, 0, "a new editor session always opens on ground level");
 assert.deepEqual(restored.getConfig().edits[0], {
     kind: "place",
     locId: 0,
@@ -608,8 +930,8 @@ assert.deepEqual(restored.getConfig().edits[0], {
     rotation: 3,
 });
 
-// An armed placement follows the pointer, refreshes on rotation, and is
-// removed before the permanent scene edit is applied.
+// An armed placement follows the pointer, refreshes in place on rotation, and
+// is removed before the permanent scene edit is applied.
 const previewCalls: Call[] = [];
 const windowListeners: Array<[string, (...args: any[]) => void, unknown]> = [];
 (globalThis as any).window = {
@@ -683,9 +1005,6 @@ previewPlugin.attach({
     rotateCamera: (x, y) => previewCalls.push(["rotateCamera", x, y]),
     cancelPendingClick: () => {},
     levelCamera: () => {},
-    listInterfaceGroups: () => [],
-    openInterface: () => {},
-    describeInterface: () => [],
 });
 previewPlugin.setConfig({ enabled: true, active: true, tool: "place", locId: 1276 });
 assert.equal(
@@ -693,11 +1012,20 @@ assert.equal(
     undefined,
     "editor mouse hooks must bubble after the canvas records its click",
 );
+let preventedFreeCameraKey = false;
+let stoppedFreeCameraKey = false;
+(previewPlugin as any).onKeyDown({
+    target: null,
+    key: "f",
+    preventDefault: () => (preventedFreeCameraKey = true),
+    stopPropagation: () => (stoppedFreeCameraKey = true),
+});
+assert.ok(preventedFreeCameraKey && stoppedFreeCameraKey, "editor blocks vertical camera keys");
 assert.equal(previewCalls[0][0], "preview");
 previewPlugin.rotate();
 assert.deepEqual(
     previewCalls.map((call) => call[0]),
-    ["preview", "clearPreview", "preview"],
+    ["preview", "preview"],
 );
 previewPlugin.applyAtPointer();
 assert.deepEqual(
@@ -796,10 +1124,31 @@ delete (globalThis as any).window;
 
 // Search results feed the id the place tool uses.
 async function searchTests(): Promise<void> {
+    const capturePlugin = new EditModePlugin();
+    capturePlugin.attach({
+        captureSelectionImage: async () => "data:image/png;base64,capture",
+    } as any);
+    (capturePlugin as any).selection = {
+        kind: "npc",
+        tileX: 3200,
+        tileY: 3200,
+        plane: 0,
+        locId: 3,
+        locName: "Goblin",
+    };
+    assert.equal(await capturePlugin.captureSelectionImage(), "data:image/png;base64,capture");
+    (capturePlugin as any).selection = { tileX: 3200, tileY: 3200, plane: 0, locId: -1, locName: "" };
+    assert.equal(await capturePlugin.captureSelectionImage(), undefined);
+
     const worldPlugin = new EditModePlugin();
     worldPlugin.attach({ loadWorldDefinition: async () => parsedWorld } as any);
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(worldPlugin.getState().world.definition?.zones.length, 1);
+    (worldPlugin as any).selection = { tileX: 3200, tileY: 3210, plane: 1, locId: -1, locName: "" };
+    worldPlugin.setSpawnPoint();
+    assert.deepEqual(worldPlugin.getWorldDefinitionForSave()?.spawn, { x: 3200, y: 3210, z: 1 });
+    worldPlugin.markWorldDefinitionSaved();
+    assert.equal(worldPlugin.getWorldDefinitionForSave(), undefined);
 
     let resolveWorld: (world: typeof parsedWorld) => void = () => undefined;
     let previewStarts = 0;

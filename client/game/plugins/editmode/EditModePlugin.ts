@@ -1,6 +1,8 @@
-import { buildPathOverlays, createPathTiles } from "./PathGenerator";
+import { buildPathCorners, createPathTiles } from "./PathGenerator";
+import { generateBuildingEdits, type BuildingShape, type BuildingStyle } from "./BuildingGenerator";
 import {
     DEFAULT_PATH_OVERLAY_ID,
+    LOC_SHAPE_FLOOR_DECORATION,
     LOC_SHAPE_NORMAL,
     type EditModeEdit,
     type EditModeHost,
@@ -10,14 +12,14 @@ import {
     type EditModePluginState,
     type EditModeSearchKind,
     type EditModeDefinitionSummary,
-    type EditModeShop,
     type EditModeSelection,
     type EditModeTile,
     type EditModeTool,
-    type EditModeWidgetSummary,
+    type EditModeWorldDefinition,
 } from "./types";
 
 type EditModePluginListener = () => void;
+type TileRange = { minX: number; maxX: number; minY: number; maxY: number; plane: number };
 
 const DEFAULT_CONFIG: EditModePluginConfig = Object.freeze({
     enabled: false,
@@ -44,8 +46,10 @@ const TOOLS: ReadonlySet<string> = new Set<EditModeTool>([
     "terrain",
     "path",
 ]);
-/** Keeps a stray path click from repainting half the map square. */
-const MAX_PATH_TILES = 512;
+/** Keeps a stray drag from placing half a map square. */
+const MAX_DRAW_TILES = 512;
+const WALL_OBJECT_ID = 1902;
+const WALL_SHAPE = 0;
 /** Pointer travel past this is a camera drag, not a click on a tile. */
 const DRAG_THRESHOLD_PX = 4;
 const PLACE_KINDS: ReadonlySet<string> = new Set<EditModePlaceKind>(["loc", "npc"]);
@@ -59,6 +63,16 @@ function toInt(value: unknown, fallback: number, min: number, max: number): numb
     const numeric = Math.floor(Number(value));
     if (!Number.isFinite(numeric)) return fallback;
     return Math.max(min, Math.min(max, numeric));
+}
+
+function clearAreaEdits(range: TileRange): EditModeEdit[] {
+    const edits: EditModeEdit[] = [];
+    for (let tileX = range.minX; tileX <= range.maxX; tileX++) {
+        for (let tileY = range.minY; tileY <= range.maxY; tileY++) {
+            edits.push({ kind: "clear", locId: 0, tileX, tileY, plane: range.plane, shape: 0, rotation: 0 });
+        }
+    }
+    return edits;
 }
 
 export class EditModePlugin {
@@ -76,6 +90,8 @@ export class EditModePlugin {
         results: [],
     };
     private pathStart?: EditModeTile;
+    private wallStart?: EditModeTile;
+    private wallRotationOverride?: number;
     private freeCamera = false;
     private pointer?: {
         x: number;
@@ -88,8 +104,8 @@ export class EditModePlugin {
     private buildingSelect = false;
     private preview?: EditModeEdit;
     private scenePreview = false;
-    private interfaces: EditModePluginState["interfaces"] = { groups: [], widgets: [] };
     private world: EditModePluginState["world"] = { loading: false };
+    private worldDefinitionDirty = false;
     private searchToken = 0;
     private worldLoadToken = 0;
     private readonly spawnedNpcs = new Map<string, number>();
@@ -99,13 +115,24 @@ export class EditModePlugin {
         this.persistence = persistence;
         // Never restore an armed session: a plugin that eats clicks from the
         // first frame is impossible to diagnose from the UI.
-        this.config = this.sanitizeConfig({ ...persistence?.load(), active: false });
+        // Placement choices are session state, not world settings. Starting
+        // clean also prevents an old NPC selection from being armed silently.
+        this.config = this.sanitizeConfig({
+            ...persistence?.load(),
+            active: false,
+            tool: "select",
+            placeKind: "loc",
+            locId: 0,
+            npcId: 0,
+            shape: LOC_SHAPE_NORMAL,
+            rotation: 0,
+            heightLevel: 0,
+        });
         this.state = {
             config: this.config,
             search: this.search,
             freeCamera: this.freeCamera,
             scenePreview: this.scenePreview,
-            interfaces: this.interfaces,
             world: this.world,
             version: this.version,
         };
@@ -128,9 +155,95 @@ export class EditModePlugin {
         return this.host?.getCameraTile?.();
     }
 
-    exportActiveRegionPack(): { regionId: number; data: Uint8Array } | undefined {
-        const tile = this.getCameraTile();
-        return tile ? this.host?.exportRegionPack?.(tile, this.config.edits) : undefined;
+    getOverlaySwatches() {
+        return this.host?.getOverlaySwatches?.() ?? [];
+    }
+
+    /** Updates the world spawn from one selected tile; Save persists it to world.json. */
+    setSpawnPoint(): void {
+        const selection = this.selection;
+        const definition = this.world.definition;
+        if (
+            !selection ||
+            selection.kind === "loc" ||
+            selection.kind === "npc" ||
+            !definition ||
+            (selection.tileEndX !== undefined && selection.tileEndX !== selection.tileX) ||
+            (selection.tileEndY !== undefined && selection.tileEndY !== selection.tileY)
+        ) {
+            return;
+        }
+        this.world = {
+            ...this.world,
+            definition: {
+                ...definition,
+                spawn: { x: selection.tileX, y: selection.tileY, z: selection.plane },
+            },
+        };
+        this.worldDefinitionDirty = true;
+        this.commit();
+    }
+
+    getWorldDefinitionForSave(): EditModeWorldDefinition | undefined {
+        return this.worldDefinitionDirty ? this.world.definition : undefined;
+    }
+
+    markWorldDefinitionSaved(): void {
+        this.worldDefinitionDirty = false;
+    }
+
+    resizeWorldZone(index: number, bounds: Pick<EditModeWorldDefinition["zones"][number], "minX" | "maxX" | "minY" | "maxY">): void {
+        const definition = this.world.definition;
+        if (!definition || index < 0 || index >= definition.zones.length) return;
+        const zones = [...definition.zones];
+        zones[index] = { ...zones[index], ...bounds };
+        this.world = { ...this.world, definition: { ...definition, zones } };
+        this.worldDefinitionDirty = true;
+        this.commit();
+    }
+
+    addWorldZone(bounds: Pick<EditModeWorldDefinition["zones"][number], "minX" | "maxX" | "minY" | "maxY">): void {
+        const definition = this.world.definition;
+        if (!definition) return;
+        this.world = { ...this.world, definition: { ...definition, zones: [...definition.zones, { ...bounds, z: this.config.heightLevel, tags: ["pvp"] }] } };
+        this.worldDefinitionDirty = true;
+        this.commit();
+    }
+
+    setWorldZoneType(index: number, tag: EditModeWorldDefinition["zones"][number]["tags"][number]): void {
+        const definition = this.world.definition;
+        if (!definition || index < 0 || index >= definition.zones.length) return;
+        const zones = [...definition.zones];
+        zones[index] = { ...zones[index], tags: [tag] };
+        this.world = { ...this.world, definition: { ...definition, zones } };
+        this.worldDefinitionDirty = true;
+        this.commit();
+    }
+
+    deleteWorldZone(index: number): void {
+        const definition = this.world.definition;
+        if (!definition || index < 0 || index >= definition.zones.length) return;
+        this.world = { ...this.world, definition: { ...definition, zones: definition.zones.filter((_, i) => i !== index) } };
+        this.worldDefinitionDirty = true;
+        this.commit();
+    }
+
+    /** Builds one pack for each region with a map edit. */
+    exportModifiedRegionPacks(): Array<{ regionId: number; data: Uint8Array }> {
+        const exportRegionPack = this.host?.exportRegionPack;
+        if (!exportRegionPack) return [];
+        const tiles = new Map<number, EditModeTile>();
+        for (const edit of this.config.edits) {
+            if (edit.kind === "npc") continue;
+            tiles.set(((edit.tileX >> 6) << 8) | (edit.tileY >> 6), edit);
+        }
+        const packs: Array<{ regionId: number; data: Uint8Array }> = [];
+        for (const [regionId, tile] of tiles) {
+            const pack = exportRegionPack(tile, this.config.edits);
+            if (!pack) throw new Error(`Region ${regionId} is not ready`);
+            packs.push(pack);
+        }
+        return packs;
     }
 
     attach(host: EditModeHost): void {
@@ -180,7 +293,13 @@ export class EditModePlugin {
 
     setConfig(nextConfig: Partial<EditModePluginConfig>): void {
         const wasActive = this.config.active;
+        const previousTool = this.config.tool;
         this.config = this.sanitizeConfig({ ...this.config, ...nextConfig });
+        if (nextConfig.tool !== undefined && this.config.tool !== previousTool) {
+            this.pathStart = undefined;
+            this.wallStart = undefined;
+            this.clearPlacementPreview();
+        }
         if (nextConfig.heightLevel !== undefined) {
             this.host?.setHeightLevel?.(this.config.heightLevel);
         }
@@ -245,15 +364,29 @@ export class EditModePlugin {
     /** Selects a search result as the id the place tool will drop. */
     useSearchResult(id: number): void {
         if (this.search.kind === "item") return;
-        this.setConfig(this.search.kind === "npc" ? { npcId: id } : { locId: id });
+        this.setConfig(this.search.kind === "npc"
+            ? { npcId: id }
+            : { locId: id, shape: LOC_SHAPE_NORMAL, rotation: 0 });
     }
 
     describeDefinition(kind: EditModeSearchKind, id: number): EditModeDefinitionSummary | undefined {
         return this.host?.describeDefinition?.(kind, id);
     }
 
-    listShops(): Promise<EditModeShop[]> {
-        return this.host?.listShops?.() ?? Promise.resolve([]);
+    loadShops() {
+        return this.host?.loadShops?.() ?? Promise.reject(new Error("Shop editing requires /host"));
+    }
+
+    loadNpcInteractions() {
+        return this.host?.loadNpcInteractions?.() ?? Promise.reject(new Error("NPC interaction editing requires /host"));
+    }
+
+    getNpcMenuOptions(npcTypeId: number) {
+        return this.host?.getNpcMenuOptions?.(npcTypeId) ?? [];
+    }
+
+    searchItems(query: string) {
+        return this.host?.search("item", query) ?? Promise.resolve([]);
     }
 
     /** Detaches or reattaches the camera from the player. */
@@ -304,29 +437,30 @@ export class EditModePlugin {
         this.host?.jumpCameraToTile({ tileX: tileX | 0, tileY: tileY | 0, plane: plane & 0x3 });
     }
 
-    /** Refreshes the list of interface groups the cache has loaded. */
-    refreshInterfaces(): void {
-        const groups = (this.host?.listInterfaceGroups() ?? []).slice().sort((a, b) => a - b);
-        this.interfaces = { ...this.interfaces, groups };
-        this.commit();
+    /** Opens the editor-owned world map. */
+    toggleWorldMap(): void {
+        this.host?.toggleWorldMap?.();
     }
 
-    /** Opens an interface group and lists its widgets. */
-    openInterface(groupId: number): void {
-        const host = this.host;
-        if (!host) return;
-        host.openInterface(groupId);
-        this.selectInterface(groupId);
-    }
-
-    /** Lists an interface group's widgets without opening it. */
-    selectInterface(groupId: number): void {
-        const widgets: EditModeWidgetSummary[] = this.host?.describeInterface(groupId) ?? [];
-        this.interfaces = { ...this.interfaces, selected: groupId, widgets };
-        this.commit();
+    /** Captures the selected visible model; the host owns the renderer work. */
+    captureSelectionImage(): Promise<string | undefined> {
+        if (!this.selection || (this.selection.kind !== "loc" && this.selection.kind !== "npc")) {
+            return Promise.resolve(undefined);
+        }
+        return this.host?.captureSelectionImage?.() ?? Promise.resolve(undefined);
     }
 
     rotate(): void {
+        if (this.config.tool === "wall") {
+            const end = this.host?.getPointerTile();
+            const start = this.wallStart ?? end;
+            const horizontal =
+                !start || !end || Math.abs(end.tileX - start.tileX) >= Math.abs(end.tileY - start.tileY);
+            this.wallRotationOverride = ((this.wallRotationOverride ?? (horizontal ? 1 : 0)) + 1) & 0x3;
+            this.refreshPlacementPreview();
+            this.commit();
+            return;
+        }
         this.setConfig({ rotation: (this.config.rotation + 1) & 0x3 });
     }
 
@@ -390,14 +524,102 @@ export class EditModePlugin {
     }
 
     paintSelection(): void {
-        if (!this.selection || this.selection.kind === "building") return;
-        this.commitEdits([this.terrainEdit(this.selection, 0, 0)]);
+        if (!this.selection || this.selection.kind === "building" || this.selection.kind === "loc" || this.selection.kind === "npc") return;
+        const range = this.getSelectionRange();
+        if (!range) {
+            this.commitEdits([this.terrainEdit(this.selection, 0, 0)]);
+            return;
+        }
+        const edits: EditModeEdit[] = [];
+        for (let tileX = range.minX; tileX <= range.maxX; tileX++) {
+            for (let tileY = range.minY; tileY <= range.maxY; tileY++) {
+                edits.push(this.terrainEdit({ tileX, tileY, plane: range.plane }, 0, 0));
+            }
+        }
+        this.commitEdits(edits);
+    }
+
+    clearArea(): void {
+        const range = this.getSelectionRange();
+        if (!range) return;
+        this.commitEdits(clearAreaEdits(range));
+    }
+
+    flattenArea(): void {
+        const range = this.getSelectionRange();
+        const sample = this.host?.getTerrainHeight;
+        if (!range || !sample) return;
+        const circumference: number[] = [];
+        for (let tileX = range.minX - 1; tileX <= range.maxX + 1; tileX++) {
+            for (let tileY = range.minY - 1; tileY <= range.maxY + 1; tileY++) {
+                if (tileX !== range.minX - 1 && tileX !== range.maxX + 1 && tileY !== range.minY - 1 && tileY !== range.maxY + 1) continue;
+                const height = sample({ tileX, tileY, plane: range.plane });
+                if (height !== undefined) circumference.push(height);
+            }
+        }
+        if (circumference.length === 0) return;
+        circumference.sort((a, b) => a - b);
+        const targetHeight = circumference[Math.floor(circumference.length / 2)];
+        const edits: EditModeEdit[] = [];
+        for (let tileX = range.minX; tileX <= range.maxX + 1; tileX++) {
+            for (let tileY = range.minY; tileY <= range.maxY + 1; tileY++) {
+                const below = range.plane === 0
+                    ? 0
+                    : sample({ tileX, tileY, plane: range.plane - 1 });
+                if (below === undefined) continue;
+                edits.push({
+                    kind: "height",
+                    locId: Math.max(0, Math.min(255, Math.round((below - targetHeight) * 16))),
+                    tileX,
+                    tileY,
+                    plane: range.plane,
+                    shape: 0,
+                    rotation: 0,
+                });
+            }
+        }
+        this.commitEdits(edits);
+    }
+
+    generateBuilding(style: BuildingStyle, floors: number, shape: BuildingShape): void {
+        const range = this.getSelectionRange();
+        if (!range || range.maxX - range.minX < 2 || range.maxY - range.minY < 2) return;
+        this.commitEdits([
+            ...clearAreaEdits(range),
+            ...generateBuildingEdits(range, style, floors, this.host?.getCameraTile?.(), this.host?.getTerrainHeight, shape),
+        ]);
+        this.host?.refreshMap?.();
+    }
+
+    refreshMap(): void {
+        this.host?.refreshMap?.();
     }
 
     /** Re-applies every stored edit to the scene, e.g. after a login or map reload. */
     reapply(): void {
         for (const edit of this.config.edits) {
             this.dispatch(edit);
+        }
+        this.refreshSpecialRegions(this.config.edits);
+    }
+
+    /** Recreate only editor-placed NPCs after their map square is rebuilt. */
+    reapplyNpcsForMap(mapX: number, mapY: number): void {
+        const host = this.host;
+        if (!host) return;
+        for (const edit of this.config.edits) {
+            if (edit.kind !== "npc" || (edit.tileX >> 6) !== mapX || (edit.tileY >> 6) !== mapY) {
+                continue;
+            }
+            const key = npcKey(edit);
+            const previousId = this.spawnedNpcs.get(key);
+            if (previousId !== undefined) host.despawnNpc(previousId);
+            const serverId = host.spawnNpc(
+                edit.locId,
+                { tileX: edit.tileX, tileY: edit.tileY, plane: edit.plane },
+                edit.rotation,
+            );
+            if (serverId !== undefined) this.spawnedNpcs.set(key, serverId);
         }
     }
 
@@ -420,15 +642,19 @@ export class EditModePlugin {
 
         const edit = edits[index];
         this.revert(edit);
-        this.setConfig({ edits: edits.filter((_, i) => i !== index) });
+        const next = edits.filter((_, i) => i !== index);
+        this.setConfig({ edits: next });
+        this.refreshSpecialRegions([edit], next);
         return true;
     }
 
     clearEdits(): void {
-        for (const edit of this.config.edits) {
+        const edits = this.config.edits;
+        for (const edit of edits) {
             if (edit.kind === "npc" || edit.kind === "terrain") this.revert(edit);
         }
         this.setConfig({ edits: [] });
+        this.refreshSpecialRegions(edits, []);
     }
 
     private revert(edit: EditModeEdit): void {
@@ -489,6 +715,11 @@ export class EditModePlugin {
             return;
         }
 
+        if (this.config.tool === "wall") {
+            this.extendWall(tile);
+            return;
+        }
+
         const placingNpc = this.config.tool === "place" && this.config.placeKind === "npc";
         if (this.config.tool === "place") this.clearPlacementPreview();
         const edit: EditModeEdit = {
@@ -509,7 +740,7 @@ export class EditModePlugin {
 
     /**
      * First click sets the path start, second click paints the run between
-     * them - including the corner and edge overlays the shape needs.
+     * them, without altering adjacent tiles.
      */
     private extendPath(tile: EditModeTile): void {
         const start = this.pathStart;
@@ -519,38 +750,73 @@ export class EditModePlugin {
             return;
         }
 
-        const tiles = createPathTiles(
-            { x: start.tileX, y: start.tileY },
-            { x: tile.tileX, y: tile.tileY },
-        ).slice(0, MAX_PATH_TILES);
-        const pathKeys = new Set(tiles.map((entry) => `${entry.x}:${entry.y}`));
-        // The overlays bleed one tile outwards for caps and corners.
-        const minX = Math.min(start.tileX, tile.tileX) - 1;
-        const maxX = Math.max(start.tileX, tile.tileX) + 1;
-        const minY = Math.min(start.tileY, tile.tileY) - 1;
-        const maxY = Math.max(start.tileY, tile.tileY) + 1;
-        const overlays = buildPathOverlays(
-            pathKeys,
-            pathKeys,
-            (x, y) => x >= minX && x <= maxX && y >= minY && y <= maxY,
-        );
-
+        this.host?.clearTerrainPreview?.();
         this.pathStart = undefined;
-        this.commitEdits(
-            overlays.map((overlay) =>
-                this.terrainEdit(
-                    { tileX: overlay.x, tileY: overlay.y, plane: tile.plane },
-                    overlay.overlayShape,
-                    overlay.overlayRotation,
-                ),
-            ),
-        );
+        this.commitEdits(this.pathEdits(start, tile));
     }
 
-    private terrainEdit(tile: EditModeTile, shape: number, rotation: number): EditModeEdit {
+    private pathEdits(start: EditModeTile, end: EditModeTile): EditModeEdit[] {
+        const tiles = createPathTiles(
+            { x: start.tileX, y: start.tileY },
+            { x: end.tileX, y: end.tileY },
+        ).slice(0, MAX_DRAW_TILES);
+        const editable = new Set(tiles.map((tile) => `${tile.x}:${tile.y}`));
+        const path = new Set(
+            this.config.edits
+                .filter(
+                    (edit) =>
+                        edit.kind === "terrain" &&
+                        edit.locId === this.config.overlayId &&
+                        edit.plane === end.plane &&
+                        (edit.shape === 0 || edit.shape === 5),
+                )
+                .map((edit) => `${edit.tileX}:${edit.tileY}`),
+        );
+        for (const tile of tiles) path.add(`${tile.x}:${tile.y}`);
+        return buildPathCorners(path, editable).flatMap((tile) => [
+            ...this.groundDecorationDeletes({ tileX: tile.x, tileY: tile.y, plane: end.plane }),
+            this.terrainEdit(
+                { tileX: tile.x, tileY: tile.y, plane: end.plane },
+                tile.overlayShape,
+                tile.overlayRotation,
+            ),
+        ]);
+    }
+
+    /** LOC_DEL matches rotation, so clear every floor-decoration variant. */
+    private groundDecorationDeletes(tile: EditModeTile): EditModeEdit[] {
+        return [0, 1, 2, 3].map((rotation) => ({
+            kind: "delete" as const,
+            locId: 0,
+            tileX: tile.tileX,
+            tileY: tile.tileY,
+            plane: tile.plane,
+            shape: LOC_SHAPE_FLOOR_DECORATION,
+            rotation,
+        }));
+    }
+
+    private extendWall(tile: EditModeTile): void {
+        const start = this.wallStart;
+        if (!start || start.plane !== tile.plane) {
+            this.wallStart = tile;
+            this.commit();
+            return;
+        }
+        this.wallStart = undefined;
+        this.clearPlacementPreview();
+        this.commitEdits(this.wallEdits(start, tile));
+    }
+
+    private terrainEdit(
+        tile: EditModeTile,
+        shape: number,
+        rotation: number,
+        overlayId = this.config.overlayId,
+    ): EditModeEdit {
         return {
             kind: "terrain",
-            locId: this.config.overlayId,
+            locId: overlayId,
             tileX: tile.tileX,
             tileY: tile.tileY,
             plane: tile.plane,
@@ -559,12 +825,85 @@ export class EditModePlugin {
         };
     }
 
+    /** A run locks to its dominant axis, like a basic build-mode wall tool. */
+    private wallEdits(start: EditModeTile, end: EditModeTile): EditModeEdit[] {
+        const walls = this.wallLocEdits(start, end);
+        return [...walls, ...this.wallHeightEdits(walls)];
+    }
+
+    private wallLocEdits(start: EditModeTile, end: EditModeTile): EditModeEdit[] {
+        if (start.plane !== end.plane) return [];
+        const horizontal = Math.abs(end.tileX - start.tileX) >= Math.abs(end.tileY - start.tileY);
+        const from = horizontal ? Math.min(start.tileX, end.tileX) : Math.min(start.tileY, end.tileY);
+        const to = horizontal ? Math.max(start.tileX, end.tileX) : Math.max(start.tileY, end.tileY);
+        const rotation = this.wallRotationOverride ?? (horizontal ? 1 : 0);
+        const walls: EditModeEdit[] = [];
+        for (let coordinate = from; coordinate <= to && walls.length < MAX_DRAW_TILES; coordinate++) {
+            walls.push({
+                kind: "place",
+                locId: WALL_OBJECT_ID,
+                tileX: horizontal ? coordinate : start.tileX,
+                tileY: horizontal ? start.tileY : coordinate,
+                plane: start.plane,
+                shape: WALL_SHAPE,
+                rotation,
+            });
+        }
+        return walls;
+    }
+
+    /** Levels the edge beneath each wall segment without flattening adjacent terrain. */
+    private wallHeightEdits(walls: readonly EditModeEdit[]): EditModeEdit[] {
+        const sample = this.host?.getTerrainHeight;
+        const target = this.wallTargetHeight(walls);
+        if (!sample || target === undefined) return [];
+        return this.wallVertices(walls).flatMap((tile) => {
+            const below = tile.plane === 0 ? 0 : sample({ ...tile, plane: tile.plane - 1 });
+            if (below === undefined) return [];
+            return [{
+                kind: "height" as const,
+                locId: Math.max(0, Math.min(255, Math.round((below - target) * 16))),
+                ...tile,
+                shape: 0,
+                rotation: 0,
+            }];
+        });
+    }
+
+    private wallTargetHeight(walls: readonly EditModeEdit[]): number | undefined {
+        const sample = this.host?.getTerrainHeight;
+        if (!sample || walls.length === 0) return undefined;
+        const heights = this.wallVertices(walls)
+            .map(sample)
+            .filter((height): height is number => height !== undefined)
+            .sort((a, b) => a - b);
+        return heights.length === 0 ? undefined : heights[Math.floor(heights.length / 2)];
+    }
+
+    private wallVertices(walls: readonly EditModeEdit[]): EditModeTile[] {
+        const vertices = new Map<string, EditModeTile>();
+        for (const wall of walls) {
+            for (const [x, y] of [
+                [wall.tileX, wall.tileY],
+                [wall.tileX + 1, wall.tileY],
+                [wall.tileX + 1, wall.tileY + 1],
+                [wall.tileX, wall.tileY + 1],
+            ]) {
+                const tile = { tileX: x, tileY: y, plane: wall.plane };
+                vertices.set(`${x}:${y}:${tile.plane}`, tile);
+            }
+        }
+        return [...vertices.values()];
+    }
+
     private commitEdits(edits: EditModeEdit[]): void {
         if (edits.length === 0) return;
         for (const edit of edits) {
             this.dispatch(edit);
         }
-        this.setConfig({ edits: [...this.config.edits, ...edits] });
+        const next = [...this.config.edits, ...edits];
+        this.setConfig({ edits: next });
+        this.refreshSpecialRegions(edits, next);
     }
 
     private dispatch(edit: EditModeEdit): void {
@@ -594,12 +933,46 @@ export class EditModePlugin {
             return;
         }
 
+        if (edit.kind === "clear" || edit.kind === "height" || edit.kind === "flag") return;
+
         const tile = { x: edit.tileX, y: edit.tileY };
         if (edit.kind === "place") {
             host.onLocAddChange(edit.locId, tile, edit.plane, edit.shape, edit.rotation);
         } else {
             host.onLocDel(tile, edit.plane, edit.shape, edit.rotation);
         }
+    }
+
+    private getSelectionRange(): TileRange | undefined {
+        const selection = this.selection;
+        if (
+            !selection ||
+            selection.tileEndX === undefined ||
+            selection.tileEndY === undefined ||
+            (selection.tileEndX === selection.tileX && selection.tileEndY === selection.tileY)
+        ) {
+            return undefined;
+        }
+        return {
+            minX: Math.min(selection.tileX, selection.tileEndX),
+            maxX: Math.max(selection.tileX, selection.tileEndX),
+            minY: Math.min(selection.tileY, selection.tileEndY),
+            maxY: Math.max(selection.tileY, selection.tileEndY),
+            plane: selection.plane,
+        };
+    }
+
+    private refreshSpecialRegions(
+        edits: readonly EditModeEdit[],
+        allEdits: readonly EditModeEdit[] = this.config.edits,
+    ): void {
+        const regions = new Set<number>();
+        for (const edit of edits) {
+            if (edit.kind === "clear" || edit.kind === "height" || edit.kind === "flag") {
+                regions.add(((edit.tileX >> 6) << 8) | (edit.tileY >> 6));
+            }
+        }
+        if (regions.size > 0) this.host?.refreshEditedRegions?.([...regions], allEdits);
     }
 
     /** Whether canvas clicks and shortcuts are being intercepted right now. */
@@ -619,7 +992,7 @@ export class EditModePlugin {
     /** Captures editor presses before the game can drag-look, walk, or draw its click cross. */
     private readonly onMouseDown = (event: MouseEvent): void => {
         if (event.target !== this.host?.getCanvas()) return;
-        if (!this.hasEditableScene()) return;
+        if (!this.handlesCanvasInput()) return;
         if (event.button === 2) {
             event.preventDefault();
             this.cameraPointer = { x: event.clientX, y: event.clientY };
@@ -627,11 +1000,12 @@ export class EditModePlugin {
             return;
         }
         if (event.button !== 0) return;
+        const startTile = this.config.tool === "select" ? this.host?.getPointerTile() : undefined;
         this.pointer = {
             x: event.clientX,
             y: event.clientY,
             travelled: 0,
-            startTile: this.config.tool === "select" ? this.host?.getPointerTile() : undefined,
+            startTile,
         };
         this.host.cancelPendingClick();
     };
@@ -710,9 +1084,14 @@ export class EditModePlugin {
     private readonly onKeyDown = (event: KeyboardEvent): void => {
         const target = event.target as HTMLElement | null;
         if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+        if (this.host?.isEditorModalOpen?.()) return;
         // The login form is drawn on the canvas, so its typing would otherwise
         // lose every "r" to the rotate shortcut.
-        if (!this.hasEditableScene()) return;
+        if (!this.handlesCanvasInput()) return;
+        if (["e", "r", "f", "q", "c"].includes(event.key.toLowerCase())) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
         if (event.key === "Shift") {
             this.buildingSelect = true;
             this.refreshPointerPreview();
@@ -726,8 +1105,10 @@ export class EditModePlugin {
                 this.rotate();
             }
         } else if (event.key === "Escape") {
-            if (this.pathStart) {
+            if (this.pathStart || this.wallStart) {
                 this.pathStart = undefined;
+                this.wallStart = undefined;
+                this.clearPlacementPreview();
                 this.commit();
                 return;
             }
@@ -736,6 +1117,10 @@ export class EditModePlugin {
     };
 
     private readonly onKeyUp = (event: KeyboardEvent): void => {
+        if (["e", "r", "f", "q", "c"].includes(event.key.toLowerCase())) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
         if (event.key !== "Shift") return;
         this.buildingSelect = false;
         this.refreshPointerPreview();
@@ -743,6 +1128,7 @@ export class EditModePlugin {
 
     private syncListeners(): void {
         const shouldCapture = this.config.enabled && this.config.active && this.host !== undefined;
+        this.host?.setAudioMuted?.(shouldCapture);
 
         // Checked before the change guard: switching the plugin off entirely
         // never toggles capture, and would otherwise strand the camera off the
@@ -762,6 +1148,7 @@ export class EditModePlugin {
 
         if (shouldCapture === this.capturing) return;
         this.capturing = shouldCapture;
+        if (shouldCapture) this.host?.getCanvas?.()?.focus?.({ preventScroll: true });
 
         if (typeof window === "undefined") return;
         if (shouldCapture) {
@@ -788,6 +1175,30 @@ export class EditModePlugin {
         const host = this.host;
         const id = this.config.placeKind === "npc" ? this.config.npcId : this.config.locId;
         const tile = host?.getPointerTile();
+        if (this.config.tool === "path") {
+            const start = this.pathStart ?? tile;
+            if (this.handlesCanvasInput() && start && tile && start.plane === tile.plane) {
+                host?.setTerrainPreview?.(this.pathEdits(start, tile).filter((edit) => edit.kind === "terrain"));
+                return;
+            }
+            host?.clearTerrainPreview?.();
+            return;
+        }
+        if (this.config.tool === "wall") {
+            const start = this.wallStart ?? tile;
+            const end = tile;
+            const walls =
+                this.handlesCanvasInput() && start && end && start.plane === end.plane
+                    ? this.wallLocEdits(start, end)
+                    : [];
+            if (walls.length === 0 || !host?.setWallPreview) {
+                this.clearPlacementPreview();
+                return;
+            }
+            host.setWallPreview(walls, this.wallTargetHeight(walls));
+            this.preview = walls[0];
+            return;
+        }
         if (
             !host?.setPlacementPreview ||
             !this.handlesCanvasInput() ||
@@ -806,19 +1217,6 @@ export class EditModePlugin {
             shape: this.config.shape,
             rotation: this.config.rotation,
         };
-        const current = this.preview;
-        if (
-            current?.kind === next.kind &&
-            current.locId === next.locId &&
-            current.tileX === next.tileX &&
-            current.tileY === next.tileY &&
-            current.plane === next.plane &&
-            current.shape === next.shape &&
-            current.rotation === next.rotation
-        ) {
-            return;
-        }
-        this.clearPlacementPreview();
         host.setPlacementPreview(this.config.placeKind, id, tile, next.shape, next.rotation);
         this.preview = next;
     }
@@ -838,7 +1236,7 @@ export class EditModePlugin {
     }
 
     private clearPlacementPreview(): void {
-        if (!this.preview) return;
+        this.host?.clearTerrainPreview?.();
         this.host?.clearPlacementPreview?.();
         this.preview = undefined;
     }
@@ -873,11 +1271,14 @@ export class EditModePlugin {
                         (edit.kind === "place" ||
                             edit.kind === "delete" ||
                             edit.kind === "npc" ||
-                            edit.kind === "terrain"),
+                            edit.kind === "terrain" ||
+                            edit.kind === "clear" ||
+                            edit.kind === "height" ||
+                            edit.kind === "flag"),
                 )
                 .map((edit) => ({
                     kind: edit.kind,
-                    locId: toInt(edit.locId, 0, 0, 0xffff),
+                    locId: toInt(edit.locId, 0, 0, edit.kind === "height" || edit.kind === "flag" ? 0xff : 0xffff),
                     tileX: toInt(edit.tileX, 0, 0, 0xffff),
                     tileY: toInt(edit.tileY, 0, 0, 0xffff),
                     plane: toInt(edit.plane, 0, 0, 3),
@@ -894,9 +1295,9 @@ export class EditModePlugin {
             selection: this.selection,
             search: this.search,
             pathStart: this.pathStart,
+            wallStart: this.wallStart,
             freeCamera: this.freeCamera,
             scenePreview: this.scenePreview,
-            interfaces: this.interfaces,
             world: this.world,
             version: this.version,
         };
