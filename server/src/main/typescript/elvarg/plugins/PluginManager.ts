@@ -2882,12 +2882,20 @@ export class PluginManager {
         require("../game/content/combat/EquipmentEffects").registerMeleeDefenseModifier(
           modifier
         ),
+      registerRangedDefenseModifier: (modifier) =>
+        require("../game/content/combat/EquipmentEffects").registerRangedDefenseModifier(
+          modifier
+        ),
       registerRangedAttackAccuracyModifier: (modifier) =>
         require("../game/content/combat/EquipmentEffects").registerRangedAttackAccuracyModifier(
           modifier
         ),
       registerMagicAttackAccuracyModifier: (modifier) =>
         require("../game/content/combat/EquipmentEffects").registerMagicAttackAccuracyModifier(
+          modifier
+        ),
+      registerMagicDefenseModifier: (modifier) =>
+        require("../game/content/combat/EquipmentEffects").registerMagicDefenseModifier(
           modifier
         ),
       setCombatEngine: (engine) => {

@@ -50,6 +50,7 @@ import { PluginManager } from "../../../plugins/PluginManager";
 import { ServerPerf } from "../../../util/ServerPerf";
 import { World } from "../../World";
 import { WeaponProfiles } from "./WeaponProfile";
+import { Barrows } from "./Barrows";
 import {
     CRYSTAL_BOW_SHOTS_PER_STAGE,
     getNextCrystalBowItemId,
@@ -248,6 +249,14 @@ export class CombatFactory {
                 damage.setDamage(Math.floor(damage.getDamage() * multiplier));
             }
         }
+
+        if (
+            combatType === CombatType.MAGIC && attacker.isPlayer() &&
+            Barrows.hasDamnedSet(attacker.getAsPlayer(), "ahrims") &&
+            Misc.randomInclusive(0, 3) === 0
+        ) {
+            damage.setDamage(Math.floor(damage.getDamage() * 1.3));
+        }
     }
 
     static validTarget(attacker: Mobile, target: Mobile) {
@@ -289,7 +298,7 @@ export class CombatFactory {
 
     public static fullVeracs(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.VERAC_THE_DEFILED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4753, 4757, 4759, 4755]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "veracs");
     }
 
     /**
@@ -300,7 +309,7 @@ export class CombatFactory {
     */
     public static fullDharoks(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.DHAROK_THE_WRETCHED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4716, 4720, 4722, 4718]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "dharoks");
     }
 
     /**
@@ -311,7 +320,7 @@ export class CombatFactory {
     */
     public static fullKarils(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.KARIL_THE_TAINTED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4732, 4736, 4738, 4734]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "karils");
     }
 
     /**
@@ -322,12 +331,12 @@ export class CombatFactory {
     */
     public static fullAhrims(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.AHRIM_THE_BLIGHTED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4708, 4712, 4714, 4710]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "ahrims");
     }
 
     public static fullTorags(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getDefinition().getName() === "Torag the Corrupted"
-            : entity.getAsPlayer().getEquipment().containsAllAny([4745, 4749, 4751, 4747]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "torags");
     }
 
     /**
@@ -338,7 +347,7 @@ export class CombatFactory {
      */
     public static fullGuthans(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getDefinition().getName() === "Guthan the Infested"
-            : entity.getAsPlayer().getEquipment().containsAllAny([4724, 4728, 4730, 4726]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "guthans");
     }
 
     /**
@@ -549,6 +558,21 @@ export class CombatFactory {
             return;
         }
 
+        if (
+            qHit.getHandleAfterHitEffects() && qHit.isAccurate() &&
+            qHit.getCombatType() === CombatType.RANGED && attacker.isPlayer() &&
+            Barrows.hasDamnedSet(attacker.getAsPlayer(), "karils") &&
+            Misc.randomInclusive(0, 3) === 0
+        ) {
+            const secondHit = new PendingHit(attacker, target, qHit.getCombatMethod(), {
+                delay: qHit.getDelay() + 1,
+                handleAfterHitEffects: false,
+                rollAccuracy: false,
+            });
+            secondHit.setTotalDamage(Math.floor(qHit.getTotalDamage() / 2));
+            CombatFactory.addPendingHit(secondHit);
+        }
+
         if (attacker.isPlayer()) {
             // Reward the player experience for this attack..
             CombatFactory.rewardExp(attacker.getAsPlayer(), qHit);
@@ -603,6 +627,16 @@ export class CombatFactory {
         const method = resolvedHit.getCombatMethod();
         const combatType = resolvedHit.getCombatType();
         const damage = resolvedHit.getTotalDamage();
+
+        if (
+            resolvedHit.getHandleAfterHitEffects() && damage > 0 && target.isPlayer() &&
+            Barrows.hasDamnedSet(target.getAsPlayer(), "dharoks") &&
+            Misc.randomInclusive(0, 3) === 0
+        ) {
+            attacker.getCombat().getHitQueue().addPendingDamage([
+                new HitDamage(Math.floor(damage * 0.15), HitMask.RED),
+            ]);
+        }
 
         // Melee blocks play when the attack is launched; projectiles block on a non-fatal impact.
         if (
@@ -694,10 +728,18 @@ export class CombatFactory {
                 }
             }
 
-            // Handle barrows effects if damage is more than zero.
-            if (damage > 0 && Misc.getRandom(10) >= 8) {
-                if (CombatFactory.fullGuthans(playerAttacker)) {
+            if (resolvedHit.getHandleAfterHitEffects() && resolvedHit.isAccurate() && Misc.randomInclusive(0, 3) === 0) {
+                if (CombatFactory.fullGuthans(playerAttacker) && damage > 0) {
                     CombatFactory.handleGuthans(playerAttacker, target, damage);
+                } else if (target.isPlayer() && CombatFactory.fullAhrims(playerAttacker) && combatType === CombatType.MAGIC) {
+                    const skills = target.getAsPlayer().getSkillManager();
+                    skills.setCurrentLevels(Skill.STRENGTH, Math.max(0, skills.getCurrentLevel(Skill.STRENGTH) - 5));
+                } else if (target.isPlayer() && CombatFactory.fullKarils(playerAttacker) && combatType === CombatType.RANGED) {
+                    const skills = target.getAsPlayer().getSkillManager();
+                    skills.setCurrentLevels(Skill.AGILITY, Math.floor(skills.getCurrentLevel(Skill.AGILITY) * 0.8));
+                } else if (target.isPlayer() && CombatFactory.fullTorags(playerAttacker) && combatType === CombatType.MELEE) {
+                    const playerTarget = target.getAsPlayer();
+                    playerTarget.setRunEnergy(Math.floor(playerTarget.getRunEnergy() * 0.8));
                 }
             }
         } else if (attacker.isNpc()) {
@@ -892,7 +934,9 @@ export class CombatFactory {
 
     public static handleGuthans(player: Player, target: Mobile, damage: number) {
         target.performGraphic(new Graphic(398));
-        player.heal(damage);
+        const maximum = player.getSkillManager().getMaxLevel(Skill.HITPOINTS) +
+            (Barrows.hasDamnedSet(player, "guthans") ? 10 : 0);
+        player.setHitpoints(Math.min(maximum, player.getHitpoints() + damage));
     }
     /**
     

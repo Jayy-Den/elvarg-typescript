@@ -5,6 +5,7 @@ import { FightStyle } from "../FightStyle";
 import { FightType } from "../FightType";
 import { CombatSpell } from "./CombatSpell";
 import { CombatSpells } from "./CombatSpells";
+import { Barrows } from "../Barrows";
 
 const getBonusManager = () => require("../../../model/equipment/BonusManager").BonusManager as typeof import("../../../model/equipment/BonusManager").BonusManager;
 
@@ -80,7 +81,7 @@ export class Autocasting {
 
         const weaponId = player.getEquipment().getWeapon().getId();
         if (player.getSpellbook() === MagicSpellbook.ANCIENT &&
-            !this.ANCIENT_SPELL_AUTOCAST_STAFFS.has(weaponId) && weaponId !== ItemIdentifiers.AHRIMS_STAFF) {
+            !this.ANCIENT_SPELL_AUTOCAST_STAFFS.has(weaponId) && !Barrows.hasDamnedSet(player, "ahrims")) {
             player.getPacketSender().sendMessage("You can only autocast regular offensive spells with this staff.");
             return true;
         }

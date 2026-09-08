@@ -717,10 +717,16 @@ export interface PluginApi {
   registerMeleeDefenseModifier(
     modifier: (entity: any, baseHit: number) => number
   ): void;
+  registerRangedDefenseModifier(
+    modifier: (entity: any, baseHit: number) => number
+  ): void;
   registerRangedAttackAccuracyModifier(
     modifier: (entity: any, baseHit: number) => number
   ): void;
   registerMagicAttackAccuracyModifier(
+    modifier: (entity: any, baseHit: number) => number
+  ): void;
+  registerMagicDefenseModifier(
     modifier: (entity: any, baseHit: number) => number
   ): void;
   setCombatEngine(engine: PluginCombatEngine): void;
