@@ -107,6 +107,11 @@ type Call = [string, ...unknown[]];
     assert.equal(Math.max(...levelled.map((edit) => edit.tileX)), 14);
     assert.equal(Math.min(...levelled.map((edit) => edit.tileY)), 19);
     assert.equal(Math.max(...levelled.map((edit) => edit.tileY)), 24);
+    const fallbackLevelled = generateBuildingEdits(
+        { minX: 10, maxX: 12, minY: 20, maxY: 22, plane: 0 }, "Classic", 1, undefined,
+        (tile) => tile.tileX === 11 && tile.tileY === 21 ? -2 : undefined,
+    ).filter((edit) => edit.kind === "height" && edit.plane === 0);
+    assert.ok(fallbackLevelled.length > 0, "flatten from loaded selection tiles when the outer ring is unavailable");
 }
 
 {
@@ -667,8 +672,8 @@ plugin.clearEdits();
 (plugin as any).selection = { kind: "ground", tileX: 3222, tileY: 3218, tileEndX: 3224, tileEndY: 3220, plane: 0, locId: -1, locName: "" };
 plugin.generateBuilding("Classic", 1, "Rectangle");
 assert.equal(plugin.getConfig().edits[0]?.kind, "clear");
-assert.equal(plugin.getConfig().edits.slice(0, 9).every((edit) => edit.kind === "clear"), true);
-assert.ok(plugin.getConfig().edits.slice(9).some((edit) => edit.kind === "place"));
+assert.equal(plugin.getConfig().edits.slice(0, 25).every((edit) => edit.kind === "clear"), true);
+assert.ok(plugin.getConfig().edits.slice(25).some((edit) => edit.kind === "place"));
 
 // Path tool needs two clicks: the first only records the start.
 plugin.clearEdits();

@@ -117,6 +117,16 @@ export function generateBuildingEdits(
                 if (height !== undefined) samples.push(height);
             }
         }
+        // The outer ring can cross an unloaded map edge. The selected tiles are
+        // visible by definition, so use them as the stable fallback.
+        if (samples.length === 0) {
+            for (let x = bounds.minX; x <= bounds.maxX; x++) {
+                for (let y = bounds.minY; y <= bounds.maxY; y++) {
+                    const height = sampleHeight({ tileX: x, tileY: y, plane: 0 });
+                    if (height !== undefined) samples.push(height);
+                }
+            }
+        }
         if (samples.length > 0) {
             samples.sort((a, b) => a - b);
             const target = samples[Math.floor(samples.length / 2)];

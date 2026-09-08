@@ -391,7 +391,10 @@ class EditorChrome {
             alignItems: "center",
             gap: "6px",
         });
-        refreshMap.addEventListener("click", () => this.plugin.refreshMap());
+        refreshMap.addEventListener("click", () => {
+            this.plugin.refreshMap();
+            this.toast("Refreshing map...");
+        });
         this.bottomBar.appendChild(refreshMap);
 
         const viewport = document.querySelector<HTMLElement>(".game-viewport");

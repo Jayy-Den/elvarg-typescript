@@ -75,6 +75,16 @@ function clearAreaEdits(range: TileRange): EditModeEdit[] {
     return edits;
 }
 
+function expandTileRange(range: TileRange, tiles: number): TileRange {
+    return {
+        ...range,
+        minX: range.minX - tiles,
+        maxX: range.maxX + tiles,
+        minY: range.minY - tiles,
+        maxY: range.maxY + tiles,
+    };
+}
+
 export class EditModePlugin {
     private readonly listeners = new Set<EditModePluginListener>();
     private readonly persistence?: EditModePluginPersistence;
@@ -585,7 +595,8 @@ export class EditModePlugin {
         const range = this.getSelectionRange();
         if (!range || range.maxX - range.minX < 2 || range.maxY - range.minY < 2) return;
         this.commitEdits([
-            ...clearAreaEdits(range),
+            // Walls and roof edges occupy the one-tile perimeter around the selection.
+            ...clearAreaEdits(expandTileRange(range, 1)),
             ...generateBuildingEdits(range, style, floors, this.host?.getCameraTile?.(), this.host?.getTerrainHeight, shape),
         ]);
         this.host?.refreshMap?.();
