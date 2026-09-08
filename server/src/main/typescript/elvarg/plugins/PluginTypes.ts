@@ -8,6 +8,8 @@ import type { FriendsChatAction } from "../net/protocol/ClientProtocol";
 export interface PluginPlayerLoginEvent {
   player: any;
   username: string;
+  /** True only when login created a player because no saved account exists. */
+  isNewAccount?: boolean;
 }
 
 export interface PluginPlayerDisconnectEvent {

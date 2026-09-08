@@ -37,6 +37,7 @@ assert.match(rows, /Player commands/);
 assert.match(rows, /Moderator commands/);
 assert.match(rows, /Administrator commands/);
 assert.match(rows, /Developer commands/);
+assert.match(rows, /::mm \/ ::makeover \/ ::makeovermage - Change your appearance/);
 assert.ok(COMMANDS.developer.every((entry: string) => entry.startsWith("::") && entry.includes(" - ")));
 assert.ok(COMMANDS.developer.every((entry: string) => !entry.includes(" / ")));
 assert.ok(

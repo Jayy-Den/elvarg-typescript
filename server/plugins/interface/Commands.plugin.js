@@ -19,6 +19,7 @@ const COMMANDS = {
     "::creationdate - Say your account creation date",
     "::changepassword [password] - Change password",
     "::lockxp - Toggle experience lock",
+    "::mm / ::makeover / ::makeovermage - Change your appearance",
     "::maxhits / ::maxhit / ::mh - Open live combat max hits",
     "::maxrangehit / ::mrh - Open live combat max hits",
     "::maxmagehit / ::mmh - Open live combat max hits",

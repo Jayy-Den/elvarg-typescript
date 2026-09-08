@@ -122,6 +122,7 @@
     "test:region-loading": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2022\"}' ts-node ./scripts/region-loading-smoke.ts",
     "test:wilderness": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/wilderness-plugin-smoke.ts",
     "test:welcome-screen": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/welcome-screen-plugin-smoke.ts",
+    "test:makeover-mage": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/makeover-mage-plugin-smoke.ts",
     "test:staff-crowns": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/staff-crowns-plugin-smoke.ts",
     "test:emotes": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/emotes-plugin-smoke.ts",
     "test:skull-command": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/player-commands-skull-smoke.ts",

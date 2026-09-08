@@ -790,7 +790,11 @@ class ClientConnection {
     this.player = player;
     this.releasePendingName();
     World.refreshActiveRegions();
-    PluginManager.emitPlayerLogin({ player, username: player.getUsername() });
+    PluginManager.emitPlayerLogin({
+      player,
+      username: player.getUsername(),
+      isNewAccount: pending.save == null,
+    });
     this.send(
       encodeHandshake(
         player.getIndex(),

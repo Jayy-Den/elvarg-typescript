@@ -5,6 +5,9 @@ const { EndDialogue } = require("../../src/main/typescript/elvarg/game/model/dia
 
 const MAKEOVER_INTERFACE_ID = 679;
 const MAIN_MODAL_TARGET_UID = (161 << 16) | 16;
+const WELCOME_PLAY_BUTTON_UID = (378 << 16) | 72;
+const MAKEOVER_COMMANDS = ["mm", "makeover", "makeovermage"];
+const MAKEOVER_HINT = "If you ever want to change your appearance again, type ::mm ingame";
 
 const MAKEOVER_NPC_IDS = [
   NpcIdentifiers.MAKEOVER_MAGE,
@@ -31,9 +34,52 @@ function openMakeoverInterface(player) {
   return true;
 }
 
+function canOpenMakeover(player, combatFactory) {
+  return !player.busy?.() &&
+    !combatFactory.inCombat(player) &&
+    !player.getDialogueManager?.()?.isActive?.() &&
+    !player.getPacketSender?.().hasInterruptibleInterface?.();
+}
+
 module.exports = {
   name: "MakeOverMage",
   register(api) {
+    const CombatFactory = api.getCombatFactory();
+    const firstLoginMakeovers = new WeakSet();
+
+    api.onPlayerLogin(({ player, isNewAccount }) => {
+      if (!isNewAccount || player.isPlayerBot?.() === true) {
+        return;
+      }
+      firstLoginMakeovers.add(player);
+    });
+
+    api.onInterfaceActionButton(WELCOME_PLAY_BUTTON_UID, ({ player }) => {
+      if (!firstLoginMakeovers.delete(player)) {
+        return false;
+      }
+      // WelcomeScreen restores the gameframe first; mount the modal after that root swap.
+      queueMicrotask(() => {
+        if (openMakeoverInterface(player)) {
+          player.getPacketSender().sendMessage(MAKEOVER_HINT);
+        }
+      });
+      return true;
+    });
+
+    api.onPlayerDisconnect(({ player }) => firstLoginMakeovers.delete(player));
+    api.onPlayerLogout(({ player }) => firstLoginMakeovers.delete(player));
+
+    for (const command of MAKEOVER_COMMANDS) {
+      api.registerCommand(command, ({ player }) => {
+        if (!canOpenMakeover(player, CombatFactory)) {
+          player.getPacketSender().sendMessage("You cannot change your appearance right now.");
+          return true;
+        }
+        return openMakeoverInterface(player);
+      });
+    }
+
     api.onNpcFirstClick(MAKEOVER_NPC_IDS, function talkToMakeoverMage(event) {
       startMakeoverDialogue(event.player, event.npcId);
       event.handled = true;

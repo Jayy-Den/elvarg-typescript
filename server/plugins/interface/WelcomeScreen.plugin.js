@@ -55,6 +55,8 @@ module.exports = {
       }
       visible.delete(player);
       showGameframe(player);
+      // Let post-welcome content react after the normal gameframe is restored.
+      return false;
     });
 
     api.onPlayerDisconnect(clear);
