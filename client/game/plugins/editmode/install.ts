@@ -1669,14 +1669,24 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             if (!renderer?.getPreferredMapForWorldTile(tile.tileX, tile.tileY)) return undefined;
             return renderer.getTileHeightAtPlane(tile.tileX, tile.tileY, tile.plane);
         },
-        refreshEditedRegions: (regionIds, edits) => {
+        refreshEditedRegions: async (regionIds) => {
             for (const regionId of regionIds) {
                 try {
-                    const pack = buildEditorRegionPack(client, {
+                    const tile = {
                         tileX: (regionId >> 8) << 6,
                         tileY: (regionId & 0xff) << 6,
                         plane: 0,
-                    }, edits, editorRegionReplacements);
+                    };
+                    let pack;
+                    try {
+                        pack = buildEditorRegionPack(client, tile, plugin.getConfig().edits, editorRegionReplacements);
+                    } catch (error) {
+                        if (!client.js5) throw error;
+                        // Reading sparse map archives queues their download. The
+                        // rendered worker map does not guarantee main-thread data.
+                        await client.js5.settled();
+                        pack = buildEditorRegionPack(client, tile, plugin.getConfig().edits, editorRegionReplacements);
+                    }
                     const replacement = parseRegionPack(pack.data);
                     editorRegionReplacements.set(replacement.regionId, replacement);
                     client.onRegionReplacement({ ...replacement, allowReload: true });

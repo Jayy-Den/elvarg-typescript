@@ -206,6 +206,7 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
         host.applyGamemodeWorldLocs();
 
         const mapId = getMapSquareId(mapX, mapY);
+        const regionReplacements = new Map(host.mapRegionReplacements);
         const doorOnly =
             typeof locReloadBatchId === "number" &&
             !host.pendingLocUpdates.has(mapId) &&
@@ -230,7 +231,7 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
             extraLocs: host.getExtraLocsForMap(mapX, mapY),
             locSpawns: host.locSpawns,
             terrainOverrides: host.terrainOverrides,
-            mapRegionReplacements: host.mapRegionReplacements,
+            mapRegionReplacements: regionReplacements,
         };
 
         let mapData: SdMapData | undefined;
@@ -251,6 +252,14 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
             host.pendingLocGeometryUpdates.delete(mapId);
             host.pendingDoorLocUpdates.delete(mapId);
             host.queuedLocReloadBatchByMap.delete(mapId);
+            return;
+        }
+
+        // Terrain includes neighbouring regions in its border. A replacement
+        // arriving during this load invalidates both geometry and height data.
+        if ([...host.mapRegionReplacements].some(([id, data]) => regionReplacements.get(id) !== data) ||
+            regionReplacements.size !== host.mapRegionReplacements.size) {
+            await host.queueLoadMap(mapX, mapY, streamGeneration, locReloadBatchId);
             return;
         }
 
