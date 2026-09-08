@@ -83,11 +83,9 @@ async function main() {
     assert(analysis.decodeRegionObjects(12850).length > 0);
     RegionManager.loadMapFiles(3089, 3524);
     const replaced = RegionManager.getRegionid(12343);
-    assert(replaced?.isLoaded(), "expected replacement region clipping to load");
+    assert(replaced?.isLoaded(), "expected Edgeville cache clipping to load");
     assert(replaced.clips.some((plane) => plane.some((row) => row.some(Boolean))));
-    assert(MapRegionReplacementManager.getRegionPack(12343)?.equals(
-        fs.readFileSync("data/regions/12343.pack"),
-    ));
+    assert.equal(MapRegionReplacementManager.getRegionPack(12343), undefined);
     console.info("cache definitions decoded", counts);
 }
 
