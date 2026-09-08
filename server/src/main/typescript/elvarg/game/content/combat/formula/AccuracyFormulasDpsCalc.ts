@@ -1,5 +1,4 @@
 import { PrayerHandler } from "../../../content/PrayerHandler";
-import { CombatFactory } from "../CombatFactory";
 import { CombatType } from "../CombatType";
 import { FightStyle } from '../FightStyle';
 import { Misc } from "../../../../util/Misc";
@@ -155,10 +154,6 @@ export class AccuracyFormulasDpsCalc {
     }
 
     public static rollAccuracy(entity: any, enemy: any, style: any) {
-        if (style === CombatType.MELEE && CombatFactory.fullVeracs(entity) && this.randomInclusive(3) === 0) {
-            return true;
-        }
-
         if (style === CombatType.MELEE) {
             let attRoll = AccuracyFormulasDpsCalc.attackMeleeRoll(entity);
             let defRoll = AccuracyFormulasDpsCalc.calcDefenseMeleeRoll(entity, enemy);

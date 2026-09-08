@@ -60,6 +60,8 @@ import {
   PluginPlayerDeathEvent,
   PluginPlayerOptionEvent,
   PluginPlayerDealtDamageEvent,
+  PluginCombatHitRollEvent,
+  PluginCombatHitResolvedEvent,
   PluginCanUnequipEvent,
   PluginCombatDamageProvider,
   PluginCombatEngine,
@@ -147,6 +149,8 @@ export class PluginManager {
   private static playerDeathHooks: PluginHook<PluginPlayerDeathEvent>[] = [];
   private static playerOptionHooks: PluginHook<PluginPlayerOptionEvent>[] = [];
   private static playerDealtDamageHooks: PluginHook<PluginPlayerDealtDamageEvent>[] = [];
+  private static combatHitRollHooks: PluginHook<PluginCombatHitRollEvent>[] = [];
+  private static combatHitResolvedHooks: PluginHook<PluginCombatHitResolvedEvent>[] = [];
   private static spellDisabledHooks: PluginHook<PluginSpellDisabledEvent>[] = [];
   private static spellRuneBypassHooks: PluginHook<PluginSpellRuneBypassEvent>[] = [];
   private static npcAggressionToleranceHooks: PluginHook<PluginNpcAggressionToleranceEvent>[] = [];
@@ -925,6 +929,20 @@ export class PluginManager {
         "player_dealt_damage",
         "player_dealt_damage"
       );
+    }
+  }
+
+  public static emitCombatHitRoll(event: PluginCombatHitRollEvent): void {
+    if (!event?.attacker || !event?.target) return;
+    for (const hook of PluginManager.combatHitRollHooks) {
+      PluginManager.executeHook(hook, event, "combat_hit_roll", "combat_hit_roll");
+    }
+  }
+
+  public static emitCombatHitResolved(event: PluginCombatHitResolvedEvent): void {
+    if (!event?.attacker || !event?.target || !event?.hit) return;
+    for (const hook of PluginManager.combatHitResolvedHooks) {
+      PluginManager.executeHook(hook, event, "combat_hit_resolved", "combat_hit_resolved");
     }
   }
 
@@ -2254,6 +2272,14 @@ export class PluginManager {
             handler(event);
           },
         });
+      },
+      onCombatHitRoll: (handler) => {
+        if (typeof handler !== "function") return;
+        PluginManager.combatHitRollHooks.push({ pluginName, handler });
+      },
+      onCombatHitResolved: (handler) => {
+        if (typeof handler !== "function") return;
+        PluginManager.combatHitResolvedHooks.push({ pluginName, handler });
       },
       onSpellDisabled: (handler) => {
         if (typeof handler !== "function") {

@@ -8,6 +8,7 @@ import { AccuracyFormulasDpsCalc } from "../formula/AccuracyFormulasDpsCalc";
 import { HitMask } from "./HitMask";
 import { ServerPerf } from "../../../../util/ServerPerf";
 import { ArceuusSpells } from "../magic/ArceuusSpells";
+import { PluginManager } from "../../../../plugins/PluginManager";
 
 type PendingHitConfig = {
     delay?: number;
@@ -139,7 +140,9 @@ export class PendingHit {
         };
 
         if (hitAmount === 1) {
-            this.accurate = !rollAccuracy || ServerPerf.measurePhase(
+            const roll = { attacker: this.attacker, target: this.target, combatType: this.combatType, forceAccurate: false, bypassProtectionPrayer: false };
+            PluginManager.emitCombatHitRoll(roll);
+            this.accurate = roll.forceAccurate || !rollAccuracy || ServerPerf.measurePhase(
                 "combat.process.method_hits.roll_accuracy",
                 () => AccuracyFormulasDpsCalc.rollAccuracy(
                     this.attacker,
@@ -150,7 +153,7 @@ export class PendingHit {
             const damage: HitDamage = this.accurate
                 ? ServerPerf.measurePhase(
                     "combat.process.method_hits.damage",
-                    () => CombatFactory.getHitDamage(this.attacker, this.target, this.combatType)
+                    () => CombatFactory.getHitDamage(this.attacker, this.target, this.combatType, roll.bypassProtectionPrayer)
                 )
                 : new HitDamage(0, HitMask.BLUE);
             if (this.accurate && this.attacker.isPlayer() && this.target.isPlayer()) {
@@ -174,13 +177,15 @@ export class PendingHit {
 
         let hits: HitDamage[] = new Array(hitAmount);
         for (let i = 0; i < hits.length; i++) {
-            this.accurate = !rollAccuracy || ServerPerf.measurePhase(
+            const roll = { attacker: this.attacker, target: this.target, combatType: this.combatType, forceAccurate: false, bypassProtectionPrayer: false };
+            PluginManager.emitCombatHitRoll(roll);
+            this.accurate = roll.forceAccurate || !rollAccuracy || ServerPerf.measurePhase(
                 "combat.process.method_hits.roll_accuracy",
                 () => AccuracyFormulasDpsCalc.rollAccuracy(this.attacker, this.target, this.combatType)
             );
             let damage: HitDamage = this.accurate ? ServerPerf.measurePhase(
                 "combat.process.method_hits.damage",
-                () => CombatFactory.getHitDamage(this.attacker, this.target, this.combatType)
+                () => CombatFactory.getHitDamage(this.attacker, this.target, this.combatType, roll.bypassProtectionPrayer)
             ) : new HitDamage(0, HitMask.BLUE);
             if (this.accurate && this.attacker.isPlayer() && this.target.isPlayer()) {
                 ArceuusSpells.applyCorruption(this.attacker.getAsPlayer(), this.target.getAsPlayer());

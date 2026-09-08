@@ -154,7 +154,7 @@ export class CombatFactory {
         return CombatFactory.MELEE_COMBAT;
     }
 
-    static getHitDamage(entity: Mobile, victim: Mobile, type: CombatType) {
+    static getHitDamage(entity: Mobile, victim: Mobile, type: CombatType, bypassProtectionPrayer = false) {
         let damage = 0;
         if (type == CombatType.MELEE) {
             damage = Misc.randomInclusive(0, DamageFormulas.calculateMaxMeleeHit(entity));
@@ -197,9 +197,8 @@ export class CombatFactory {
          * Prayers decreasing damage.
          */
 
-        // Decrease damage if victim is a player and has prayers active..
-        // Verac's set effect: 25% chance to ignore the target's protection prayer.
-        if ((!CombatFactory.fullVeracs(entity) || Misc.randomInclusive(0, 3) === 0)) {
+        // Decrease damage if victim is using the corresponding protection prayer.
+        if (!bypassProtectionPrayer) {
 
             // Check if victim is is using correct protection prayer
             if (PrayerHandler.isActivated(victim, PrayerHandler.getProtectingPrayer(type))) {
@@ -250,13 +249,6 @@ export class CombatFactory {
             }
         }
 
-        if (
-            combatType === CombatType.MAGIC && attacker.isPlayer() &&
-            Barrows.hasDamnedSet(attacker.getAsPlayer(), "ahrims") &&
-            Misc.randomInclusive(0, 3) === 0
-        ) {
-            damage.setDamage(Math.floor(damage.getDamage() * 1.3));
-        }
     }
 
     static validTarget(attacker: Mobile, target: Mobile) {
@@ -558,30 +550,15 @@ export class CombatFactory {
             return;
         }
 
-        if (
-            qHit.getHandleAfterHitEffects() && qHit.isAccurate() &&
-            qHit.getCombatType() === CombatType.RANGED && attacker.isPlayer() &&
-            Barrows.hasDamnedSet(attacker.getAsPlayer(), "karils") &&
-            Misc.randomInclusive(0, 3) === 0
-        ) {
-            const secondHit = new PendingHit(attacker, target, qHit.getCombatMethod(), {
-                delay: qHit.getDelay() + 1,
-                handleAfterHitEffects: false,
-                rollAccuracy: false,
-            });
-            secondHit.setTotalDamage(Math.floor(qHit.getTotalDamage() / 2));
-            CombatFactory.addPendingHit(secondHit);
-        }
-
         if (attacker.isPlayer()) {
-            // Reward the player experience for this attack..
-            CombatFactory.rewardExp(attacker.getAsPlayer(), qHit);
-
             PluginManager.emitPlayerDealtDamage({
                 player: attacker.getAsPlayer(),
                 target,
                 hit: qHit,
             });
+
+            // Reward the player experience after plugins have finalized this hit.
+            CombatFactory.rewardExp(attacker.getAsPlayer(), qHit);
 
             // Java parity: apply skull at hit-queue time, before executeHit mutates
             // attacker/retaliation state (which can otherwise suppress skulling).
@@ -627,16 +604,6 @@ export class CombatFactory {
         const method = resolvedHit.getCombatMethod();
         const combatType = resolvedHit.getCombatType();
         const damage = resolvedHit.getTotalDamage();
-
-        if (
-            resolvedHit.getHandleAfterHitEffects() && damage > 0 && target.isPlayer() &&
-            Barrows.hasDamnedSet(target.getAsPlayer(), "dharoks") &&
-            Misc.randomInclusive(0, 3) === 0
-        ) {
-            attacker.getCombat().getHitQueue().addPendingDamage([
-                new HitDamage(Math.floor(damage * 0.15), HitMask.RED),
-            ]);
-        }
 
         // Melee blocks play when the attack is launched; projectiles block on a non-fatal impact.
         if (
@@ -686,6 +653,8 @@ export class CombatFactory {
             method.handleAfterHitEffects(resolvedHit);
         }
 
+        PluginManager.emitCombatHitResolved({ attacker, target, hit: resolvedHit });
+
         // Attacker-side effects.
         if (attacker.isPlayer()) {
             const playerAttacker = attacker.getAsPlayer();
@@ -728,20 +697,6 @@ export class CombatFactory {
                 }
             }
 
-            if (resolvedHit.getHandleAfterHitEffects() && resolvedHit.isAccurate() && Misc.randomInclusive(0, 3) === 0) {
-                if (CombatFactory.fullGuthans(playerAttacker) && damage > 0) {
-                    CombatFactory.handleGuthans(playerAttacker, target, damage);
-                } else if (target.isPlayer() && CombatFactory.fullAhrims(playerAttacker) && combatType === CombatType.MAGIC) {
-                    const skills = target.getAsPlayer().getSkillManager();
-                    skills.setCurrentLevels(Skill.STRENGTH, Math.max(0, skills.getCurrentLevel(Skill.STRENGTH) - 5));
-                } else if (target.isPlayer() && CombatFactory.fullKarils(playerAttacker) && combatType === CombatType.RANGED) {
-                    const skills = target.getAsPlayer().getSkillManager();
-                    skills.setCurrentLevels(Skill.AGILITY, Math.floor(skills.getCurrentLevel(Skill.AGILITY) * 0.8));
-                } else if (target.isPlayer() && CombatFactory.fullTorags(playerAttacker) && combatType === CombatType.MELEE) {
-                    const playerTarget = target.getAsPlayer();
-                    playerTarget.setRunEnergy(Math.floor(playerTarget.getRunEnergy() * 0.8));
-                }
-            }
         } else if (attacker.isNpc()) {
             const definition = attacker.getAsNpc().getCurrentDefinition();
             const venomous = definition.isVenomous();
@@ -932,12 +887,6 @@ export class CombatFactory {
         character.setHasVengeance(false);
     }
 
-    public static handleGuthans(player: Player, target: Mobile, damage: number) {
-        target.performGraphic(new Graphic(398));
-        const maximum = player.getSkillManager().getMaxLevel(Skill.HITPOINTS) +
-            (Barrows.hasDamnedSet(player, "guthans") ? 10 : 0);
-        player.setHitpoints(Math.min(maximum, player.getHitpoints() + damage));
-    }
     /**
     
     Checks if a player should be skulled or not.

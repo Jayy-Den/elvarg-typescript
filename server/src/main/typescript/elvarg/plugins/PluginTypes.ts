@@ -257,6 +257,20 @@ export interface PluginPlayerDealtDamageEvent {
   hit: any;
 }
 
+export interface PluginCombatHitRollEvent {
+  attacker: any;
+  target: any;
+  combatType: any;
+  forceAccurate: boolean;
+  bypassProtectionPrayer: boolean;
+}
+
+export interface PluginCombatHitResolvedEvent {
+  attacker: any;
+  target: any;
+  hit: any;
+}
+
 export interface PluginSpellDisabledEvent {
   player: any;
   spellbook: any;
@@ -530,6 +544,8 @@ export interface PluginApi {
   onPlayerDealtDamage(
     handler: (event: PluginPlayerDealtDamageEvent) => void
   ): void;
+  onCombatHitRoll(handler: (event: PluginCombatHitRollEvent) => void): void;
+  onCombatHitResolved(handler: (event: PluginCombatHitResolvedEvent) => void): void;
   onSpellDisabled(handler: (event: PluginSpellDisabledEvent) => void): void;
   onSpellRuneBypass(handler: (event: PluginSpellRuneBypassEvent) => void): void;
   onNpcAggressionTolerance(

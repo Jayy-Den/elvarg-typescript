@@ -4,6 +4,11 @@ const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
 const { Skill } = require("../../src/main/typescript/elvarg/game/model/Skill");
 const { Task } = require("../../src/main/typescript/elvarg/game/task/Task");
 const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
+const { CombatType } = require("../../src/main/typescript/elvarg/game/content/combat/CombatType");
+const { PendingHit } = require("../../src/main/typescript/elvarg/game/content/combat/hit/PendingHit");
+const { HitDamage } = require("../../src/main/typescript/elvarg/game/content/combat/hit/HitDamage");
+const { HitMask } = require("../../src/main/typescript/elvarg/game/content/combat/hit/HitMask");
+const { Graphic } = require("../../src/main/typescript/elvarg/game/model/Graphic");
 const getWeaponInterfaces = () => require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces").WeaponInterfaces;
 
 const META_KEY = "barrows";
@@ -141,6 +146,19 @@ function toragDefence(entity, effectiveDefence) {
   return Math.floor(effectiveDefence * (100 + missingHitpoints) / 100);
 }
 
+function chance() {
+  return Math.floor(Math.random() * 4) === 0;
+}
+
+function applyAhrimDamage(hit, target) {
+  let remaining = target.getHitpoints();
+  for (const damage of hit.getHits()) {
+    damage.setDamage(Math.min(remaining, Math.floor(damage.getDamage() * 1.3)));
+    remaining -= damage.getDamage();
+  }
+  hit.updateTotalDamage();
+}
+
 let BonusManager;
 
 module.exports = {
@@ -160,6 +178,51 @@ module.exports = {
     api.registerMeleeDefenseModifier(toragDefence);
     api.registerRangedDefenseModifier(toragDefence);
     api.registerMagicDefenseModifier(toragDefence);
+
+    api.onCombatHitRoll((event) => {
+      if (event.combatType === CombatType.MELEE && event.attacker.isPlayer?.() && Barrows.hasFullSet(event.attacker.getAsPlayer(), "veracs") && chance()) {
+        event.forceAccurate = true;
+        event.bypassProtectionPrayer = true;
+      }
+    });
+    api.onPlayerDealtDamage(({ player, target, hit }) => {
+      if (!hit.getHandleAfterHitEffects() || !hit.isAccurate()) return;
+      if (hit.getCombatType() === CombatType.MAGIC && Barrows.hasDamnedSet(player, "ahrims") && chance()) {
+        applyAhrimDamage(hit, target);
+      }
+      if (hit.getCombatType() === CombatType.RANGED && Barrows.hasDamnedSet(player, "karils") && chance()) {
+        const secondHit = new PendingHit(player, target, hit.getCombatMethod(), {
+          delay: hit.getDelay() + 1,
+          handleAfterHitEffects: false,
+          rollAccuracy: false,
+        });
+        secondHit.setTotalDamage(Math.floor(hit.getTotalDamage() / 2));
+        api.getCombatFactory().addPendingHit(secondHit);
+      }
+    });
+    api.onCombatHitResolved(({ attacker, target, hit }) => {
+      if (!hit.getHandleAfterHitEffects() || !hit.isAccurate()) return;
+      const damage = hit.getTotalDamage();
+      if (target.isPlayer?.() && damage > 0 && Barrows.hasDamnedSet(target.getAsPlayer(), "dharoks") && chance()) {
+        attacker.getCombat().getHitQueue().addPendingDamage([new HitDamage(Math.floor(damage * 0.15), HitMask.RED)]);
+      }
+      if (!attacker.isPlayer?.() || !chance()) return;
+      const player = attacker.getAsPlayer();
+      if (Barrows.hasFullSet(player, "guthans") && damage > 0) {
+        target.performGraphic(new Graphic(398));
+        const maximum = player.getSkillManager().getMaxLevel(Skill.HITPOINTS) + (Barrows.hasDamnedSet(player, "guthans") ? 10 : 0);
+        player.setHitpoints(Math.min(maximum, player.getHitpoints() + damage));
+      } else if (target.isPlayer?.() && hit.getCombatType() === CombatType.MAGIC && Barrows.hasFullSet(player, "ahrims")) {
+        const skills = target.getAsPlayer().getSkillManager();
+        skills.setCurrentLevels(Skill.STRENGTH, Math.max(0, skills.getCurrentLevel(Skill.STRENGTH) - 5));
+      } else if (target.isPlayer?.() && hit.getCombatType() === CombatType.RANGED && Barrows.hasFullSet(player, "karils")) {
+        const skills = target.getAsPlayer().getSkillManager();
+        skills.setCurrentLevels(Skill.AGILITY, Math.floor(skills.getCurrentLevel(Skill.AGILITY) * 0.8));
+      } else if (target.isPlayer?.() && hit.getCombatType() === CombatType.MELEE && Barrows.hasFullSet(player, "torags")) {
+        const playerTarget = target.getAsPlayer();
+        playerTarget.setRunEnergy(Math.floor(playerTarget.getRunEnergy() * 0.8));
+      }
+    });
 
     api.onPlayerLogin(({ player }) => startDegradation(player, TaskManager, CombatFactory, tasks));
     api.onPlayerLogout(({ player }) => tasks.delete(player));
