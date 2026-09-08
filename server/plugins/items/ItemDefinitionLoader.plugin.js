@@ -30,6 +30,25 @@ const getEquipmentType = () =>
 const getWeaponInterfaces = () =>
   requireGameModule(path.join("game", "content", "combat", "WeaponInterfaces"))
     .WeaponInterfaces;
+const getItemIdentifiers = () =>
+  requireGameModule(path.join("util", "ItemIdentifiers")).ItemIdentifiers;
+
+const AVERNIC_TREADS_BONUSES = [
+  5, 5, 5, 11, 15,
+  21, 25, 25, 10, 10,
+  4, 2, 1, 0,
+];
+const AVERNIC_TREADS_REQUIREMENTS = [0, 80, 80, 0, 80, 0, 80];
+const PEGASIAN_BOOTS_REQUIREMENTS = [0, 75, 0, 0, 75];
+const ANCESTRAL_ROBES_REQUIREMENTS = [0, 65, 0, 0, 0, 0, 75];
+const AHRIMS_STAFF_REQUIREMENTS = [70, 0, 0, 0, 0, 0, 70];
+const TORAGS_HAMMERS_REQUIREMENTS = [70, 0, 70];
+const BARROWS_BASE_ITEMS = [
+  4708, 4710, 4712, 4714, 4716, 4718, 4720, 4722,
+  4724, 4726, 4728, 4730, 4732, 4734, 4736, 4738,
+  4745, 4747, 4749, 4751, 4753, 4755, 4757, 4759,
+];
+const AHRIMS_ARMOUR = new Set([4708, 4712, 4714]);
 
 function hydrateEquipmentType(raw) {
   const EquipmentType = getEquipmentType();
@@ -106,6 +125,37 @@ function loadItemDefinitions() {
     }
 
     loaded += 1;
+  }
+
+  const ItemIdentifiers = getItemIdentifiers();
+  ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).bonuses = AVERNIC_TREADS_BONUSES;
+  ItemDefinition.forId(ItemIdentifiers.AVERNIC_TREADS).requirements = AVERNIC_TREADS_REQUIREMENTS;
+  ItemDefinition.forId(ItemIdentifiers.PEGASIAN_BOOTS).requirements = PEGASIAN_BOOTS_REQUIREMENTS;
+  for (const id of [
+    ItemIdentifiers.ANCESTRAL_HAT,
+    ItemIdentifiers.ANCESTRAL_ROBE_TOP,
+    ItemIdentifiers.ANCESTRAL_ROBE_BOTTOM,
+  ]) {
+    ItemDefinition.forId(id).requirements = ANCESTRAL_ROBES_REQUIREMENTS;
+  }
+
+  ItemDefinition.forId(ItemIdentifiers.AHRIMS_STAFF).requirements = AHRIMS_STAFF_REQUIREMENTS;
+  ItemDefinition.forId(ItemIdentifiers.TORAGS_HAMMERS).requirements = TORAGS_HAMMERS_REQUIREMENTS;
+  for (const baseId of BARROWS_BASE_ITEMS) {
+    const base = ItemDefinition.forId(baseId);
+    if (AHRIMS_ARMOUR.has(baseId)) {
+      base.bonuses = [...base.bonuses];
+      base.bonuses[12] = 1;
+    }
+    const index = BARROWS_BASE_ITEMS.indexOf(baseId);
+    for (let stage = 0; stage < 5; stage++) {
+      const variant = ItemDefinition.forId(4856 + index * 6 + stage);
+      variant.equipmentType = base.equipmentType;
+      variant.weaponInterface = base.weaponInterface;
+      variant.doubleHanded = base.doubleHanded;
+      variant.requirements = [...base.requirements];
+      variant.bonuses = stage === 4 ? new Array(14).fill(0) : [...base.bonuses];
+    }
   }
 
   return {

@@ -60,6 +60,8 @@ import {
   PluginPlayerDeathEvent,
   PluginPlayerOptionEvent,
   PluginPlayerDealtDamageEvent,
+  PluginCombatHitRollEvent,
+  PluginCombatHitResolvedEvent,
   PluginCanUnequipEvent,
   PluginCombatDamageProvider,
   PluginCombatEngine,
@@ -75,6 +77,7 @@ import {
   PluginNpcCombatMethodProvider,
   PluginNpcCombatMethodProviderEntry,
   PluginPlayerLogoutEvent,
+  PluginSocialPacketEvent,
 } from "./PluginTypes";
 
 type PluginHook<T> = {
@@ -113,6 +116,7 @@ export class PluginManager {
   private static loginHooks: PluginHook<PluginPlayerLoginEvent>[] = [];
   private static disconnectHooks: PluginHook<PluginPlayerDisconnectEvent>[] = [];
   private static logoutHooks: PluginHook<PluginPlayerLogoutEvent>[] = [];
+  private static socialPacketHooks: PluginHook<PluginSocialPacketEvent>[] = [];
   private static serverStartupHooks: PluginHook<PluginServerLifecycleEvent>[] = [];
   private static serverShutdownHooks: PluginHook<PluginServerLifecycleEvent>[] = [];
   private static friendAddHooks: PluginHook<PluginFriendEvent>[] = [];
@@ -145,6 +149,8 @@ export class PluginManager {
   private static playerDeathHooks: PluginHook<PluginPlayerDeathEvent>[] = [];
   private static playerOptionHooks: PluginHook<PluginPlayerOptionEvent>[] = [];
   private static playerDealtDamageHooks: PluginHook<PluginPlayerDealtDamageEvent>[] = [];
+  private static combatHitRollHooks: PluginHook<PluginCombatHitRollEvent>[] = [];
+  private static combatHitResolvedHooks: PluginHook<PluginCombatHitResolvedEvent>[] = [];
   private static spellDisabledHooks: PluginHook<PluginSpellDisabledEvent>[] = [];
   private static spellRuneBypassHooks: PluginHook<PluginSpellRuneBypassEvent>[] = [];
   private static npcAggressionToleranceHooks: PluginHook<PluginNpcAggressionToleranceEvent>[] = [];
@@ -427,7 +433,7 @@ export class PluginManager {
         if (!disabledPluginNames.has(candidate.pluginName)) {
           return true;
         }
-        console.info(`[plugins] skipped ${candidate.pluginName}: disabled in data/plugins.json`);
+        console.info(`[plugins] skipped ${candidate.pluginName}: disabled in world.json`);
         return false;
       })
     );
@@ -481,6 +487,15 @@ export class PluginManager {
     for (const hook of PluginManager.logoutHooks) {
       PluginManager.executeHook(hook, event, "logout", "player_logout");
     }
+  }
+
+  public static emitSocialPacket(event: PluginSocialPacketEvent): boolean {
+    if (!event?.player || event.handled) return false;
+    for (const hook of PluginManager.socialPacketHooks) {
+      if (event.handled) break;
+      PluginManager.executeHook(hook, event, "social_packet", "social_packet");
+    }
+    return event.handled;
   }
 
   public static emitServerStartup(event: PluginServerLifecycleEvent): void {
@@ -917,6 +932,20 @@ export class PluginManager {
     }
   }
 
+  public static emitCombatHitRoll(event: PluginCombatHitRollEvent): void {
+    if (!event?.attacker || !event?.target) return;
+    for (const hook of PluginManager.combatHitRollHooks) {
+      PluginManager.executeHook(hook, event, "combat_hit_roll", "combat_hit_roll");
+    }
+  }
+
+  public static emitCombatHitResolved(event: PluginCombatHitResolvedEvent): void {
+    if (!event?.attacker || !event?.target || !event?.hit) return;
+    for (const hook of PluginManager.combatHitResolvedHooks) {
+      PluginManager.executeHook(hook, event, "combat_hit_resolved", "combat_hit_resolved");
+    }
+  }
+
   public static emitSpellDisabled(
     player: any,
     spellbook: any,
@@ -1201,25 +1230,25 @@ export class PluginManager {
   }
 
   private static loadDisabledPluginNames(): Set<string> {
-    const configPath = path.join(process.cwd(), "data", "plugins.json");
+    const configPath = path.join(process.cwd(), "data", "definitions", "world.json");
     const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
-      disabled?: unknown;
+      disabledPlugins?: unknown;
     };
     if (!config || typeof config !== "object" || Array.isArray(config)) {
       throw new Error(`[plugins] ${configPath} must contain an object`);
     }
-    if (config.disabled === undefined) {
+    if (config.disabledPlugins === undefined) {
       return new Set();
     }
     if (
-      !Array.isArray(config.disabled) ||
-      config.disabled.some(
+      !Array.isArray(config.disabledPlugins) ||
+      config.disabledPlugins.some(
         (pluginName) => typeof pluginName !== "string" || pluginName.trim().length === 0
       )
     ) {
-      throw new Error(`[plugins] ${configPath}.disabled must be a string[]`);
+      throw new Error(`[plugins] ${configPath}.disabledPlugins must be a string[]`);
     }
-    return new Set(config.disabled.map((pluginName) => pluginName.trim()));
+    return new Set(config.disabledPlugins.map((pluginName) => pluginName.trim()));
   }
 
   private static collectPluginLoadCandidates(
@@ -1756,6 +1785,20 @@ export class PluginManager {
           },
         });
       },
+      onSocialPacket: (handler) => {
+        if (typeof handler !== "function") {
+          return;
+        }
+        PluginManager.socialPacketHooks.push({
+          pluginName,
+          handler: (event) => {
+            if (!event || event.handled || !event.player || !event.packet) {
+              return;
+            }
+            handler(event);
+          },
+        });
+      },
       onServerStartup: (handler) => {
         if (typeof handler !== "function") {
           return;
@@ -2229,6 +2272,14 @@ export class PluginManager {
             handler(event);
           },
         });
+      },
+      onCombatHitRoll: (handler) => {
+        if (typeof handler !== "function") return;
+        PluginManager.combatHitRollHooks.push({ pluginName, handler });
+      },
+      onCombatHitResolved: (handler) => {
+        if (typeof handler !== "function") return;
+        PluginManager.combatHitResolvedHooks.push({ pluginName, handler });
       },
       onSpellDisabled: (handler) => {
         if (typeof handler !== "function") {
@@ -2774,7 +2825,7 @@ export class PluginManager {
           `[plugins] player persistence set by ${pluginName}: ${previousName} -> ${nextName}`
         );
       },
-      setExperienceRates: (rates) => GameConstants.setExperienceRates(rates),
+      setExperienceRate: (rate) => GameConstants.setExperienceRate(rate),
       getActiveRegionSnapshot: () => {
         try {
           const worldModule = require("../game/World");
@@ -2857,12 +2908,20 @@ export class PluginManager {
         require("../game/content/combat/EquipmentEffects").registerMeleeDefenseModifier(
           modifier
         ),
+      registerRangedDefenseModifier: (modifier) =>
+        require("../game/content/combat/EquipmentEffects").registerRangedDefenseModifier(
+          modifier
+        ),
       registerRangedAttackAccuracyModifier: (modifier) =>
         require("../game/content/combat/EquipmentEffects").registerRangedAttackAccuracyModifier(
           modifier
         ),
       registerMagicAttackAccuracyModifier: (modifier) =>
         require("../game/content/combat/EquipmentEffects").registerMagicAttackAccuracyModifier(
+          modifier
+        ),
+      registerMagicDefenseModifier: (modifier) =>
+        require("../game/content/combat/EquipmentEffects").registerMagicDefenseModifier(
           modifier
         ),
       setCombatEngine: (engine) => {

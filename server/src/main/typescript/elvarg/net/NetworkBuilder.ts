@@ -12,7 +12,7 @@ import { PluginManager } from "../plugins/PluginManager";
 import { Misc } from "../util/Misc";
 import { PlayerPunishment } from "../util/PlayerPunishment";
 import { BinaryChannel, MAX_GAME_MESSAGE_BYTES, WebSocketBinaryChannel } from "./BinaryChannel";
-import { BROWSER_HOST_BRIDGE_HTML, BrowserHostHttpBridge } from "./BrowserHostHttpBridge";
+import { WebRtcGameConnector } from "./webrtc/WebRtcGameConnector";
 import { PlayerSession } from "./PlayerSession";
 import { CachePipeline } from "../game/cache/CachePipeline";
 import { ContentApi } from "./http/ContentApi";
@@ -43,6 +43,7 @@ import { ChatPacketListener } from "./packet/impl/ChatPacketListener";
 import { DialogueOption } from "../game/model/dialogues/DialogueOption";
 import { PlayerOptionPacketListener } from "./packet/impl/PlayerOptionPacketListener";
 import { MagicOnPlayerPacketListener } from "./packet/impl/MagicOnPlayerPacketListener";
+import { LunarSpells } from "../game/content/combat/magic/LunarSpells";
 import { MagicOnItemPacketListener } from "./packet/impl/MagicOnItemPacketListener";
 import { UseItemPacketListener } from "./packet/impl/UseItemPacketListener";
 import { ItemActionPacketListener } from "./packet/impl/ItemActionPacketListener";
@@ -64,12 +65,16 @@ import { CombatSpecial } from "../game/content/combat/CombatSpecial";
 import { WeaponInterfaces } from "../game/content/combat/WeaponInterfaces";
 import { PrayerHandler } from "../game/content/PrayerHandler";
 import { Autocasting } from "../game/content/combat/magic/Autocasting";
+import { EffectSpells } from "../game/content/combat/magic/EffectSpells";
 import { CombatSpells } from "../game/content/combat/magic/CombatSpells";
 import { TeleportHandler } from "../game/model/teleportation/TeleportHandler";
+import { ArceuusSpells } from "../game/content/combat/magic/ArceuusSpells";
+import { SpellTeleports } from "../game/content/combat/magic/SpellTeleports";
 
 const OBJECT_ACTIONS = new ObjectActionPacketListener();
 const NPC_ACTIONS = new NPCOptionPacketListener();
 const MAGIC_ITEMS = new MagicOnItemPacketListener();
+const CLOSE_ON_INTERFACE_CLOSE_ATTRIBUTE = "interface:close-on-interface-close";
 const WORLD_INTERACTIONS = new Set([
   "move",
   "teleport",
@@ -96,21 +101,15 @@ type PendingLogin = {
   save: any | null;
 };
 
+export function isConfiguredDeveloperUsername(username: string): boolean {
+  const developerUsername = process.env.DEV_USERNAME?.trim();
+  return !!developerUsername && developerUsername.toLowerCase() === username.toLowerCase();
+}
+
 export class NetworkBuilder {
   public initialize(port: number): WebSocketServer {
-    const browserBridge = process.env.BROWSER_HOST === "1"
-      ? new BrowserHostHttpBridge((channel) => new ClientConnection(channel))
-      : undefined;
     const http = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
-      if (process.env.BROWSER_HOST === "1" && request.url === "/") {
-        response.setHeader("Content-Type", "text/html; charset=utf-8");
-        response.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-        response.setHeader("Cache-Control", "no-store");
-        response.end(BROWSER_HOST_BRIDGE_HTML);
-        return;
-      }
-      if (browserBridge?.handle(request, response)) return;
       const content = ContentApi.resolve(
         request.method ?? "GET",
         request.url ?? "",
@@ -149,15 +148,10 @@ export class NetworkBuilder {
     server.on("listening", () => console.info(`[network] client websocket listening on ${port}`));
     server.on("error", (error) => console.error("[network] websocket error", error));
     http.listen(port);
-    if (process.env.WEBRTC_WORLD_ID?.trim() || process.env.WEBRTC_WORLD_TOKEN?.trim()) {
-      const { WebRtcGameConnector } = require(
-        "./webrtc/WebRtcGameConnector"
-      ) as typeof import("./webrtc/WebRtcGameConnector");
-      WebRtcGameConnector.startFromEnv(
-        (channel) => new ClientConnection(channel),
-        World.getNetworkPlayerCount
-      );
-    }
+    WebRtcGameConnector.startFromEnv(
+      (channel) => new ClientConnection(channel),
+      World.getNetworkPlayerCount
+    );
     return server;
   }
 }
@@ -194,9 +188,13 @@ class ClientConnection {
     }
 
     for (const packet of packets) {
+      if (this.player) LunarSpells.expireSpellbookSwap(this.player);
       if (this.player && WORLD_INTERACTIONS.has(packet.type)) {
         if (this.player.getStatus() === PlayerStatus.TRADING) continue;
-        if (packet.type !== "move" || this.player.getMovementQueue().getMobility().canMove()) {
+        if (
+          (packet.type !== "move" || this.player.getMovementQueue().getMobility().canMove()) &&
+          !(packet.type === "inventory_action" && EquipPacketListener.preservesInterfaceOnEquip(this.player))
+        ) {
           this.player.closeInterruptibleInterfaces();
         }
       }
@@ -232,6 +230,11 @@ class ClientConnection {
           continue;
         case "spell_on_player":
           if (this.player) {
+            const spellName = CacheDefinitions.getSpellName(packet.spellWidget, packet.spellItemId);
+            const target = World.getPlayers().get(packet.targetIndex);
+            if (target && LunarSpells.handlePlayerTarget(this.player, target, spellName)) {
+              continue;
+            }
             MagicOnPlayerPacketListener.cast(
               this.player,
               packet.targetIndex,
@@ -240,11 +243,18 @@ class ClientConnection {
           }
           continue;
         case "spell_on_npc":
-          if (this.player) NPCOptionPacketListener.castSpell(
-            this.player,
-            packet.targetIndex,
-            this.resolveClientCombatSpellId(packet.spellWidget, packet.spellChild, packet.spellItemId)
-          );
+          if (this.player) {
+            const spellName = CacheDefinitions.getSpellName(packet.spellWidget, packet.spellItemId);
+            const target = World.getNpcs().get(packet.targetIndex);
+            if (target && LunarSpells.handleNpcTarget(this.player, target, spellName)) {
+              continue;
+            }
+            NPCOptionPacketListener.castSpell(
+              this.player,
+              packet.targetIndex,
+              this.resolveClientCombatSpellId(packet.spellWidget, packet.spellChild, packet.spellItemId)
+            );
+          }
           continue;
         case "spell_on_object":
           if (this.player) UseItemPacketListener.spellOnObject(
@@ -312,15 +322,23 @@ class ClientConnection {
           continue;
         case "spell_on_ground":
           if (this.player) {
-            const spellId = [packet.spellChild, packet.spellWidget & 0xffff, packet.spellItemId]
-              .find((id) => id === 1168) ?? packet.spellChild;
+            const spellId = this.resolveClientCombatSpellId(packet.spellWidget, packet.spellChild, packet.spellItemId);
             MAGIC_ITEMS.castGroundItem(this.player, packet.groundItemId, packet.x, packet.y, spellId);
           }
           continue;
         case "chat":
-          if (this.player && packet.messageType === "public") {
-            ChatPacketListener.handleText(this.player, packet.text);
+          if (this.player) {
+            if (packet.messageType === "public") {
+              ChatPacketListener.handleText(this.player, packet.text);
+            } else if (packet.messageType === "friends_chat") {
+              PluginManager.emitSocialPacket({ player: this.player, packet, handled: false });
+            }
           }
+          continue;
+        case "friends_chat_action":
+        case "private_message":
+        case "chat_filter":
+          if (this.player) PluginManager.emitSocialPacket({ player: this.player, packet, handled: false });
           continue;
         case "dialogue_continue": {
           // Skillmulti item clicks (smelting, creation menus, ...) route through this packet
@@ -386,7 +404,22 @@ class ClientConnection {
             } else if (actionPacket.widgetId === WORLD_MAP_CLOSE_WIDGET_ID) {
               this.player.getPacketSender().closeWorldMap();
             } else if (equipmentSlot >= 0) {
-              EquipPacketListener.unequip(this.player, equipmentSlot);
+              const item = this.player.getEquipment().getItems()[equipmentSlot];
+              const itemActionHandled = !!item?.getId &&
+                PluginManager.emitItemAction({
+                  player: this.player,
+                  interfaceId: 1688,
+                  item,
+                  itemId: item.getId(),
+                  slot: equipmentSlot,
+                  clickType: actionPacket.buttonNum ?? 1,
+                  option: actionPacket.option,
+                  subOpId: actionPacket.subOpId,
+                  handled: false,
+                });
+              if (!itemActionHandled) {
+                EquipPacketListener.unequip(this.player, equipmentSlot);
+              }
             } else if (Bank.handleWidgetAction(this.player, actionPacket)) {
               // Bank owns its cache-native widgets while the bank modal is open.
             } else if (ShopManager.handleWidgetAction(this.player, actionPacket)) {
@@ -410,8 +443,47 @@ class ClientConnection {
               this.player, actionPacket.groupId, actionPacket.childId, actionPacket.slot
             )) {
               // Cache-native combat autocast controls reuse the existing spell state.
+            } else if (SpellTeleports.handleSelf(
+              this.player,
+              this.resolveSpellName(actionPacket.widgetId, actionPacket.groupId, actionPacket.childId, actionPacket.itemId),
+            )) {
+              // Standard and Ancient teleport spells use the shared cache-name route.
+            } else if (LunarSpells.handleSelf(
+              this.player,
+              this.resolveSpellName(actionPacket.widgetId, actionPacket.groupId, actionPacket.childId, actionPacket.itemId),
+            )) {
+              // Lunar self-casts and teleports are identified by their cache spell name.
+            } else if (CombatSpells.handleSelf(
+              this.player,
+              this.resolveSpellName(actionPacket.widgetId, actionPacket.groupId, actionPacket.childId, actionPacket.itemId),
+            )) {
+              // Charge is a self-cast combat spell.
+            } else if (EffectSpells.handleSpell(
+              this.player,
+              EffectSpells.forSpellName(this.resolveSpellName(
+                actionPacket.widgetId, actionPacket.groupId, actionPacket.childId, actionPacket.itemId,
+              ))?.spellId() ?? actionPacket.itemId ?? -1,
+            )) {
+              // Utility and self-cast spells are represented by their cache item id.
+            } else if (ArceuusSpells.handleSpell(
+              this.player,
+              CacheDefinitions.getSpellName(actionPacket.widgetId, actionPacket.itemId ?? -1),
+            )) {
+              // Arceuus self-cast spells are identified by their cache spell name.
             } else if (actionPacket.itemId != null && actionPacket.slot != null &&
                 this.player.getInventory().getItems()[actionPacket.slot]?.getId() === actionPacket.itemId) {
+              if (actionPacket.subOpId && PluginManager.emitItemAction({
+                player: this.player,
+                interfaceId: actionPacket.widgetId,
+                item: this.player.getInventory().getItems()[actionPacket.slot],
+                itemId: actionPacket.itemId,
+                slot: actionPacket.slot,
+                clickType: actionPacket.buttonNum ?? 1,
+                subOpId: actionPacket.subOpId,
+                handled: false,
+              })) {
+                continue;
+              }
               this.inventoryAction({
                 type: "inventory_action", widgetId: actionPacket.widgetId, slot: actionPacket.slot,
                 itemId: actionPacket.itemId, option: actionPacket.option, optionIndex: actionPacket.buttonNum,
@@ -462,7 +534,12 @@ class ClientConnection {
           if (this.player && packet.action === "close") this.player.getPacketSender().closeInterface(packet.groupId);
           continue;
         case "widget_target":
-          if (this.player && !MAGIC_ITEMS.castOnItem(
+          if (this.player && !LunarSpells.handleItemTarget(
+            this.player,
+            packet.targetItemId,
+            packet.targetSlot,
+            CacheDefinitions.getSpellName(packet.sourceWidgetId, packet.sourceItemId),
+          ) && !MAGIC_ITEMS.castOnItem(
             this.player,
             this.resolveClientCombatSpellId(
               packet.sourceWidgetId,
@@ -488,7 +565,26 @@ class ClientConnection {
           );
           continue;
         case "interface_close":
-          this.player?.closeInterruptibleInterfaces();
+          if (this.player) {
+            const closeOverlayId = this.player.getAttribute?.(CLOSE_ON_INTERFACE_CLOSE_ATTRIBUTE);
+            if (typeof closeOverlayId === "number" && Number.isInteger(closeOverlayId)) {
+              this.player.setAttribute(CLOSE_ON_INTERFACE_CLOSE_ATTRIBUTE, null);
+              this.player.getPacketSender().closeInterface(closeOverlayId);
+              continue;
+            }
+            const hadSomethingOpen =
+              this.player.getStatus() !== PlayerStatus.NONE ||
+              this.player.getInterfaceId() >= 0 ||
+              this.player.getDialogueManager().isActive() ||
+              this.player.getPacketSender().hasInterruptibleInterface();
+            if (hadSomethingOpen) {
+              this.player.closeInterruptibleInterfaces();
+            } else {
+              // Nothing was open - real OSRS opens the logout tab here.
+              // TODO: needs the exact tab-switch mechanism confirmed against
+              // a live click of the logout icon before wiring this branch.
+            }
+          }
           continue;
         case "local_trigger":
           if (this.player && packet.opcodeParam >= 1 && packet.opcodeParam <= 10) {
@@ -681,6 +777,7 @@ class ClientConnection {
     player.setLongUsername(Misc.stringToLongBigInt(pending.username));
     player.setHostAddress(this.channel.remoteAddress);
     if (pending.save) pending.save.applyToPlayer(player);
+    if (isConfiguredDeveloperUsername(player.getUsername())) player.setRights(PlayerRights.DEVELOPER);
     player.setPasswordHashWithSalt(pending.passwordHash);
     player.setLastKnownRegion(player.getLocation().clone());
     player.getUpdateFlag().flag(Flag.APPEARANCE);
@@ -693,18 +790,27 @@ class ClientConnection {
     this.player = player;
     this.releasePendingName();
     World.refreshActiveRegions();
-    PluginManager.emitPlayerLogin({ player, username: player.getUsername() });
+    PluginManager.emitPlayerLogin({
+      player,
+      username: player.getUsername(),
+      isNewAccount: pending.save == null,
+    });
     this.send(
       encodeHandshake(
         player.getIndex(),
         player.getUsername(),
         PlayerRights.hasAdminRights(player),
-        this.getPlayerAppearance(player)
+        this.getPlayerAppearance(player),
+        player.getChatIcons()
       )
     );
     this.send(encodeDefaultAnimations());
     for (const packet of encodeGameframeBootstrap(player.getUsername())) this.send(packet);
     player.getPacketSender()
+      // The bootstrap mounts the magic tab (161:82 -> 218) directly, which does not send
+      // varbit 4070, so the cache scripts would draw the standard book for everyone.
+      // sendTabInterface(6) is the one place that publishes the spellbook varbit.
+      .sendTabInterface(6, player.getSpellbook().getInterfaceId())
       .sendItemContainer(player.getInventory(), 3214)
       .sendSkillsSnapshot()
       .sendRunEnergy();
@@ -738,7 +844,7 @@ class ClientConnection {
       const definition = ItemDefinition.forId(packet.itemId);
       player.getPacketSender().sendMessage(definition.getExamine() || definition.getName());
     } else {
-      ItemActionPacketListener.handleAction(player, packet.widgetId, packet.itemId, packet.slot, packet.optionIndex ?? 1);
+      ItemActionPacketListener.handleAction(player, packet.widgetId, packet.itemId, packet.slot, packet.optionIndex ?? 1, packet.option);
     }
   }
 
@@ -758,6 +864,13 @@ class ClientConnection {
       // Invalid cache-backed selections are rejected by the combat listener.
     }
     return -1;
+  }
+
+  private resolveSpellName(widgetId: number, groupId: number, childId: number, itemId?: number): string | undefined {
+    const packed = (groupId << 16) | (childId & 0xffff);
+    return CacheDefinitions.getSpellName(widgetId, itemId ?? -1) ??
+      CacheDefinitions.getSpellName(packed, itemId ?? -1) ??
+      CacheDefinitions.getSpellName(childId, itemId ?? -1);
   }
 
   private groundItemAction(packet: Extract<ReturnType<typeof decodeClientPackets>[number], { type: "ground_item_action" }>): void {

@@ -1,6 +1,6 @@
 const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
 const { Misc } = require("../../src/main/typescript/elvarg/util/Misc");
-const { DamageFormulas } = require("../../src/main/typescript/elvarg/game/content/combat/formula/DamageFormulas");
+const { PasswordUtil } = require("../../src/main/typescript/elvarg/util/PasswordUtil");
 const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
 const { SkullType } = require("../../src/main/typescript/elvarg/game/model/SkullType");
 const { DonatorRights } = require("../../src/main/typescript/elvarg/game/model/rights/DonatorRights");
@@ -60,6 +60,32 @@ function yellDelaySeconds(player) {
     return 0;
   }
   return DonatorRights.getYellDelay(player.getDonatorRights?.());
+}
+
+function canChangeSkull(player) {
+  if (!CombatFactory.inCombat(player)) {
+    return true;
+  }
+  player.getPacketSender().sendMessage("You cannot change that during combat!");
+  return false;
+}
+
+function confirmSkull(api, player, type, duration, warning) {
+  if (!canChangeSkull(player)) {
+    return;
+  }
+  api.sendMultiChatboxPrompt(
+    player,
+    warning,
+    "Yes",
+    () => {
+      if (canChangeSkull(player)) {
+        CombatFactory.skull(player, type, duration);
+      }
+    },
+    "No",
+    () => {}
+  );
 }
 
 let World;
@@ -148,7 +174,7 @@ module.exports = {
         return true;
       }
       try {
-        const passwordHash = await GameConstants.PLAYER_PERSISTENCE.encryptPassword(pass);
+        const passwordHash = await PasswordUtil.generatePasswordHashWithSalt(pass);
         player.setPasswordHashWithSalt(passwordHash);
         player.getPacketSender().sendMessage(`Your password is now: ${pass}`);
       } catch (err) {
@@ -161,40 +187,6 @@ module.exports = {
     api.registerCommand("lockxp", ({ player }) => {
       player.setExperienceLocked(!player.experienceLockedReturn());
       player.getPacketSender().sendMessage(`Lock: ${player.experienceLockedReturn()}`);
-      return true;
-    });
-
-    api.registerCommand("maxhit", ({ player, parts }) => {
-      const playerName = parts.length === 2 ? parts[1] : null;
-      if (playerName) {
-        const target = World.getPlayerByName(playerName);
-        if (!target) {
-          player.getPacketSender().sendMessage(`Cannot find player: ${playerName}`);
-          return true;
-        }
-        const maxHit = DamageFormulas.calculateMaxMeleeHit(target);
-        player.getPacketSender().sendMessage(`${playerName}'s current max hit is: ${maxHit}`);
-        return true;
-      }
-      const maxHit = DamageFormulas.calculateMaxMeleeHit(player);
-      player.getPacketSender().sendMessage(`Your current max hit is: ${maxHit}`);
-      return true;
-    });
-
-    api.registerCommand("mh", ({ player, parts }) => {
-      const playerName = parts.length === 2 ? parts[1] : null;
-      if (playerName) {
-        const target = World.getPlayerByName(playerName);
-        if (!target) {
-          player.getPacketSender().sendMessage(`Cannot find player: ${playerName}`);
-          return true;
-        }
-        const maxHit = DamageFormulas.calculateMaxMeleeHit(target);
-        player.getPacketSender().sendMessage(`${playerName}'s current max hit is: ${maxHit}`);
-        return true;
-      }
-      const maxHit = DamageFormulas.calculateMaxMeleeHit(player);
-      player.getPacketSender().sendMessage(`Your current max hit is: ${maxHit}`);
       return true;
     });
 
@@ -236,20 +228,24 @@ module.exports = {
     });
 
     api.registerCommand("skull", ({ player }) => {
-      if (CombatFactory.inCombat(player)) {
-        player.getPacketSender().sendMessage("You cannot change that during combat!");
-        return true;
-      }
-      CombatFactory.skull(player, SkullType.WHITE_SKULL, 300);
+      confirmSkull(
+        api,
+        player,
+        SkullType.WHITE_SKULL,
+        300,
+        "Skulling yourself can make you lose every carried item. Are you sure?"
+      );
       return true;
     });
 
     api.registerCommand("redskull", ({ player }) => {
-      if (CombatFactory.inCombat(player)) {
-        player.getPacketSender().sendMessage("You cannot change that during combat!");
-        return true;
-      }
-      CombatFactory.skull(player, SkullType.RED_SKULL, 60 * 30);
+      confirmSkull(
+        api,
+        player,
+        SkullType.RED_SKULL,
+        60 * 30,
+        "A red skull makes you lose every carried item and disables Protect Item. Continue?"
+      );
       return true;
     });
 
@@ -277,11 +273,12 @@ module.exports = {
         return true;
       }
 
-      const spriteId = player.getRights().getSpriteId();
-      const sprite = spriteId === -1 ? "" : `<img=${spriteId}>`;
+      const sprite = (player.getChatIcons?.() ?? [])
+        .map((icon) => `<img=${icon}>`)
+        .join("");
       const prefix = yellPrefix(player);
-      const yell = `${prefix} ${sprite} ${player.getUsername()}: ${yellMessage}`.trim();
-      World.getPlayers().forEach((p) => p?.getPacketSender()?.sendSpecialMessage(player.getUsername(), 21, yell));
+      const yell = `<col=7f0000>${prefix} ${sprite} ${player.getUsername()}: ${yellMessage}</col>`.trim();
+      World.getPlayers().forEach((p) => p?.getPacketSender()?.sendMessage(yell));
 
       const delaySeconds = yellDelaySeconds(player);
       if (delaySeconds > 0) {

@@ -13,6 +13,7 @@ import { BrokenItem } from "../../model/BrokenItem";
 import { Animation } from "../../model/Animation";
 import { PluginManager } from "../../../plugins/PluginManager";
 import { ItemIdentifiers } from "../../../util/ItemIdentifiers";
+import { Barrows } from "../../content/combat/Barrows";
 
 export class PlayerDeathTask extends Task {
     private player: Player;
@@ -98,7 +99,10 @@ export class PlayerDeathTask extends Task {
                                 continue;
                             }
                             // Keep tradeable items
-                            if (!item.getDefinition().isTradeable() || this.itemsToKeep.includes(item)) {
+                            if (
+                                (!item.getDefinition().isTradeable() && !Barrows.isBarrowsItem(item.getId())) ||
+                                this.itemsToKeep.includes(item)
+                            ) {
                                 if (!this.itemsToKeep.includes(item)) {
                                     this.itemsToKeep.push(item);
                                 }

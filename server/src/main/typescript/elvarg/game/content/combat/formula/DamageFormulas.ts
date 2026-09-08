@@ -6,7 +6,8 @@ import { FightStyle } from "../FightStyle";
 import { Mobile } from "../../../entity/impl/Mobile";
 import type { Player } from "../../../entity/impl/player/Player";
 import type { NPC } from "../../../entity/impl/npc/NPC";
-import { applyMeleeHitModifiers } from "../EquipmentEffects";
+import type { CombatSpell } from "../magic/CombatSpell";
+import { applyMagicHitModifiers, applyMeleeHitModifiers } from "../EquipmentEffects";
 import { CombatEquipment } from "../CombatEquipment";
 
 const getPlayerCombatSpecial = (player: Player): any | null => {
@@ -21,50 +22,60 @@ const getPlayerCombatSpecial = (player: Player): any | null => {
 };
 
 export class DamageFormulas {
-    private static floorPrayerLevel(level: number, prayerBonus: number): number {
-        return Math.floor(level * prayerBonus);
+    private static scaleRatio(value: number, numerator: number, denominator: number): number {
+        return Math.floor((value * numerator) / denominator);
+    }
+
+    private static scalePercent(value: number, percent: number): number {
+        return DamageFormulas.scaleRatio(value, percent, 100);
+    }
+
+    // CombatSpecial currently stores fixed decimal configuration values. Convert
+    // that configuration once, then keep the actual combat calculation integral.
+    private static scaleSpecial(value: number, multiplier: number): number {
+        return DamageFormulas.scaleRatio(value, Math.round(multiplier * 1000), 1000);
     }
 
     private static applyEffectiveLevelBonus(baseLevel: number, bonus: number): number {
         return baseLevel + bonus + 8;
     }
 
-    private static applyVoidMultiplier(baseLevel: number, multiplier: number): number {
-        return Math.floor(baseLevel * multiplier);
+    private static applyVoidMultiplier(baseLevel: number, numerator: number, denominator = 100): number {
+        return DamageFormulas.scaleRatio(baseLevel, numerator, denominator);
     }
 
-    private static meleeStrengthPrayerBonus(player: Player): number {
+    private static meleeStrengthPrayerPercent(player: Player): number {
         if (PrayerHandler.isActivated(player, PrayerHandler.BURST_OF_STRENGTH)) {
-            return 1.05;
+            return 105;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.SUPERHUMAN_STRENGTH)) {
-            return 1.10;
+            return 110;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.ULTIMATE_STRENGTH)) {
-            return 1.15;
+            return 115;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.CHIVALRY)) {
-            return 1.18;
+            return 118;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.PIETY)) {
-            return 1.23;
+            return 123;
         }
-        return 1;
+        return 100;
     }
 
-    private static rangedStrengthPrayerBonus(player: Player): number {
+    private static rangedStrengthPrayerPercent(player: Player): number {
         if (PrayerHandler.isActivated(player, PrayerHandler.SHARP_EYE)) {
-            return 1.05;
+            return 105;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.HAWK_EYE)) {
-            return 1.10;
+            return 110;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.EAGLE_EYE)) {
-            return 1.15;
+            return 115;
         } else if (PrayerHandler.isActivated(player, PrayerHandler.RIGOUR)) {
-            return 1.23;
+            return 123;
         }
-        return 1;
+        return 100;
     }
 
     private static effectiveStrengthLevel(player: Player): number {
-        const prayerAdjusted = DamageFormulas.floorPrayerLevel(
+        const prayerAdjusted = DamageFormulas.scalePercent(
             player.getSkillManager().getCurrentLevel(Skill.STRENGTH),
-            DamageFormulas.meleeStrengthPrayerBonus(player)
+            DamageFormulas.meleeStrengthPrayerPercent(player)
         );
 
         let styleBonus = 0;
@@ -76,25 +87,31 @@ export class DamageFormulas {
 
         let effectiveLevel = DamageFormulas.applyEffectiveLevelBonus(prayerAdjusted, styleBonus);
 
-        if (CombatEquipment.wearingVoid(player, CombatType.MELEE)) {
-            effectiveLevel = DamageFormulas.applyVoidMultiplier(effectiveLevel, 1.1);
+        if (CombatEquipment.wearingVoid(player, CombatType.MELEE)
+            || CombatEquipment.wearingEliteVoid(player, CombatType.MELEE)) {
+            effectiveLevel = DamageFormulas.applyVoidMultiplier(effectiveLevel, 110);
         }
 
         return effectiveLevel;
     }
 
-    public static calculateMaxMeleeHit(entity: Mobile): number {
+    public static calculateMaxMeleeHit(entity: Mobile, includeSpecial?: boolean): number {
         let maxHit: number;
         if (entity.isPlayer()) {
             let player = entity.getAsPlayer();
             let strengthBonus = player.getBonusManager().getOtherBonus()[BonusManager.STRENGTH];
-            maxHit = DamageFormulas.effectiveStrengthLevel(player) * (strengthBonus + 64);
-            maxHit += 320;
-            maxHit /= 640;
+            maxHit = DamageFormulas.scaleRatio(
+                DamageFormulas.effectiveStrengthLevel(player) * (strengthBonus + 64) + 320,
+                1,
+                640
+            );
 
             const special = getPlayerCombatSpecial(player);
-            if (player.isSpecialActivated() && special != null) {
-                maxHit *= special.getStrengthMultiplier();
+            if (
+                (includeSpecial ?? player.isSpecialActivated()) &&
+                special?.getCombatMethod().type() === CombatType.MELEE
+            ) {
+                maxHit = DamageFormulas.scaleSpecial(maxHit, special.getStrengthMultiplier());
             }
 
         } else {
@@ -104,9 +121,9 @@ export class DamageFormulas {
         return Math.floor(adjusted);
     }
 
-    public static getMagicMaxhit(c: Mobile): number {
+    public static getMagicMaxhit(c: Mobile, spellOverride?: CombatSpell | null): number {
         let maxHit = 0;
-        const spell = c.getCombat().getSelectedSpell();
+        const spell = spellOverride ?? c.getCombat().getSelectedSpell();
 
         if (spell && spell.maximumHit() > 0) {
             maxHit = spell.maximumHit();
@@ -116,24 +133,51 @@ export class DamageFormulas {
             maxHit = 1;
         }
 
-        if (c.isPlayer()) {
-            const player = c.getAsPlayer();
-            const magicStrength = player.getBonusManager().getOtherBonus()[BonusManager.MAGIC_STRENGTH];
-            maxHit *= 1 + (magicStrength / 100);
-        }
+        const { CombatSpells } = require("../magic/CombatSpells") as typeof import("../magic/CombatSpells");
+        maxHit = CombatSpells.applyChargeMaxHit(c, maxHit, spell);
+
+        maxHit = DamageFormulas.applyMagicDamageBonus(c, maxHit);
 
         const demonbaneMultiplier = (spell as any)?.demonbaneDamageMultiplier?.(c);
         if (typeof demonbaneMultiplier === "number") {
-            maxHit *= demonbaneMultiplier;
+            maxHit = DamageFormulas.scaleSpecial(maxHit, demonbaneMultiplier);
         }
 
-        return Math.floor(maxHit);
+        return Math.floor(applyMagicHitModifiers(c, maxHit));
+    }
+
+    public static getVolatileNightmareStaffBaseMaxHit(player: Player): number {
+        return Math.min(
+            Math.floor((player.getSkillManager().getCurrentLevel(Skill.MAGIC) * 263) / 449 + 1),
+            58
+        );
+    }
+
+    public static calculateMaxMagicHit(entity: Mobile, spellOverride?: CombatSpell | null, includeSpecial?: boolean): number {
+        if (entity.isPlayer()) {
+            const player = entity.getAsPlayer();
+            const special = getPlayerCombatSpecial(player);
+            const weaponId = player.getEquipment().getWeapon().getId();
+            const { ItemIdentifiers } = require("../../../../util/ItemIdentifiers") as typeof import("../../../../util/ItemIdentifiers");
+            if (
+                (includeSpecial ?? player.isSpecialActivated()) &&
+                special?.getCombatMethod().type() === CombatType.MAGIC &&
+                weaponId === ItemIdentifiers.VOLATILE_NIGHTMARE_STAFF
+            ) {
+                return DamageFormulas.applyMagicDamageBonus(
+                    player,
+                    DamageFormulas.getVolatileNightmareStaffBaseMaxHit(player)
+                );
+            }
+        }
+
+        return DamageFormulas.getMagicMaxhit(entity, spellOverride);
     }
 
     private static effectiveRangedStrength(player: Player): number {
-        const prayerAdjusted = DamageFormulas.floorPrayerLevel(
+        const prayerAdjusted = DamageFormulas.scalePercent(
             player.getSkillManager().getCurrentLevel(Skill.RANGED),
-            DamageFormulas.rangedStrengthPrayerBonus(player)
+            DamageFormulas.rangedStrengthPrayerPercent(player)
         );
 
         let styleBonus = 0;
@@ -144,9 +188,9 @@ export class DamageFormulas {
         let effectiveLevel = DamageFormulas.applyEffectiveLevelBonus(prayerAdjusted, styleBonus);
 
         if (CombatEquipment.wearingEliteVoid(player, CombatType.RANGED)) {
-            effectiveLevel = DamageFormulas.applyVoidMultiplier(effectiveLevel, 1.125);
+            effectiveLevel = DamageFormulas.applyVoidMultiplier(effectiveLevel, 1125, 1000);
         } else if (CombatEquipment.wearingVoid(player, CombatType.RANGED)) {
-            effectiveLevel = DamageFormulas.applyVoidMultiplier(effectiveLevel, 1.1);
+            effectiveLevel = DamageFormulas.applyVoidMultiplier(effectiveLevel, 110);
         }
 
         // if (dragonHunter(input))
@@ -154,20 +198,22 @@ export class DamageFormulas {
         return effectiveLevel;
     }
 
-    private static maximumRangeHitDpsCalc(player: Player) {
+    private static maximumRangeHitDpsCalc(player: Player, includeSpecial?: boolean) {
         let strengthBonus = player.getBonusManager().getOtherBonus()[BonusManager.RANGED_STRENGTH];
-        let maxHit = DamageFormulas.effectiveRangedStrength(player);
-        maxHit *= (strengthBonus + 64);
-        maxHit += 320;
-        maxHit /= 640;
+        let maxHit = DamageFormulas.scaleRatio(
+            DamageFormulas.effectiveRangedStrength(player) * (strengthBonus + 64) + 320,
+            1,
+            640
+        );
 
         const special = getPlayerCombatSpecial(player);
+        const useSpecial = includeSpecial ?? player.isSpecialActivated();
         if (
-            player.isSpecialActivated() &&
+            useSpecial &&
             special != null &&
             special.getCombatMethod().type() == CombatType.RANGED
         ) {
-            maxHit *= special.getStrengthMultiplier();
+            maxHit = DamageFormulas.scaleSpecial(maxHit, special.getStrengthMultiplier());
         }
 
         return Math.floor(maxHit);
@@ -179,7 +225,7 @@ export class DamageFormulas {
     @param entity the entity to calculate the maximum hit for.
     @return the maximum ranged hit that this entity can deal.
     */
-    public static calculateMaxRangedHit(entity: Mobile) {
+    public static calculateMaxRangedHit(entity: Mobile, includeSpecial?: boolean) {
         if (entity.isNpc()) {
             let npc = entity as unknown as NPC;
             return npc.getCurrentDefinition().getMaxHit();
@@ -187,7 +233,39 @@ export class DamageFormulas {
 
         let player = entity as Player;
 
-        return DamageFormulas.maximumRangeHitDpsCalc(player);
+        return DamageFormulas.maximumRangeHitDpsCalc(player, includeSpecial);
+    }
+
+    public static applyMagicDamageBonus(entity: Mobile, maxHit: number): number {
+        if (!entity.isPlayer()) {
+            return maxHit;
+        }
+
+        const player = entity.getAsPlayer();
+        const equipmentPermille = Math.round(
+            (player.getBonusManager().getOtherBonus()[BonusManager.MAGIC_STRENGTH] ?? 0) * 10
+        );
+        const prayerPermille = DamageFormulas.magicDamagePrayerPermille(player);
+        const eliteVoidPermille = CombatEquipment.wearingEliteVoid(player, CombatType.MAGIC) ? 50 : 0;
+
+        return DamageFormulas.scaleRatio(
+            maxHit,
+            1000 + equipmentPermille + prayerPermille + eliteVoidPermille,
+            1000
+        );
+    }
+
+    private static magicDamagePrayerPermille(player: Player): number {
+        if (PrayerHandler.isActivated(player, PrayerHandler.AUGURY)) {
+            return 40;
+        }
+        if (PrayerHandler.isActivated(player, PrayerHandler.MYSTIC_MIGHT)) {
+            return 20;
+        }
+        if (PrayerHandler.isActivated(player, PrayerHandler.MYSTIC_LORE)) {
+            return 10;
+        }
+        return 0;
     }
 
 }

@@ -7,8 +7,11 @@ const { ObjectIds } = require("../../src/main/typescript/elvarg/util/IdEnums");
 const POOL_IDS = [
   ObjectIds.FANCY_REJUVENATION_POOL,
   ObjectIds.ORNATE_REJUVENATION_POOL,
+  ObjectIds.ORNATE_POOL_OF_REJUVENATION,
 ];
 const ATTR_BLEED_TASK_KEY = "combat:bleed:taskKey";
+const POOL_USE_DELAY_MS = 1000;
+const nextPoolUseAt = new WeakMap();
 
 function isRecentPvpCombat(player) {
   if (!player) {
@@ -24,10 +27,7 @@ function isRecentPvpCombat(player) {
     ) {
       return false;
     }
-    return (
-      combat?.getAttackDelay?.() > 0 ||
-      other.getCombat?.()?.getAttackDelay?.() > 0
-    );
+    return true;
   });
 }
 
@@ -79,6 +79,7 @@ function restoreRunEnergy(player) {
 
 function clearPoisonAndVenom(player) {
   player.setPoisonDamage?.(0);
+  player.setVenomed?.(false);
   player.getPacketSender?.().sendPoisonType?.(0);
 }
 
@@ -107,16 +108,23 @@ module.exports = {
   register(api) {
     TaskManager = api.getTaskManager();
     api.onObjectFirstClick(POOL_IDS, (event) => {
-      if (isRecentPvpCombat(event.player)) {
-        event.player
+      const player = event.player;
+      if (isRecentPvpCombat(player)) {
+        player
           .getPacketSender()
           .sendMessage("You can't drink from the pool during combat.");
         event.handled = true;
         return;
       }
-      restoreFromPool(event.player);
-      Sounds.sendSound(event.player, Sound.PRAYER_RECHARGE);
-      event.player
+      const now = Date.now();
+      if (now < (nextPoolUseAt.get(player) ?? 0)) {
+        event.handled = true;
+        return;
+      }
+      nextPoolUseAt.set(player, now + POOL_USE_DELAY_MS);
+      restoreFromPool(player);
+      Sounds.sendSound(player, Sound.PRAYER_RECHARGE);
+      player
         .getPacketSender()
         .sendMessage("You feel fully rejuvenated.");
       event.handled = true;

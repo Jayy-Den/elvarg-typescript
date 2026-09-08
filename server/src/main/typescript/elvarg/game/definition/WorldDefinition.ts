@@ -23,6 +23,8 @@ export interface WorldZone {
 export interface WorldDefinitionData {
     spawn: WorldPosition;
     zones: WorldZone[];
+    disabledPlugins: string[];
+    experienceMultiplier: number;
 }
 
 export class WorldDefinitionValidationError extends Error {}
@@ -42,6 +44,14 @@ function integer(source: JsonObject, key: string, label: string): number {
     const value = source[key];
     if (typeof value !== "number" || !Number.isInteger(value)) {
         throw new WorldDefinitionValidationError(`${label}.${key} must be an integer`);
+    }
+    return value;
+}
+
+function positiveNumber(source: JsonObject, key: string, label: string): number {
+    const value = source[key];
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        throw new WorldDefinitionValidationError(`${label}.${key} must be a positive number`);
     }
     return value;
 }
@@ -103,11 +113,21 @@ export function parseWorldDefinition(value: unknown): WorldDefinitionData {
     if (!Array.isArray(world.zones)) {
         throw new WorldDefinitionValidationError("world.json zones must be an array");
     }
+    if (!Array.isArray(world.disabledPlugins) || world.disabledPlugins.some(
+        (pluginName) => typeof pluginName !== "string" || pluginName.trim().length === 0
+    )) {
+        throw new WorldDefinitionValidationError("world.json disabledPlugins must be a string[]");
+    }
+    const experienceMultiplier = world.experienceMultiplier === undefined
+        ? 1
+        : positiveNumber(world, "experienceMultiplier", "world.json");
     return {
         spawn: parseWorldPosition(world.spawn, "world.json spawn"),
         zones: world.zones.map((zone, index) =>
             parseWorldZone(zone, `world.json zones[${index}]`)
         ),
+        disabledPlugins: world.disabledPlugins.map((pluginName) => pluginName.trim()),
+        experienceMultiplier,
     };
 }
 
@@ -140,6 +160,8 @@ function copyWorldDefinition(): WorldDefinitionData {
     return {
         spawn: { ...definition.spawn },
         zones: definition.zones.map((zone) => ({ ...zone, tags: [...zone.tags] })),
+        disabledPlugins: [...definition.disabledPlugins],
+        experienceMultiplier: definition.experienceMultiplier,
     };
 }
 

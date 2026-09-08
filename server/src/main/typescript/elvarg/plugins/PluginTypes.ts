@@ -3,10 +3,13 @@ import type { PlayerPersistence } from "../game/entity/impl/player/persistence/P
 import type { ActiveRegionSnapshot } from "../game/ActiveRegionIndex";
 import type { ServerDataProvider } from "../game/data/ServerDataRegistry";
 import type { DefinitionSource } from "../game/definition/loader/DefinitionLoader";
+import type { FriendsChatAction } from "../net/protocol/ClientProtocol";
 
 export interface PluginPlayerLoginEvent {
   player: any;
   username: string;
+  /** True only when login created a player because no saved account exists. */
+  isNewAccount?: boolean;
 }
 
 export interface PluginPlayerDisconnectEvent {
@@ -19,6 +22,16 @@ export interface PluginPlayerLogoutEvent {
   player: any;
   username: string;
 }
+
+export type PluginSocialPacketEvent = {
+  player: any;
+  handled: boolean;
+  packet:
+    | { type: "friends_chat_action"; action: FriendsChatAction }
+    | { type: "private_message"; recipient: string; text: string }
+    | { type: "chat_filter"; publicMode: number; privateMode: number; tradeMode: number }
+    | { type: "chat"; text: string; messageType: "friends_chat" };
+};
 
 export interface PluginServerLifecycleEvent {
   timestamp: number;
@@ -246,6 +259,20 @@ export interface PluginPlayerDealtDamageEvent {
   hit: any;
 }
 
+export interface PluginCombatHitRollEvent {
+  attacker: any;
+  target: any;
+  combatType: any;
+  forceAccurate: boolean;
+  bypassProtectionPrayer: boolean;
+}
+
+export interface PluginCombatHitResolvedEvent {
+  attacker: any;
+  target: any;
+  hit: any;
+}
+
 export interface PluginSpellDisabledEvent {
   player: any;
   spellbook: any;
@@ -354,6 +381,8 @@ export interface PluginItemActionEvent {
   itemId: number;
   slot: number;
   clickType: number;
+  option?: string;
+  subOpId?: number;
   handled: boolean;
 }
 
@@ -465,15 +494,11 @@ export interface PluginRangedCombatModifier {
   modifyAttackRoll(attacker: any, target: any, attackRoll: number): number | null;
 }
 
-export type PluginExperienceRates = {
-  combat?: number;
-  regular?: number;
-};
-
 export interface PluginApi {
   onPlayerLogin(handler: (event: PluginPlayerLoginEvent) => void): void;
   onPlayerDisconnect(handler: (event: PluginPlayerDisconnectEvent) => void): void;
   onPlayerLogout(handler: (event: PluginPlayerLogoutEvent) => void): void;
+  onSocialPacket(handler: (event: PluginSocialPacketEvent) => void): void;
   onServerStartup(handler: (event: PluginServerLifecycleEvent) => void): void;
   onServerShutdown(handler: (event: PluginServerLifecycleEvent) => void): void;
   onFriendAdd(handler: (event: PluginFriendEvent) => void): void;
@@ -521,6 +546,8 @@ export interface PluginApi {
   onPlayerDealtDamage(
     handler: (event: PluginPlayerDealtDamageEvent) => void
   ): void;
+  onCombatHitRoll(handler: (event: PluginCombatHitRollEvent) => void): void;
+  onCombatHitResolved(handler: (event: PluginCombatHitResolvedEvent) => void): void;
   onSpellDisabled(handler: (event: PluginSpellDisabledEvent) => void): void;
   onSpellRuneBypass(handler: (event: PluginSpellRuneBypassEvent) => void): void;
   onNpcAggressionTolerance(
@@ -655,7 +682,7 @@ export interface PluginApi {
     handler: { amount(player: any): number; add(player: any, amount: number): void; remove(player: any, amount: number): void; name: string }
   ): void;
   setPlayerPersistence(persistence: PlayerPersistence): void;
-  setExperienceRates(rates: PluginExperienceRates): void;
+  setExperienceRate(rate: number): void;
   getActiveRegionSnapshot(): PluginActiveRegionsEvent;
   log(message: string, extra?: Record<string, unknown>): void;
   /**
@@ -708,10 +735,16 @@ export interface PluginApi {
   registerMeleeDefenseModifier(
     modifier: (entity: any, baseHit: number) => number
   ): void;
+  registerRangedDefenseModifier(
+    modifier: (entity: any, baseHit: number) => number
+  ): void;
   registerRangedAttackAccuracyModifier(
     modifier: (entity: any, baseHit: number) => number
   ): void;
   registerMagicAttackAccuracyModifier(
+    modifier: (entity: any, baseHit: number) => number
+  ): void;
+  registerMagicDefenseModifier(
     modifier: (entity: any, baseHit: number) => number
   ): void;
   setCombatEngine(engine: PluginCombatEngine): void;

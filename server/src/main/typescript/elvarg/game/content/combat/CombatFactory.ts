@@ -50,6 +50,7 @@ import { PluginManager } from "../../../plugins/PluginManager";
 import { ServerPerf } from "../../../util/ServerPerf";
 import { World } from "../../World";
 import { WeaponProfiles } from "./WeaponProfile";
+import { Barrows } from "./Barrows";
 import {
     CRYSTAL_BOW_SHOTS_PER_STAGE,
     getNextCrystalBowItemId,
@@ -153,7 +154,7 @@ export class CombatFactory {
         return CombatFactory.MELEE_COMBAT;
     }
 
-    static getHitDamage(entity: Mobile, victim: Mobile, type: CombatType) {
+    static getHitDamage(entity: Mobile, victim: Mobile, type: CombatType, bypassProtectionPrayer = false) {
         let damage = 0;
         if (type == CombatType.MELEE) {
             damage = Misc.randomInclusive(0, DamageFormulas.calculateMaxMeleeHit(entity));
@@ -196,9 +197,8 @@ export class CombatFactory {
          * Prayers decreasing damage.
          */
 
-        // Decrease damage if victim is a player and has prayers active..
-        // Verac's set effect: 25% chance to ignore the target's protection prayer.
-        if ((!CombatFactory.fullVeracs(entity) || Misc.randomInclusive(0, 3) === 0)) {
+        // Decrease damage if victim is using the corresponding protection prayer.
+        if (!bypassProtectionPrayer) {
 
             // Check if victim is is using correct protection prayer
             if (PrayerHandler.isActivated(victim, PrayerHandler.getProtectingPrayer(type))) {
@@ -248,6 +248,7 @@ export class CombatFactory {
                 damage.setDamage(Math.floor(damage.getDamage() * multiplier));
             }
         }
+
     }
 
     static validTarget(attacker: Mobile, target: Mobile) {
@@ -289,7 +290,7 @@ export class CombatFactory {
 
     public static fullVeracs(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.VERAC_THE_DEFILED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4753, 4757, 4759, 4755]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "veracs");
     }
 
     /**
@@ -300,7 +301,7 @@ export class CombatFactory {
     */
     public static fullDharoks(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.DHAROK_THE_WRETCHED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4716, 4720, 4722, 4718]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "dharoks");
     }
 
     /**
@@ -311,7 +312,7 @@ export class CombatFactory {
     */
     public static fullKarils(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.KARIL_THE_TAINTED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4732, 4736, 4738, 4734]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "karils");
     }
 
     /**
@@ -322,12 +323,12 @@ export class CombatFactory {
     */
     public static fullAhrims(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getId() == NpcIdentifiers.AHRIM_THE_BLIGHTED
-            : entity.getAsPlayer().getEquipment().containsAllAny([4708, 4712, 4714, 4710]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "ahrims");
     }
 
     public static fullTorags(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getDefinition().getName() === "Torag the Corrupted"
-            : entity.getAsPlayer().getEquipment().containsAllAny([4745, 4749, 4751, 4747]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "torags");
     }
 
     /**
@@ -338,7 +339,7 @@ export class CombatFactory {
      */
     public static fullGuthans(entity: Mobile): boolean {
         return entity.isNpc() ? entity.getAsNpc().getDefinition().getName() === "Guthan the Infested"
-            : entity.getAsPlayer().getEquipment().containsAllAny([4724, 4728, 4730, 4726]);
+            : Barrows.hasFullSet(entity.getAsPlayer(), "guthans");
     }
 
     /**
@@ -550,14 +551,14 @@ export class CombatFactory {
         }
 
         if (attacker.isPlayer()) {
-            // Reward the player experience for this attack..
-            CombatFactory.rewardExp(attacker.getAsPlayer(), qHit);
-
             PluginManager.emitPlayerDealtDamage({
                 player: attacker.getAsPlayer(),
                 target,
                 hit: qHit,
             });
+
+            // Reward the player experience after plugins have finalized this hit.
+            CombatFactory.rewardExp(attacker.getAsPlayer(), qHit);
 
             // Java parity: apply skull at hit-queue time, before executeHit mutates
             // attacker/retaliation state (which can otherwise suppress skulling).
@@ -652,6 +653,8 @@ export class CombatFactory {
             method.handleAfterHitEffects(resolvedHit);
         }
 
+        PluginManager.emitCombatHitResolved({ attacker, target, hit: resolvedHit });
+
         // Attacker-side effects.
         if (attacker.isPlayer()) {
             const playerAttacker = attacker.getAsPlayer();
@@ -694,12 +697,6 @@ export class CombatFactory {
                 }
             }
 
-            // Handle barrows effects if damage is more than zero.
-            if (damage > 0 && Misc.getRandom(10) >= 8) {
-                if (CombatFactory.fullGuthans(playerAttacker)) {
-                    CombatFactory.handleGuthans(playerAttacker, target, damage);
-                }
-            }
         } else if (attacker.isNpc()) {
             const definition = attacker.getAsNpc().getCurrentDefinition();
             const venomous = definition.isVenomous();
@@ -890,10 +887,6 @@ export class CombatFactory {
         character.setHasVengeance(false);
     }
 
-    public static handleGuthans(player: Player, target: Mobile, damage: number) {
-        target.performGraphic(new Graphic(398));
-        player.heal(damage);
-    }
     /**
     
     Checks if a player should be skulled or not.

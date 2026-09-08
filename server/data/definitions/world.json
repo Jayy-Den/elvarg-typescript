@@ -1,4 +1,6 @@
 {
+  "disabledPlugins": [],
+  "experienceMultiplier": 1,
   "spawn": {
     "x": 3089,
     "y": 3524,
