@@ -256,7 +256,6 @@ import {
 import { NpcMovementSync } from "./movement/NpcMovementSync";
 import { PlayerMovementSync } from "./movement/PlayerMovementSync";
 import { NpcInstanceFlushController } from "./npc/NpcInstanceFlushController";
-import type { EditModePlugin } from "./plugins/editmode/EditModePlugin";
 import { createBrowserGroundItemsPluginPersistence } from "./plugins/grounditems/BrowserGroundItemsPluginPersistence";
 import { GroundItemsPlugin } from "./plugins/grounditems/GroundItemsPlugin";
 import { createBrowserInteractHighlightPluginPersistence } from "./plugins/interacthighlight/BrowserInteractHighlightPluginPersistence";
@@ -403,25 +402,11 @@ export class OsrsClient {
         registerDefaultClientSidebarEntries(this.sidebar, visibility);
     }
 
-    /** Load the editor lazily so it is available in deployed builds without
-     * delaying the normal client startup. */
+    /** Load the editor only for its opt-in URL. */
     private loadEditModePlugin(): void {
         void import("./plugins/editmode/install")
             .then(({ installEditMode }) => {
-                const plugin = installEditMode(this);
-                this.editModePlugin = plugin;
-                const syncEditMode = (): void => {
-                    // The welcome screen swaps "New User" for "Edit Mode".
-                    this.loginState.editModeAvailable = plugin.getConfig().enabled === true;
-                    const world = plugin.getState().world;
-                    this.loginState.editModeReady =
-                        this.loginState.editModeAvailable && !world.loading;
-                    this.syncSidebarPlugins();
-                };
-                plugin.subscribe(syncEditMode);
-                syncEditMode();
-                // Force a re-register so the sidebar re-renders now it exists.
-                this.syncSidebarPlugins(true);
+                installEditMode(this);
             })
             .catch((err) => console.log("[edit-mode-plugin] failed to load", err));
     }
@@ -524,8 +509,6 @@ export class OsrsClient {
     /** Renderer-agnostic sidebar state/registry. */
     readonly sidebar: SidebarStore<ClientSidebarEntryData>;
     readonly groundItemsPlugin: GroundItemsPlugin;
-    /** Dev-only map/loc editor. Loaded lazily so production bundles drop it. */
-    editModePlugin?: EditModePlugin;
     readonly interactHighlightPlugin: InteractHighlightPlugin;
     readonly notesPlugin: NotesPlugin;
     readonly rememberLoginPlugin: RememberLoginPlugin;
@@ -1082,7 +1065,9 @@ export class OsrsClient {
         );
         this.splitPrivateChatPlugin = new SplitPrivateChatPlugin();
         this.syncSidebarPlugins(true);
-        this.loadEditModePlugin();
+        if (new URLSearchParams(window.location.search).has("edit")) {
+            this.loadEditModePlugin();
+        }
         this.groundItemsPlugin.subscribe(() => {
             this.syncSidebarPlugins();
         });
@@ -5386,16 +5371,6 @@ export class OsrsClient {
     ): "new_user" | "existing_user" | "login" | "cancel" | "connect" | undefined {
         switch (action.type) {
             case "new_user":
-                // Edit mode is opt-in via ?edit; keep the normal login UI intact.
-                if (
-                    new URLSearchParams(window.location.search).has("edit") &&
-                    this.editModePlugin?.getConfig().enabled === true
-                ) {
-                    if (!this.loginState.editModeReady) return undefined;
-                    this.editModePlugin.setScenePreview(true);
-                    this.loginState.virtualKeyboardVisible = false;
-                    return "new_user";
-                }
                 console.log("[Login] New user clicked - would open registration");
                 this.loginState.virtualKeyboardVisible = false;
                 return "new_user";

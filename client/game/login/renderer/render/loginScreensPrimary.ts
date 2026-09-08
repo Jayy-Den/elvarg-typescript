@@ -24,8 +24,6 @@ export function drawWelcomeScreen(host: LoginRendererHost, ctx: RenderContext, s
             layout.centerX - layout.buttonSpacing,
             layout.buttonY,
             "New User",
-            host.fontBold12,
-            1,
         );
         drawButton(host, 
             ctx,

@@ -258,12 +258,6 @@ export class LoginState {
     /** Current server name displayed on the button */
     serverName: string = getDefaultServerName();
 
-    /** The edit mode plugin is loaded, so the welcome screen can offer it. */
-    editModeAvailable: boolean = false;
-
-    /** The world definition has loaded, so Edit Mode can frame its preview safely. */
-    editModeReady: boolean = false;
-
     /** Whether the current server uses secure WebSocket */
     serverSecure: boolean = getDefaultServerSecure();
 
