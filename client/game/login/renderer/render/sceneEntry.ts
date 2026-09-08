@@ -7,6 +7,11 @@ import { drawTitleBackgroundToCtx } from "./background";
 import { drawLoadingBarToCtx, drawDownloadBarToCtx } from "./loadingBars";
 import { drawLogoToCtx } from "./drawUtils";
 import { drawTitleMuteButton } from "../controls";
+import { drawEditModeLoadingScreen } from "../../../plugins/editmode/editModeLoadingScreen";
+
+function isEditModeLaunch(): boolean {
+    return typeof window !== "undefined" && new URLSearchParams(window.location.search).has("edit");
+}
 
 export function drawDownload(host: LoginRendererHost, state: LoginState, width: number, height: number, layoutWidth = width, layoutHeight = height) {
 
@@ -18,6 +23,11 @@ export function drawDownload(host: LoginRendererHost, state: LoginState, width: 
         ctx.fillRect(0, 0, width, height);
 
         updateLayout(host, layoutWidth, layoutHeight, width, height);
+
+        if (isEditModeLaunch()) {
+            drawEditModeLoadingScreen(host, ctx);
+            return;
+        }
 
         withRenderTransform(host, ctx, () => {
             // Draw title background if available (may not be during early download)
@@ -40,6 +50,11 @@ export function drawInitial(host: LoginRendererHost, state: LoginState, width: n
         ctx.fillRect(0, 0, width, height);
 
         updateLayout(host, layoutWidth, layoutHeight, width, height);
+
+        if (isEditModeLaunch()) {
+            drawEditModeLoadingScreen(host, ctx);
+            return;
+        }
 
         withRenderTransform(host, ctx, () => {
             // Draw title background

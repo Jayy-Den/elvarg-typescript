@@ -25,6 +25,12 @@ try {
     IndexedDbPlayerPersistence.SAVE_DIRECTORY,
     path.join(process.cwd(), "data", "saves", "indexeddb", "characters")
   );
+  const persistence = new IndexedDbPlayerPersistence();
+  assert.equal(persistence.encryptPassword("secret"), "secret");
+  assert.equal(
+    persistence.checkPassword("secret", { getPasswordHashWithSalt: () => "secret" }),
+    true,
+  );
 } finally {
   delete require.cache[indexedDbPluginPath];
   if (cachedJsonPlugin) require.cache[jsonPluginPath] = cachedJsonPlugin;

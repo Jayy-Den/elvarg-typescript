@@ -16,6 +16,7 @@ import {
 import type { LocType } from "../../rs/config/loctype/LocType";
 import type { NpcType } from "../../rs/config/npctype/NpcType";
 import type { ObjType } from "../../rs/config/objtype/ObjType";
+import { MenuOpcode } from "../../ui/menu/MenuState";
 import {
     canTargetGroundItem,
     canTargetNpc,
@@ -93,6 +94,30 @@ const EMPTY_MENU_ENTRY: OsrsMenuEntry = {
     targetName: "",
     targetLevel: -1,
 };
+
+const NPC_MENU_OPCODES = [
+    MenuOpcode.NpcFirstOption,
+    MenuOpcode.NpcSecondOption,
+    MenuOpcode.NpcThirdOption,
+    MenuOpcode.NpcFourthOption,
+    MenuOpcode.NpcFifthOption,
+] as const;
+
+export type NpcMenuOption = {
+    option: string;
+    actionIndex: number;
+    opcode: MenuOpcode;
+    isAttack: boolean;
+};
+
+/** Cache actions annotated with the same internal opcode used for their clicks. */
+export function getNpcMenuOptions(npcType: NpcType): NpcMenuOption[] {
+    return npcType.actions.flatMap((option, actionIndex) => {
+        const opcode = NPC_MENU_OPCODES[actionIndex];
+        if (!option || opcode === undefined) return [];
+        return [{ option, actionIndex, opcode, isAttack: option.toLowerCase() === "attack" }];
+    });
+}
 
 function ensureMenuEntry(entry: MenuEntry | undefined): OsrsMenuEntry {
     return entry ? entry : EMPTY_MENU_ENTRY;
@@ -371,11 +396,7 @@ export function buildNpcMenuEntries(
     }
 
     // NPC actions from definition
-    for (let actionIdx = 0; actionIdx < npcType.actions.length; actionIdx++) {
-        const option = npcType.actions[actionIdx];
-        if (!option) continue;
-
-        const isAttack = option.toLowerCase() === "attack";
+    for (const { option, actionIndex: actionIdx, opcode, isAttack } of getNpcMenuOptions(npcType)) {
 
         // OSRS Attack option handling
         // 0 = Depends on combat level, 1 = Always right-click, 2 = Left-click, 3 = Hidden
@@ -435,7 +456,9 @@ export function buildNpcMenuEntries(
             mapX,
             mapY,
             actionIndex: actionIdx,
+            opcode,
             deprioritized,
+            isAttack,
             onClick,
         });
     }

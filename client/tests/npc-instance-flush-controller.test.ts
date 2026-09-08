@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { NpcEcs } from "../game/ecs/NpcEcs";
 import { NpcInstanceFlushController } from "../game/npc/NpcInstanceFlushController";
 import { addUnbatchedNpcRenderData } from "../render/render/draw";
 

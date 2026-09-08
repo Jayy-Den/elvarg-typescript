@@ -402,6 +402,15 @@ export class OsrsClient {
         registerDefaultClientSidebarEntries(this.sidebar, visibility);
     }
 
+    /** Load the editor only for its opt-in URL. */
+    private loadEditModePlugin(): void {
+        void import("./plugins/editmode/install")
+            .then(({ installEditMode }) => {
+                installEditMode(this);
+            })
+            .catch((err) => console.log("[edit-mode-plugin] failed to load", err));
+    }
+
     inputManager: InputManager = new InputManager();
     camera: Camera = new Camera(3242, -26, 3202, 245, 1862);
 
@@ -627,6 +636,13 @@ export class OsrsClient {
 
     // Feature toggles
     hoverOverlayEnabled: boolean = false;
+
+    /**
+     * Renders the world instead of the login screen while logged out, streaming
+     * map squares around the camera rather than a player. Driven by the dev-only
+     * edit mode plugin; the render loop reads it every frame.
+     */
+    scenePreviewEnabled: boolean = false;
 
     // DevTools: show object id labels per tile
     showObjectTileIds: boolean = false;
@@ -1049,6 +1065,9 @@ export class OsrsClient {
         );
         this.splitPrivateChatPlugin = new SplitPrivateChatPlugin();
         this.syncSidebarPlugins(true);
+        if (new URLSearchParams(window.location.search).has("edit")) {
+            this.loadEditModePlugin();
+        }
         this.groundItemsPlugin.subscribe(() => {
             this.syncSidebarPlugins();
         });

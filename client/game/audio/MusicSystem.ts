@@ -69,6 +69,7 @@ export class MusicSystem {
     private htmlAudioUrl: string | null = null;
     private gainNode: GainNode | null = null;
     private volume: number = 0.5;
+    private muted: boolean = false;
     private currentTrackId: number = -1;
     private isPlaying: boolean = false;
     private realtimeSynth: RealtimeMidiSynth;
@@ -264,7 +265,7 @@ export class MusicSystem {
         if (AudioCtx) {
             const ctx = new AudioCtx();
             const gainNode = ctx.createGain();
-            gainNode.gain.value = this.volume;
+            gainNode.gain.value = this.outputVolume();
             gainNode.connect(ctx.destination);
             this.context = ctx;
             this.gainNode = gainNode;
@@ -291,18 +292,7 @@ export class MusicSystem {
 
     public setVolume(vol: number) {
         this.volume = Math.max(0, Math.min(1, vol));
-        if (this.gainNode) {
-            this.gainNode.gain.value = this.volume;
-        }
-        // Update real-time synth volume
-        this.realtimeSynth.setVolume(this.volume);
-        this.secondarySynth.setVolume(this.volume);
-        this.tertiarySynth.setVolume(this.volume);
-        // Update secondary gain if present
-        if (this.secondaryGainNode && this.context) {
-            this.secondaryGainNode.gain.setValueAtTime(this.volume, this.context.currentTime);
-        }
-
+        this.applyOutputVolume();
         // musicTrackVolume is preference-driven; update active songs' targets.
         const newMusicTrackVolumeInt = this.getMusicTrackVolumeInt();
         for (const song of this.osrsSongs) {
@@ -324,6 +314,30 @@ export class MusicSystem {
             try {
                 song.synth.setOutputGain(ratio);
             } catch {}
+        }
+    }
+
+    public setMuted(muted: boolean): void {
+        this.muted = muted;
+        this.applyOutputVolume();
+    }
+
+    private outputVolume(): number {
+        return this.muted ? 0 : this.volume;
+    }
+
+    private applyOutputVolume(): void {
+        const volume = this.outputVolume();
+        if (this.gainNode) {
+            this.gainNode.gain.value = volume;
+        }
+        // Update real-time synth volume
+        this.realtimeSynth.setVolume(volume);
+        this.secondarySynth.setVolume(volume);
+        this.tertiarySynth.setVolume(volume);
+        // Update secondary gain if present
+        if (this.secondaryGainNode && this.context) {
+            this.secondaryGainNode.gain.setValueAtTime(volume, this.context.currentTime);
         }
     }
 
@@ -423,7 +437,7 @@ export class MusicSystem {
             console.log(`[MusicSystem] Loading secondary track ${trackId}...`);
             const loaded = await this.secondarySynth.loadTrack(trackId);
             if (loaded) {
-                this.secondarySynth.setVolume(this.volume);
+                this.secondarySynth.setVolume(this.outputVolume());
                 this.secondarySynth.setLooping(true);
                 this.secondarySynth.play();
                 console.log(`[MusicSystem] Playing secondary track ${trackId}`);
@@ -571,7 +585,7 @@ export class MusicSystem {
             await new Promise((resolve) => setTimeout(resolve, durationMs));
             this.stop();
             // Restore gain for next track
-            this.gainNode.gain.setValueAtTime(this.volume, this.context.currentTime);
+            this.gainNode.gain.setValueAtTime(this.outputVolume(), this.context.currentTime);
         } else if (this.htmlAudio) {
             // Fade out HTML audio
             const startVol = this.htmlAudio.volume;
@@ -598,10 +612,10 @@ export class MusicSystem {
         } else if (this.gainNode && this.context) {
             const now = this.context.currentTime;
             this.gainNode.gain.setValueAtTime(0, now);
-            this.gainNode.gain.linearRampToValueAtTime(this.volume, now + durationSec);
+            this.gainNode.gain.linearRampToValueAtTime(this.outputVolume(), now + durationSec);
         } else if (this.htmlAudio) {
             this.htmlAudio.volume = 0;
-            const targetVol = this.volume;
+            const targetVol = this.outputVolume();
             const steps = 20;
             const stepTime = durationMs / steps;
             let step = 0;
@@ -648,7 +662,7 @@ export class MusicSystem {
             }
 
             if (loaded) {
-                this.realtimeSynth.setVolume(this.volume);
+                this.realtimeSynth.setVolume(this.outputVolume());
                 this.realtimeSynth.setLooping(true);
                 this.realtimeSynth.play();
                 console.log(`[MusicSystem] Playing track ${trackId} via RealtimeMidiSynth`);
@@ -832,7 +846,7 @@ export class MusicSystem {
                         );
                         const audio = new Audio(url);
                         audio.loop = true;
-                        audio.volume = this.volume;
+                        audio.volume = this.outputVolume();
                         await audio.play();
                         // Check if cancelled during audio.play()
                         if (mySequence !== this.loadSequence) {
@@ -1467,7 +1481,7 @@ export class MusicSystem {
                     return true;
                 }
                 try {
-                    song.synth.setVolume(this.volume);
+                    song.synth.setVolume(this.outputVolume());
                     song.synth.setLooping(song.kind !== "jingle");
                     song.musicTrackVolumeInt = this.getMusicTrackVolumeInt();
                     song.pcmVolume = 0;

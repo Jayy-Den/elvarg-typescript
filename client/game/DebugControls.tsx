@@ -612,17 +612,19 @@ export const DebugControls = memo(
         );
 
         return (
-            <div className={`leva-left${levaCollapsed ? " leva-collapsed" : ""}`}>
-                <Leva
-                    titleBar={{ filter: false }}
-                    collapsed={{
-                        collapsed: levaCollapsed,
-                        onChange: setLevaCollapsed,
-                    }}
-                    hideCopyButton={true}
-                    hidden={hidden}
-                />
-            </div>
+            <>
+                <div className={`leva-left${levaCollapsed ? " leva-collapsed" : ""}`}>
+                    <Leva
+                        titleBar={{ filter: false }}
+                        collapsed={{
+                            collapsed: levaCollapsed,
+                            onChange: setLevaCollapsed,
+                        }}
+                        hideCopyButton={true}
+                        hidden={hidden}
+                    />
+                </div>
+            </>
         );
     },
 );

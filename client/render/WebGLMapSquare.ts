@@ -1074,9 +1074,9 @@ export class WebGLMapSquare {
         npcWalkFrameLengths: (number[] | undefined)[],
         // CPU-side height map copy
         readonly heightMapData: Int16Array,
-        readonly terrainPickTileOffsets: Uint32Array,
-        readonly terrainPickVertices: Float32Array,
-        readonly terrainPickPlanes: Uint8Array,
+        public terrainPickTileOffsets: Uint32Array,
+        public terrainPickVertices: Float32Array,
+        public terrainPickPlanes: Uint8Array,
         readonly heightMapSize: number,
         private readonly _npcEcs?: NpcEcs,
         public drawRangePlanes?: {
@@ -2134,6 +2134,13 @@ export class WebGLMapSquare {
             );
             return;
         }
+
+        this.heightMapData.set(mapData.heightMapTextureData);
+        this.heightMapTexture.data(mapData.heightMapTextureData);
+        this.waterMaskTexture.data(mapData.waterMaskTextureData);
+        this.terrainPickTileOffsets = mapData.terrainPickTileOffsets;
+        this.terrainPickVertices = mapData.terrainPickVertices;
+        this.terrainPickPlanes = mapData.terrainPickPlanes;
 
         const collisionLevelCount = Math.min(
             this.collisionMaps.length,

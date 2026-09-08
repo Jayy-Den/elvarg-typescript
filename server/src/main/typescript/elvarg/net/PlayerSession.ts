@@ -184,7 +184,7 @@ export class PlayerSession {
         this.sceneBaseY + 48,
         6,
         [],
-        false
+        true
       );
       if (!this.isBinaryChannelOpen()) return;
     }

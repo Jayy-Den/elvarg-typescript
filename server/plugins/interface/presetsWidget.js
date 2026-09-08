@@ -393,6 +393,19 @@ function buildPresetsWidgetGroup() {
   return { groupId: GROUP_ID, widgets };
 }
 
+function buildPresetsInterfaceDefinition() {
+  return {
+    ...buildPresetsWidgetGroup(),
+    scroll: [
+      {
+        viewComponent: COMPONENT.LIST_VIEW,
+        scrollbarComponent: COMPONENT.LIST_SCROLLBAR,
+        contentHeight: LIST_CONTENT_HEIGHT,
+      },
+    ],
+  };
+}
+
 module.exports = {
   GROUP_ID,
   COMPONENT,
@@ -442,4 +455,5 @@ module.exports = {
   LIST_CONTENT_HEIGHT,
   uid,
   buildPresetsWidgetGroup,
+  buildPresetsInterfaceDefinition,
 };

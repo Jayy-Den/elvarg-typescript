@@ -1,6 +1,6 @@
 import { NullPlayerPersistence } from "./entity/impl/player/persistence/NullPlayerPersistence";
 import { PlayerPersistence } from "./entity/impl/player/persistence/PlayerPersistence";
-import { Location } from "./model/Location"
+import { getWorldDefinition, WORLD_SPAWN } from "./definition/WorldDefinition";
 import { PlayerRights } from "./model/rights/PlayerRights"
 
 
@@ -23,13 +23,13 @@ export class GameConstants {
     // existing follow break range from Java follow behavior as the auto-teleport
     // threshold for pets in this server.
     public static readonly PET_FOLLOW_AUTO_TELEPORT_DISTANCE: number = 15;
-    public static readonly DEFAULT_LOCATION = new Location(3089, 3524);
+    public static readonly DEFAULT_LOCATION = WORLD_SPAWN;
     public static readonly QUEUE_SWITCHING_REFRESH: boolean = true;
     public static readonly DROP_THRESHOLD: number = 2;
     // OSRS applies no experience multiplier and uses one curve for every skill,
     // so combat and skilling share a single rate here. Raise it for faster
     // progression; it is the only experience knob.
-    public static EXPERIENCE_MULTIPLIER: number = 1;
+    public static EXPERIENCE_MULTIPLIER: number = getWorldDefinition().experienceMultiplier;
     public static readonly DEBUG_ATTACK_DISTANCE: boolean = false;
     // Verbose NPC face-change debug is expensive in large fights; keep off unless diagnosing.
     public static readonly DEBUG_NPC_FACE_POSITION_CHANGES: boolean = false;

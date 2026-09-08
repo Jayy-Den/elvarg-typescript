@@ -1,10 +1,17 @@
 /**
- * Scene viewport geometry in device pixels. Widgets use layout units, so the
- * no-widget fallback must use the layout size before applying the scale.
+ * Scene viewport geometry, kept free of renderer imports so it can be tested.
+ *
+ * The viewport widget reports its size in layout units, so the rect is scaled
+ * up to device pixels. When there is no viewport widget - the login screen, and
+ * so the editor's scene preview - the fallback must be the layout size for the
+ * same reason: using the device-pixel size scaled it twice, which on a HiDPI
+ * display doubled the projection and pushed it off centre.
  */
 export interface SceneViewportInput {
+    /** Canvas size in device pixels. */
     fallbackWidth: number;
     fallbackHeight: number;
+    /** Widget layout size, in layout units. */
     layoutWidth: number;
     layoutHeight: number;
     viewport?: {

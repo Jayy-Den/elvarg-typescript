@@ -1,8 +1,7 @@
 import AdmZip = require("adm-zip");
 import fs = require("fs");
 import path = require("path");
-import { CacheFiles } from "./codec/rs/cache/CacheFiles";
-import { MemoryStore } from "./codec/rs/cache/store/MemoryStore";
+import { FileStore } from "./codec/rs/cache/store/FileStore";
 
 const OPENRS2 = "https://archive.openrs2.org";
 const REQUIRED_FILES = [
@@ -40,7 +39,7 @@ export function parseCacheTarget(target: string): { revision: number; date: stri
 
 export class CachePipeline {
   private static active?: ActiveCache;
-  private static store?: MemoryStore;
+  private static store?: FileStore;
   private static xteas = new Map<number, number[]>();
 
   public static getActive(): ActiveCache {
@@ -48,17 +47,10 @@ export class CachePipeline {
     return this.active;
   }
 
-  public static getStore(): MemoryStore {
+  public static getStore(): FileStore {
     if (this.store) return this.store;
     const active = this.getActive();
-    const files = new Map<string, ArrayBuffer>();
-    for (const name of fs.readdirSync(active.directory)) {
-      if (name !== CacheFiles.DAT2_FILE_NAME && name !== CacheFiles.META_FILE_NAME &&
-          !name.startsWith(CacheFiles.INDEX_FILE_PREFIX)) continue;
-      const data = fs.readFileSync(path.join(active.directory, name));
-      files.set(name, data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
-    }
-    return this.store = MemoryStore.fromFiles(new CacheFiles(files));
+    return this.store = new FileStore(active.directory);
   }
 
   public static getXtea(regionId: number): number[] {
@@ -66,6 +58,7 @@ export class CachePipeline {
   }
 
   public static async initialize(root = process.cwd()): Promise<ActiveCache> {
+    this.store?.close();
     this.store = undefined;
     const name = fs.readFileSync(path.join(root, "target.txt"), "utf8").trim();
     const { revision, date } = parseCacheTarget(name);

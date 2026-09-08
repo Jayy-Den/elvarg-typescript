@@ -173,6 +173,11 @@ export class LoginOverlay implements Overlay {
             this.uiNeedsRedraw = true;
         }
 
+        // Only render if on login screen (not logged in / loading game)
+        if (this.osrsClient.scenePreviewEnabled) {
+            this.hideInGameServerListCanvas();
+            return;
+        }
         const inGameServerList =
             this.gameState === GameState.LOGGED_IN && this.osrsClient.loginState.serverListOpen;
         if (!inGameServerList) {
@@ -500,6 +505,11 @@ export class LoginOverlay implements Overlay {
     draw(phase: RenderPhase): void {
         // Only draw during PostPresent phase and when not logged in.
         if (phase !== RenderPhase.PostPresent) {
+            return;
+        }
+
+        // Dev scene preview renders the world in place of the login screen.
+        if (this.osrsClient.scenePreviewEnabled) {
             return;
         }
 

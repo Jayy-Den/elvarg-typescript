@@ -48,4 +48,6 @@ export interface OsrsMenuEntry extends MenuEntry {
     spellCast?: SpellCastMetadata;
     // Whether this entry is deprioritized (sorted below normal entries, e.g., Attack when set to right-click only)
     deprioritized?: boolean;
+    /** True when this menu option invokes combat rather than an NPC interaction. */
+    isAttack?: boolean;
 }

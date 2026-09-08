@@ -19,6 +19,13 @@ paths.appTypeDeclarations = path.resolve(appRoot, "react-app-env.d.ts");
 paths.appTsConfig = path.resolve(appRoot, "tsconfig.json");
 paths.appBuild = path.resolve(appRoot, "build");
 
+// WebRTC clients cannot fetch custom interfaces from the signalling relay.
+const { buildPresetsInterfaceDefinition } = require("../server/plugins/interface/presetsWidget");
+const presetsInterface = buildPresetsInterfaceDefinition();
+const interfaceOutput = path.join(paths.appPublic, "browser-host/interfaces");
+fs.mkdirSync(interfaceOutput, { recursive: true });
+fs.writeFileSync(path.join(interfaceOutput, `${presetsInterface.groupId}.json`), JSON.stringify(presetsInterface));
+
 module.exports = {
     paths: (existingPaths) => {
         existingPaths.appPath = paths.appPath;
@@ -90,6 +97,7 @@ module.exports = {
 
             webpackConfig.resolve.fallback = {
                 fs: false,
+                module: false,
             };
 
             webpackConfig.resolve.extensions = [".web.js", ...webpackConfig.resolve.extensions];
@@ -106,7 +114,17 @@ module.exports = {
                     ) ||
                         warning.module.resource.includes(
                             `${path.sep}node_modules${path.sep}wasm-gzip${path.sep}`,
+                        ) ||
+                        warning.module.resource.includes(
+                            `${path.sep}node_modules${path.sep}typescript${path.sep}`,
                         )),
+                (warning) =>
+                    typeof warning?.message === "string" &&
+                    warning.message.includes("Critical dependency") &&
+                    typeof warning?.module?.resource === "string" &&
+                    warning.module.resource.includes(
+                        `${path.sep}node_modules${path.sep}typescript${path.sep}`,
+                    ),
             ];
 
             return webpackConfig;
@@ -123,9 +141,9 @@ module.exports = {
             hot: false,
             liveReload: false,
             headers: {
-                "Cross-Origin-Opener-Policy": "same-origin",
+                "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
                 "Cross-Origin-Embedder-Policy": "require-corp",
-                "Cross-Origin-Resource-Policy": "same-origin",
+                "Cross-Origin-Resource-Policy": "cross-origin",
             },
             client: {
                 ...devServerConfig.client,
