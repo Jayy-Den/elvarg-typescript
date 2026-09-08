@@ -1685,21 +1685,6 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                 }
             }
         },
-        refreshMap: () => {
-            const renderer = terrainHost(client);
-            if (!renderer) return;
-            const reload = () => {
-                for (const map of renderer.mapManager.visibleMaps) {
-                    renderer.pendingLocUpdates.add((map.mapX << 8) | map.mapY);
-                    renderer.scheduleLocReload(map.mapX, map.mapY);
-                }
-            };
-            reload();
-            // ponytail: the worker reload API has no completion event; bounded follow-ups
-            // supersede stale loc/terrain batches. Replace with an awaitable reload when available.
-            window.setTimeout(reload, 150);
-            window.setTimeout(reload, 500);
-        },
         despawnNpc: (serverId) => {
             // Dev-only: reuse the server despawn path rather than duplicating
             // the ECS/world-view teardown it performs.

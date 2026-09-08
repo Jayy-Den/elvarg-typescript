@@ -598,12 +598,13 @@ export class EditModePlugin {
             // Walls and roof edges occupy the one-tile perimeter around the selection.
             ...clearAreaEdits(expandTileRange(range, 1)),
             ...generateBuildingEdits(range, style, floors, this.host?.getCameraTile?.(), this.host?.getTerrainHeight, shape),
-        ]);
-        this.host?.refreshMap?.();
+        ], false);
     }
 
     refreshMap(): void {
-        this.host?.refreshMap?.();
+        // Region replacements carry clearing and height changes; rebuilding them
+        // is the only refresh that cannot race the generated locs.
+        this.refreshSpecialRegions(this.config.edits);
     }
 
     /** Re-applies every stored edit to the scene, e.g. after a login or map reload. */
@@ -907,10 +908,12 @@ export class EditModePlugin {
         return [...vertices.values()];
     }
 
-    private commitEdits(edits: EditModeEdit[]): void {
+    private commitEdits(edits: EditModeEdit[], applyImmediately = true): void {
         if (edits.length === 0) return;
-        for (const edit of edits) {
-            this.dispatch(edit);
+        if (applyImmediately) {
+            for (const edit of edits) {
+                this.dispatch(edit);
+            }
         }
         const next = [...this.config.edits, ...edits];
         this.setConfig({ edits: next });

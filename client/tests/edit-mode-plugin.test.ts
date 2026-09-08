@@ -465,6 +465,7 @@ assert.deepEqual(
 );
 
 const calls: Call[] = [];
+const rebuiltRegions: Array<readonly number[]> = [];
 let saved: EditModePluginConfig | undefined;
 
 const regionPackPlugin = new EditModePlugin();
@@ -534,6 +535,7 @@ plugin.attach({
     onLocDel: (...args) => calls.push(["del", ...args]),
     setTerrainOverlay: (...args) => calls.push(["terrain", ...args]),
     clearTerrainOverride: (...args) => calls.push(["clearTerrain", ...args]),
+    refreshEditedRegions: (regionIds) => rebuiltRegions.push(regionIds),
     setFreeCamera: (enabled) => calls.push(["freeCamera", enabled]),
     jumpCameraToTile: (tile) => calls.push(["jump", tile]),
     cancelPendingClick: () => calls.push(["cancelClick"]),
@@ -670,10 +672,14 @@ assert.deepEqual(calls, [
 // Building generation clears the selected area before placing anything new.
 plugin.clearEdits();
 (plugin as any).selection = { kind: "ground", tileX: 3222, tileY: 3218, tileEndX: 3224, tileEndY: 3220, plane: 0, locId: -1, locName: "" };
+calls.length = 0;
+rebuiltRegions.length = 0;
 plugin.generateBuilding("Classic", 1, "Rectangle");
 assert.equal(plugin.getConfig().edits[0]?.kind, "clear");
 assert.equal(plugin.getConfig().edits.slice(0, 25).every((edit) => edit.kind === "clear"), true);
 assert.ok(plugin.getConfig().edits.slice(25).some((edit) => edit.kind === "place"));
+assert.deepEqual(calls, [], "generated buildings wait for the rebuilt terrain region");
+assert.deepEqual(rebuiltRegions, [[((3222 >> 6) << 8) | (3218 >> 6)]]);
 
 // Path tool needs two clicks: the first only records the start.
 plugin.clearEdits();

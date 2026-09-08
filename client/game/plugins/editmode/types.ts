@@ -258,8 +258,6 @@ export interface EditModeHost {
     getTerrainHeight?(tile: EditModeTile): number | undefined;
     /** Rebuilds edited map squares from their persisted base data. */
     refreshEditedRegions?(regionIds: readonly number[], edits: readonly EditModeEdit[]): void;
-    /** Rebuilds every currently loaded map square. */
-    refreshMap?(): void;
     setFreeCamera(enabled: boolean): void;
     /** Renders the world instead of the login screen while logged out. */
     setScenePreview(enabled: boolean, spawn?: EditModeTile): void;
