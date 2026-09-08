@@ -8,12 +8,13 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-config-smoke-"));
 const originalCwd = process.cwd();
 try {
   const dataDirectory = path.join(root, "data");
+  const definitionsDirectory = path.join(dataDirectory, "definitions");
   const pluginDirectory = path.join(root, "plugins");
-  fs.mkdirSync(dataDirectory);
+  fs.mkdirSync(definitionsDirectory, { recursive: true });
   fs.mkdirSync(pluginDirectory);
   fs.writeFileSync(
-    path.join(dataDirectory, "plugins.json"),
-    JSON.stringify({ disabled: ["Disabled"] })
+    path.join(definitionsDirectory, "world.json"),
+    JSON.stringify({ disabledPlugins: ["Disabled"] })
   );
   fs.writeFileSync(
     path.join(pluginDirectory, "Enabled.plugin.js"),

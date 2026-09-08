@@ -11,6 +11,14 @@ import {
 import { NpcSpawnDefinition } from "../../game/definition/NpcSpawnDefinition";
 import { NpcInteractionManager } from "../../game/entity/impl/npc/NpcInteractionManager";
 import { ShopDefinition } from "../../game/definition/ShopDefinition";
+import {
+  addWorldZone,
+  deleteWorldZone,
+  getWorldDefinition,
+  setWorldSpawn,
+  setWorldZone,
+  WorldDefinitionValidationError,
+} from "../../game/definition/WorldDefinition";
 import { NetworkConstants } from "../NetworkConstants";
 
 interface ResourceParams {
@@ -19,6 +27,10 @@ interface ResourceParams {
 
 interface ResourceEntryParams extends ResourceParams {
   entryId: string;
+}
+
+interface WorldZoneParams {
+  zoneIndex: string;
 }
 
 const API_PREFIX = "/dev-api";
@@ -85,7 +97,7 @@ export class DevelopmentApiServer {
     await instance.register(cors, {
       origin: (origin, callback) =>
         callback(null, this.isAllowedOrigin(origin)),
-      methods: ["GET", "PUT", "POST", "OPTIONS"],
+      methods: ["GET", "PUT", "POST", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "If-Match", "If-None-Match"],
       exposedHeaders: ["ETag", "Location"],
       maxAge: 600,
@@ -135,6 +147,7 @@ export class DevelopmentApiServer {
     instance.get(API_PREFIX, async () => ({
       development: true,
       dataUrl: `${API_PREFIX}/data`,
+      worldUrl: "/world",
     }));
     instance.get("/npc_spawns", async (_request, reply) => {
       const spawns = NpcSpawnDefinition.all().map((definition) => {
@@ -176,6 +189,42 @@ export class DevelopmentApiServer {
       }));
       return reply.header("Cache-Control", "no-cache").send(shops);
     });
+    instance.get("/world", async (_request, reply) =>
+      reply.header("Cache-Control", "no-cache").send(getWorldDefinition())
+    );
+    instance.put<{ Body: unknown }>("/world/spawn", async (request, reply) =>
+      reply
+        .header("Cache-Control", "no-cache")
+        .send(this.writeWorld(() => setWorldSpawn(request.body)))
+    );
+    instance.post<{ Body: unknown }>("/world/zones", async (request, reply) => {
+      const created = this.writeWorld(() => addWorldZone(request.body));
+      return reply
+        .header("Location", `/world/zones/${created.index}`)
+        .header("Cache-Control", "no-cache")
+        .code(201)
+        .send(created.zone);
+    });
+    instance.put<{ Params: WorldZoneParams; Body: unknown }>(
+      "/world/zones/:zoneIndex",
+      async (request, reply) =>
+        reply
+          .header("Cache-Control", "no-cache")
+          .send(
+            this.writeWorld(() =>
+              setWorldZone(Number(request.params.zoneIndex), request.body)
+            )
+          )
+    );
+    instance.delete<{ Params: WorldZoneParams }>(
+      "/world/zones/:zoneIndex",
+      async (request, reply) => {
+        this.writeWorld(() =>
+          deleteWorldZone(Number(request.params.zoneIndex))
+        );
+        return reply.code(204).send();
+      }
+    );
     instance.get(`${API_PREFIX}/data`, async () => ServerDataRegistry.list());
     instance.get<{ Params: ResourceParams }>(
       `${API_PREFIX}/data/:resourceName`,
@@ -281,6 +330,20 @@ export class DevelopmentApiServer {
   ): string | undefined {
     const value = request.headers[name];
     return Array.isArray(value) ? value[0] : value;
+  }
+
+  private static writeWorld<T>(operation: () => T): T {
+    try {
+      return operation();
+    } catch (error) {
+      if (error instanceof WorldDefinitionValidationError) {
+        throw new ServerDataError(400, error.message);
+      }
+      if (error instanceof RangeError) {
+        throw new ServerDataError(404, error.message);
+      }
+      throw error;
+    }
   }
 
   private static isAllowedOrigin(origin: string | undefined): boolean {

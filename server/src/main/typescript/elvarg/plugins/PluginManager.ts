@@ -433,7 +433,7 @@ export class PluginManager {
         if (!disabledPluginNames.has(candidate.pluginName)) {
           return true;
         }
-        console.info(`[plugins] skipped ${candidate.pluginName}: disabled in data/plugins.json`);
+        console.info(`[plugins] skipped ${candidate.pluginName}: disabled in world.json`);
         return false;
       })
     );
@@ -1230,25 +1230,25 @@ export class PluginManager {
   }
 
   private static loadDisabledPluginNames(): Set<string> {
-    const configPath = path.join(process.cwd(), "data", "plugins.json");
+    const configPath = path.join(process.cwd(), "data", "definitions", "world.json");
     const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
-      disabled?: unknown;
+      disabledPlugins?: unknown;
     };
     if (!config || typeof config !== "object" || Array.isArray(config)) {
       throw new Error(`[plugins] ${configPath} must contain an object`);
     }
-    if (config.disabled === undefined) {
+    if (config.disabledPlugins === undefined) {
       return new Set();
     }
     if (
-      !Array.isArray(config.disabled) ||
-      config.disabled.some(
+      !Array.isArray(config.disabledPlugins) ||
+      config.disabledPlugins.some(
         (pluginName) => typeof pluginName !== "string" || pluginName.trim().length === 0
       )
     ) {
-      throw new Error(`[plugins] ${configPath}.disabled must be a string[]`);
+      throw new Error(`[plugins] ${configPath}.disabledPlugins must be a string[]`);
     }
-    return new Set(config.disabled.map((pluginName) => pluginName.trim()));
+    return new Set(config.disabledPlugins.map((pluginName) => pluginName.trim()));
   }
 
   private static collectPluginLoadCandidates(
