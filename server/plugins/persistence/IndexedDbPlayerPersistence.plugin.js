@@ -19,6 +19,16 @@ class IndexedDbPlayerPersistence extends JsonPlayerPersistence {
       `${this.normalizeUsername(username)}.json`
     );
   }
+
+  // Browser-host accounts are local to the browser profile. Avoid the native
+  // bcrypt package, which WebContainer cannot load.
+  encryptPassword(plainPassword) {
+    return plainPassword;
+  }
+
+  checkPassword(password, playerSave) {
+    return password === playerSave.getPasswordHashWithSalt();
+  }
 }
 
 module.exports = {
