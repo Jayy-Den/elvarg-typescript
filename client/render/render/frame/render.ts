@@ -224,6 +224,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
 
         const onLoginScreen = host.osrsClient.isOnLoginScreen();
         const loggedIn = host.osrsClient.isLoggedIn();
+        if (!loggedIn) host.osrsClient.clientPlugins.updateInteractionPointer(host.osrsClient.camera);
         const loginLikeState = !loggedIn;
         // When transitioning from login→gameplay, re-sync overlay scales. The first-frame sync
         // runs during login state (renderScaleX≈1) but gameplay uses a different scale formula.

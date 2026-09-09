@@ -113,6 +113,11 @@ export interface InputKeyHandler {
     onKeyUp?(event: KeyboardEvent): boolean;
 }
 
+export interface InputMouseHandler {
+    onMouseDown?(event: MouseEvent): void;
+    onMouseMove?(event: MouseEvent): void;
+}
+
 /**
  * OSRS-parity input manager.
  *
@@ -140,6 +145,7 @@ export class InputManager {
     // When true, double-click may request Pointer Lock (hides cursor).
     enablePointerLock: boolean = false;
     private readonly keyHandlers = new Set<InputKeyHandler>();
+    private readonly mouseHandlers = new Set<InputMouseHandler>();
     private interactionPointerOverride?: { x: number; y: number };
 
     // === OSRS Mouse State ===
@@ -478,6 +484,11 @@ export class InputManager {
         return () => this.keyHandlers.delete(handler);
     }
 
+    addMouseHandler(handler: InputMouseHandler): () => void {
+        this.mouseHandlers.add(handler);
+        return () => this.mouseHandlers.delete(handler);
+    }
+
     setInteractionPointerOverride(x: number, y: number): void {
         this.interactionPointerOverride = { x, y };
     }
@@ -636,7 +647,9 @@ export class InputManager {
 
     requestPointerLock(): void {
         if (!document.pointerLockElement && this.element) {
-            this.element.requestPointerLock();
+            try {
+                void Promise.resolve(this.element.requestPointerLock()).catch(() => {});
+            } catch {}
         }
     }
 
@@ -699,6 +712,7 @@ export class InputManager {
         this.mouseX = x;
         this.mouseY = y;
         this.isTouch = false;
+        for (const handler of this.mouseHandlers) handler.onMouseDown?.(event);
         this.installDocumentGrab();
     };
 
@@ -755,6 +769,7 @@ export class InputManager {
         }
 
         this.isTouch = false;
+        for (const handler of this.mouseHandlers) handler.onMouseMove?.(event);
     };
 
     /**

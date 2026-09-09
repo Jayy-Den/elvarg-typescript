@@ -287,7 +287,10 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         const inputManager = this.osrsClient.inputManager;
         const camera = this.osrsClient.camera;
 
-        if (inputManager.isPointerLock()) {
+        if (
+            inputManager.isPointerLock() &&
+            !this.osrsClient.clientPlugins.shouldKeepWorldMenuOpen()
+        ) {
             this.osrsClient.closeMenu();
         }
 
@@ -333,7 +336,12 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         // Follow-camera zoom is driven by widget onScroll handlers on the main viewport root.
         // Pinch is merged into wheelDeltaY in InputManager (same path as mouse wheel).
         const zoomDelta = inputManager.wheelDeltaY;
-        if (zoomDelta !== 0) {
+        const pluginHandlesCameraScroll = this.osrsClient.clientPlugins.handleCameraScroll({
+            camera,
+            input: inputManager,
+            deltaTime: 0,
+        });
+        if (zoomDelta !== 0 && !pluginHandlesCameraScroll) {
             if (
                 !this.osrsClient.followPlayerCamera &&
                 camera.projectionType === ProjectionType.PERSPECTIVE

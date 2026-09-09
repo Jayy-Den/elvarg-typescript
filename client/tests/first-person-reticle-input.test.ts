@@ -46,14 +46,30 @@ try {
     input.saveClickX = 12;
     assert.equal(input.leftClickX, 12, "clearing an override should restore physical clicks");
 
+    let menuCloseCount = 0;
+    let inGame = true;
     const client = {
         camera: new Camera(0, 0, 0, 256, 512),
         inputManager: input,
         renderSelf: true,
         followPlayerCamera: false,
+        menuOpen: false,
+        isLoggedIn: () => inGame,
+        closeMenu: () => {
+            menuCloseCount++;
+            client.menuOpen = false;
+        },
     };
     const plugin = new FirstPersonPlugin(client);
     plugin.onKeyDown({ code: "F4", repeat: false } as KeyboardEvent);
+    assert.equal(plugin.shouldKeepWorldMenuOpen(), false, "F4 should not keep a closed menu alive");
+    plugin.onKeyDown({ code: "F4", repeat: false } as KeyboardEvent);
+    plugin.onKeyDown({ code: "F4", repeat: false } as KeyboardEvent);
+    assert.equal(menuCloseCount, 3, "changing F4 mode should discard stale menus");
+    client.camera.update(640, 480);
+    plugin.updateInteractionPointer(client.camera);
+    assert.equal(input.mouseX, 320, "mouse look should keep the logical cursor on the reticle");
+    assert.equal(input.mouseY, 240, "mouse look should keep the logical cursor on the reticle");
     input.keys.set("ArrowUp", true);
     plugin.handleCameraKeys({ camera: client.camera, input, deltaTime: 100 });
     assert.ok((client.camera.getViewPitchOverride() ?? 0) < 0, "F4 up must be inverted");
@@ -61,10 +77,62 @@ try {
     plugin.updateInteractionPointer(client.camera);
     assert.equal(input.hasInteractionPointerOverride(), false, "Alt should release world targeting");
     assert.equal(input.enablePointerLock, false, "Alt should keep double-clicks from hiding the cursor");
+    assert.equal(plugin.shouldKeepWorldMenuOpen(), false, "Alt should return menu control to normal input");
     plugin.onKeyDown({ code: "AltLeft", repeat: false } as KeyboardEvent);
     plugin.updateInteractionPointer(client.camera);
     assert.equal(input.hasInteractionPointerOverride(), true, "Alt should restore world targeting");
     assert.equal(input.enablePointerLock, true, "relocking should restore pointer lock support");
+    input.wheelDeltaY = -120;
+    assert.equal(
+        plugin.handleCameraScroll({ camera: client.camera, input, deltaTime: 0 }),
+        true,
+        "F4 should handle scroll in either cursor mode",
+    );
+    assert.ok(client.camera.getViewZoomScale() > 1, "scrolling up should zoom in");
+
+    plugin.onMouseDown({ button: 2 } as MouseEvent);
+    plugin.updateInteractionPointer(client.camera);
+    assert.equal(input.hasInteractionPointerOverride(), true, "opening a menu should keep the reticle target");
+    client.menuOpen = true;
+    assert.equal(plugin.shouldKeepWorldMenuOpen(), true, "an open F4 menu should remain available");
+    assert.equal(input.isPointerLock(), false, "opening a menu should reveal the cursor");
+    input.mouseX = 1;
+    input.mouseY = 1;
+    plugin.updateInteractionPointer(client.camera);
+    assert.equal(input.mouseX, 320, "an unopened menu should remain under the reticle");
+    plugin.onMouseMove({ movementX: 1, movementY: 0 } as MouseEvent);
+    input.mouseX = 1;
+    plugin.updateInteractionPointer(client.camera);
+    assert.equal(input.mouseX, 320, "the pointer-lock transition must not dismiss the menu");
+    plugin.onMouseMove({ movementX: 1, movementY: 0 } as MouseEvent);
+    input.mouseX = 1;
+    plugin.updateInteractionPointer(client.camera);
+    assert.equal(input.mouseX, 1, "moving the cursor should restore normal menu hover behavior");
+    plugin.onMouseDown({ button: 0 } as MouseEvent);
+    assert.equal(client.menuOpen, true, "the menu action must receive the left click before closing");
+    assert.equal(input.isPointerLock(), true, "a left click should resume mouse look");
+    client.menuOpen = false;
+
+    plugin.onMouseDown({ button: 2 } as MouseEvent);
+    plugin.updateInteractionPointer(client.camera);
+    client.menuOpen = true;
+    client.menuOpen = false;
+    plugin.handleCameraMouse({ camera: client.camera, input, deltaTime: 0 });
+    assert.equal(input.isPointerLock(), true, "dismissing a menu by leaving it should resume mouse look");
+
+    plugin.onMouseDown({ button: 2 } as MouseEvent);
+    client.menuOpen = true;
+    input.clickMode1 = ClickMode.RIGHT;
+    input.clickMode2 = ClickMode.RIGHT;
+    plugin.onMouseDown({ button: 2 } as MouseEvent);
+    assert.equal(client.menuOpen, false, "a second right click should close the menu");
+    assert.equal(input.clickMode1, ClickMode.NONE, "closing a menu must not open another one");
+    assert.equal(input.isPointerLock(), true, "a second right click should resume mouse look");
+
+    inGame = false;
+    input.setInteractionPointerOverride(320, 240);
+    plugin.updateInteractionPointer(client.camera);
+    assert.equal(input.hasInteractionPointerOverride(), false, "the reticle must be hidden outside the game");
 } finally {
     Object.defineProperty(globalThis, "document", {
         configurable: true,

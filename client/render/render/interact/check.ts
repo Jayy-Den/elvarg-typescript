@@ -239,7 +239,12 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
             return;
         }
 
-        if (!picked && !leftClicked && !host.osrsClient.tooltips) {
+        if (
+            !picked &&
+            !leftClicked &&
+            !host.osrsClient.tooltips &&
+            !host.osrsClient.clientPlugins.shouldKeepWorldMenuOpen()
+        ) {
             host.osrsClient.closeMenu();
             host.clearInteractHighlightHoverTarget();
             return;
