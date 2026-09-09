@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { MapManager } from "../game/MapManager";
 import { decodeServerPacket } from "../network/packet/ServerBinaryDecoder";
 import { onLocAddChange } from "../render/render/locs";
-import { onLocDel } from "../render/render/locs2";
+import { onLocDel, scheduleLocReload } from "../render/render/locs2";
+import { getMapSquareId } from "../rs/map/MapFileIndex";
 import { MapFileLoader } from "../rs/map/MapFileLoader";
 
 function mapLoadBackoff(): void {
@@ -77,6 +78,26 @@ function duplicateLocReplayIsIgnored(): void {
     assert.equal(refreshes, 3);
 }
 
+function locUpdateBeforeInitialMapDoesNotStartADuplicateMapTask(): void {
+    const mapX = 48;
+    const mapY = 54;
+    const mapId = getMapSquareId(mapX, mapY);
+    const host = {
+        locReloadVersions: new Map<number, number>(),
+        mapManager: {
+            loadingMapIds: new Set(),
+            getMap: () => undefined,
+        },
+        pendingLocReloadMaps: new Map(),
+        pendingLocReloadFlushTimer: undefined,
+        beginLocReloadBatch: () => assert.fail("initial load must not start a second reload"),
+    } as any;
+
+    scheduleLocReload(host, mapX, mapY);
+    assert.equal(host.locReloadVersions.get(mapId), 1);
+    assert.equal(host.pendingLocReloadMaps.size, 0);
+}
+
 function crossShapeReplacementKeepsBaseWallHidden(): void {
     const tile = { x: 2643, y: 2592 };
     const host = {
@@ -122,6 +143,7 @@ function regionReplacementUsesNativeMapData(): void {
 mapLoadBackoff();
 incomingMapsRenderBeforeTheWholeGridIsReady();
 duplicateLocReplayIsIgnored();
+locUpdateBeforeInitialMapDoesNotStartADuplicateMapTask();
 crossShapeReplacementKeepsBaseWallHidden();
 regionReplacementUsesNativeMapData();
 console.log("Map loading regression tests passed");

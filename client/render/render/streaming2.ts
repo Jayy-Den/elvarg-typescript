@@ -189,6 +189,7 @@ import {
 import { KNOWN_WATER_TEXTURE_IDS } from "../water/WaterTextureIds";
 import type { WebGLOsrsRendererHost } from "./hostInterface";
 import { RENDER_CONSTANTS } from "./constants";
+import { markMapWorkerReady, isMapProfileEnabled } from "./mapLoadProfile";
 
 export async function queueLoadMap(host: WebGLOsrsRendererHost, 
         mapX: number,
@@ -196,6 +197,8 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
         streamGeneration?: number,
         locReloadBatchId?: number,
     ): Promise<void> {
+
+        const queuedAt = performance.now();
 
         // Don't try to load maps before cache is initialized
         if (!host.osrsClient.loadedCache) return;
@@ -206,6 +209,7 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
         host.applyGamemodeWorldLocs();
 
         const mapId = getMapSquareId(mapX, mapY);
+        const locReloadVersion = host.locReloadVersions.get(mapId) ?? 0;
         const regionReplacements = new Map(host.mapRegionReplacements);
         const doorOnly =
             typeof locReloadBatchId === "number" &&
@@ -218,6 +222,7 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
             !host.pendingDoorLocUpdates.has(mapId) &&
             host.pendingLocGeometryUpdates.has(mapId);
         const input: SdMapLoaderInput = {
+            mapProfileEnabled: isMapProfileEnabled(),
             mapX,
             mapY,
             maxLevel: Math.max(0, Math.min(Scene.MAX_LEVELS - 1, host.maxLevel | 0)),
@@ -262,8 +267,13 @@ export async function queueLoadMap(host: WebGLOsrsRendererHost,
             await host.queueLoadMap(mapX, mapY, streamGeneration, locReloadBatchId);
             return;
         }
+        if (locReloadVersion !== (host.locReloadVersions.get(mapId) ?? 0)) {
+            await host.queueLoadMap(mapX, mapY, streamGeneration, locReloadBatchId);
+            return;
+        }
 
         if (mapData && host.isValidMapData(mapData)) {
+            markMapWorkerReady(mapData, queuedAt);
             if (typeof locReloadBatchId === "number") {
                 host.resolveLocReloadBatchMap(locReloadBatchId, mapId, mapData);
                 return;

@@ -306,6 +306,9 @@ export class WebGLOsrsRenderer extends GameRenderer<WebGLMapSquare> {
     // in its map square.
     public pendingDoorLocUpdates: Set<number> = new Set();
     public pendingLocReloadMaps: Map<number, { mapX: number; mapY: number }> = new Map();
+    // Incremented for every dynamic loc update so an in-flight initial map load
+    // can cheaply detect that its input became stale.
+    public locReloadVersions: Map<number, number> = new Map();
     public pendingLocReloadFlushTimer?: ReturnType<typeof setTimeout>;
     public nextLocReloadBatchId: number = 1;
     public pendingLocReloadBatches: Map<number, LocReloadBatchState> = new Map();

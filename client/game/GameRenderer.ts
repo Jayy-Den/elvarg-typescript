@@ -90,6 +90,11 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         this.uiHidden = !!hidden;
     }
 
+    /** WebGL overrides this while streamed map work is still outstanding. */
+    hasPendingMapStreamingWork(): boolean {
+        return false;
+    }
+
     /**
      * Clear session-specific caches to prevent memory leaks on logout/disconnect.
      * Subclasses should override to clear their accumulated session data.

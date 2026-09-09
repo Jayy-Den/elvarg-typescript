@@ -370,6 +370,12 @@ export function getLocAnimationDurationMs(host: WebGLOsrsRendererHost, seqId: nu
 export function scheduleLocReload(host: WebGLOsrsRendererHost, mapX: number, mapY: number): void {
 
         const id = getMapSquareId(mapX, mapY);
+        host.locReloadVersions.set(id, (host.locReloadVersions.get(id) ?? 0) + 1);
+        // There is nothing to refresh until this map is resident. The normal
+        // initial load will snapshot the latest loc state instead.
+        if (!host.mapManager.getMap(mapX, mapY)) {
+            return;
+        }
         host.pendingLocReloadMaps.set(id, { mapX: mapX | 0, mapY: mapY | 0 });
         if (host.pendingLocReloadFlushTimer) return;
         const flush = () => {

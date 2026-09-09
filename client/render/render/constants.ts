@@ -8,12 +8,13 @@ const MATERIAL_TEXTURE_ROWS = 6;
 const WATER_FLAG_HAS_FOAM = 1;
 const WATER_FLAG_NORMAL_MAP_2 = 2;
 const WATER_TEXTURE_SIZE = 128;
+const PUBLIC_PATH = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
 const WATER_TEXTURE_ASSETS = [
-    "/images/water/water_normal_map_1.png",
-    "/images/water/water_normal_map_2.png",
-    "/images/water/water_flow_map.png",
-    "/images/water/water_foam.jpg",
-    "/images/water/caustics_map.jpg",
+    `${PUBLIC_PATH}/images/water/water_normal_map_1.png`,
+    `${PUBLIC_PATH}/images/water/water_normal_map_2.png`,
+    `${PUBLIC_PATH}/images/water/water_flow_map.png`,
+    `${PUBLIC_PATH}/images/water/water_foam.jpg`,
+    `${PUBLIC_PATH}/images/water/caustics_map.jpg`,
 ] as const;
 
 export interface WaterMaterialParams {

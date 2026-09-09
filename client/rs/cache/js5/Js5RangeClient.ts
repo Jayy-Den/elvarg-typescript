@@ -26,7 +26,7 @@ function groupKey(span: GroupSpan): string {
  */
 export class Js5RangeClient {
     /** Merge queued groups whose spans are within this many bytes of each other. */
-    private static readonly MERGE_GAP_BYTES = 32 * Sector.SIZE;
+    private static readonly MERGE_GAP_BYTES = 256 * Sector.SIZE;
     private static readonly MAX_BATCH_BYTES = 2 * 1024 * 1024;
     /** Delay before dispatching, letting one frame's misses batch together. */
     private static readonly BATCH_DELAY_MS = 10;
@@ -139,6 +139,11 @@ export class Js5RangeClient {
         const waiting: PendingGroup[] = [];
         for (const group of this.pending.values()) {
             if (!group.inFlight) {
+                // A neighbouring batch may already have downloaded this group.
+                if (this.store.isGroupPresent(group.span.indexId, group.span.archiveId)) {
+                    this.finishGroup(group);
+                    continue;
+                }
                 waiting.push(group);
             }
         }
@@ -189,6 +194,8 @@ export class Js5RangeClient {
 
     private async fetchBatch(batch: PendingGroup[]): Promise<void> {
         this.activeFetches++;
+        const startedAt = performance.now();
+        const profile = new URLSearchParams(globalThis.location?.search).get("map-profile") === "1";
         try {
             let start = Number.MAX_SAFE_INTEGER;
             let end = 0;
@@ -199,6 +206,7 @@ export class Js5RangeClient {
             const bytes = await this.fetchRange(start, end - start);
             this.store.applyRange(start, bytes);
             this.notifyFetched(start, bytes);
+            if (profile) console.info(`[js5-profile] range groups=${batch.length} bytes=${bytes.byteLength} elapsed=${Math.round(performance.now() - startedAt)}ms pending=${this.pending.size} active=${this.activeFetches}`);
             for (const group of batch) {
                 this.finishGroup(group);
             }

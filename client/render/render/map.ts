@@ -428,6 +428,7 @@ export function clearMaps(host: WebGLOsrsRendererHost, ): void {
         host.pendingLocGeometryUpdates.clear();
         host.pendingDoorLocUpdates.clear();
         host.pendingLocReloadMaps.clear();
+        host.locReloadVersions.clear();
         host.pendingLocReloadBatches.clear();
         host.queuedLocReloadBatchByMap.clear();
         host.nextLocReloadBatchId = 1;

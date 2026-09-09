@@ -1,4 +1,5 @@
 export type SdMapLoaderInput = {
+    mapProfileEnabled?: boolean;
     mapX: number;
     mapY: number;
 
