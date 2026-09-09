@@ -19,7 +19,6 @@ const { Animation } = require("../../src/main/typescript/elvarg/game/model/Anima
 const { Graphic } = require("../../src/main/typescript/elvarg/game/model/Graphic");
 const { Task } = require("../../src/main/typescript/elvarg/game/task/Task");
 const { ClanChatManager } = require("../interface/ClanChat.plugin");
-const { NpcDropDefinitionLoader } = require("../../src/main/typescript/elvarg/game/definition/loader/impl/NpcDropDefinitionLoader");
 const { PlayerSave } = require("../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
 const { DamageFormulas } = require("../../src/main/typescript/elvarg/game/content/combat/formula/DamageFormulas");
 const { ServerLogger } = require("../../src/main/typescript/elvarg/util/ServerLogger");
@@ -1527,19 +1526,8 @@ module.exports = {
       return true;
     });
 
-    api.registerCommand("reloaddrops", ({ player }) => {
-      if (!requireRights(player, ownerOrDev)) {
-        return true;
-      }
-      try {
-        new NpcDropDefinitionLoader().load();
-        player.getPacketSender().sendMessage("Reloaded drops.");
-      } catch (error) {
-        console.error(error);
-        player.getPacketSender().sendMessage("Error reloading npc drops.");
-      }
-      return true;
-    });
+    // `reloaddrops` lives in plugins/npcs/NpcDrops.plugin.js, which owns the
+    // drop-table system since the old NpcDropDefinitionLoader was ported away.
 
     api.registerCommand("reloadnpcspawns", ({ player }) => {
       if (!requireRights(player, ownerOrDev)) {
