@@ -226,8 +226,6 @@ export class Server {
         DevelopmentApiServer.start();
         Server.stopDevelopmentApi = () => DevelopmentApiServer.stop();
       }
-      console.log("Start");
-      // console.info(`${GameConstants.NAME} is now online!`);
     } catch (e) {
       console.log(e, "error");
       console.error(`An error occurred while binding the Bootstrap: ${e}`);

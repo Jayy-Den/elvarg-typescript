@@ -6,12 +6,12 @@ import { PresenceBitset } from "../rs/cache/js5/PresenceBitset";
 async function main() {
     const index = new ArrayBuffer(18);
     const idx = new DataView(index);
-    for (const [id, sector] of [[0, 1], [1, 150], [2, 151]]) {
+    for (const [id, sector] of [[0, 1], [1, 400], [2, 401]]) {
         idx.setUint8(id * 6 + 2, 1);
         idx.setUint8(id * 6 + 4, sector >> 8);
         idx.setUint8(id * 6 + 5, sector & 255);
     }
-    const store = new SparseMemoryStore(new ArrayBuffer(200 * 520), [index], PresenceBitset.forSectorCount(200, false));
+    const store = new SparseMemoryStore(new ArrayBuffer(600 * 520), [index], PresenceBitset.forSectorCount(600, false));
     const originalFetch = globalThis.fetch;
     let requests = 0;
     globalThis.fetch = async (_url, options) => {
@@ -25,10 +25,10 @@ async function main() {
     };
     try {
         const client = new Js5RangeClient("https://example.test/cache", store);
-        await Promise.all([client.requestGroup(0, 0), client.requestGroup(0, 2)]);
-        assert.equal(requests, 1, "nearby missing groups share a single HTTP request");
+        await Promise.all([client.requestGroup(0, 0), client.requestGroup(0, 1)]);
+        assert.equal(requests, 1, "groups in one fetch block share a single HTTP request");
         await client.requestGroup(0, 1);
-        assert.equal(requests, 1, "intervening group is already downloaded");
+        assert.equal(requests, 1, "the warmed block prevents a later request");
     } finally {
         globalThis.fetch = originalFetch;
     }
