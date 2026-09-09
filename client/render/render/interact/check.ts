@@ -31,7 +31,7 @@ import { flushPackets } from "../../../network/packet";
 import { createTextureArray } from "../../../picogl/PicoTexture";
 import { RS_TO_RADIANS } from "../../../rs/MathConstants";
 import { CollisionFlag } from "../../../common/CollisionFlag";
-import { isInWilderness } from "../../../common/world/Wilderness";
+import { VARBIT_IN_WILDERNESS } from "../../../common/vars";
 import {
     getWorldLocChanges,
     getWorldLocSpawns,
@@ -485,15 +485,11 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
                     typeof localEcsIndex === "number"
                         ? playerEcs.getTeam(localEcsIndex | 0) | 0
                         : 0;
-                const localWorldX =
-                    typeof localEcsIndex === "number"
-                        ? playerEcs.getX(localEcsIndex | 0) >> 7
-                        : 0;
-                const localWorldY =
-                    typeof localEcsIndex === "number"
-                        ? playerEcs.getY(localEcsIndex | 0) >> 7
-                        : 0;
-                const canAttackPlayers = isInWilderness(localWorldX, localWorldY);
+                // Whether players may be attacked is a server rule - world.json pvp zones,
+                // which a world can put anywhere - so follow the varbit the server sets
+                // rather than the map's traditional Wilderness rectangle.
+                const canAttackPlayers =
+                    (host.osrsClient.varManager?.getVarbit(VARBIT_IN_WILDERNESS) ?? 0) === 1;
                 const targetIsClanMember = isClanMemberName(playerLabel);
 
                 // When hovering a player, Walk here target becomes the player's label.
