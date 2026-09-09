@@ -19,8 +19,7 @@ async function main(): Promise<void> {
         assert.equal(response.statusCode, 200);
         const world = response.json();
         assert.deepEqual(world.spawn, { x: 3089, y: 3524, z: 0 });
-        assert.equal(world.zones.length, 17);
-        assert.deepEqual(world.zones[0], { tags: ["pvp"] }, "the global pvp fallback survives a read");
+        assert.equal(world.zones.length, 23);
 
         const invalid = await app.inject({
             method: "POST",

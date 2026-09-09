@@ -104,40 +104,6 @@ This lets each legacy username assign a password on its next login. Disable the 
 
 ---
 
-## Configuring Your World
-
-`server/data/definitions/world.json` holds the settings that belong to the world rather than
-to a plugin. It is validated on boot, so a mistake stops the server with a message naming
-the field.
-
-| Key | What it does |
-| --- | --- |
-| `spawn` | Where new players start, as `{ "x": ..., "y": ..., "z": ... }`. |
-| `experienceMultiplier` | XP rate, a positive number. |
-| `disabledPlugins` | Plugin names to skip loading, by their `name` export. |
-| `zones` | Tagged areas. Supported tags are `pvp` and `multi-combat`. |
-
-A zone is a rectangle on one plane:
-
-```json
-{ "minX": 3136, "maxX": 3327, "minY": 3519, "maxY": 3607, "z": 0, "tags": ["multi-combat"] }
-```
-
-A zone with **no bounds at all** is the fallback: its tags apply to the whole world on
-every plane. `world.json` ships one tagged `pvp`, which makes everywhere pvp, wilderness
-rules and all:
-
-```json
-{ "tags": ["pvp"] }
-```
-
-Bounds are all-or-nothing - a zone with `minX` but no `maxY` is an error rather than a
-silent global zone. Note that wilderness *level* still comes from the OSRS formula
-(`floor((y - 3520) / 8) + 1`), so outside the real Wilderness a global pvp zone has no
-combat level range: anyone may attack anyone.
-
----
-
 ## Troubleshooting
 
 ### Cache download hangs or fails
