@@ -42,7 +42,6 @@ import { TaskManager } from "../../../task/TaskManager";
 import { CombatPoisonEffect } from "../../../task/impl/CombatPoisonEffect";
 import { PlayerDeathTask } from "../../../task/impl/PlayerDeath"
 import { PlayerSession } from "../../../../net/PlayerSession"
-import { ChannelEventHandler } from "../../../../net/channel/ChannelEventHandler";
 import { PacketSender } from "../../../../net/packet/PacketSender"
 import { FrameUpdater } from "../../../../util/FrameUpdater"
 import { Misc } from "../../../../util/Misc";
@@ -569,8 +568,8 @@ export class Player extends Mobile {
     /**
      
     Requests a logout by sending the logout packet to the client. This leads to
-    the connection being closed. The {@link ChannelEventHandler} will then add
-    the player to the remove characters queue.
+    the connection being closed, which then adds the player to the remove
+    characters queue.
     */
     requestLogout() {
         if (!World.getRemovePlayerQueue().includes(this)) {

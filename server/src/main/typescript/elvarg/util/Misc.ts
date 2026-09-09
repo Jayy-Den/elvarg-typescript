@@ -1,10 +1,10 @@
-import DecimalFormat from "decimal-format";
 // import { Location } from '../game/model/Location';
 // import { Player } from '../game/entity/impl/player/Player';
 import { RandomGen } from "../util/RandomGen";
 import { Location } from "../game/model/Location";
-import { ZonedDateTime } from "js-joda";
-import { fs, readFileSync, existsSync } from "fs-extra";
+import * as fs from "fs";
+import { readFileSync, existsSync } from "fs";
+import { readFile } from "fs/promises";
 import * as path from "path";
 import { resolve } from "path";
 import * as zlib from "zlib";
@@ -19,7 +19,7 @@ export class Misc {
     return ticks * 0.6;
   }
 
-  static readonly FORMATTER = new DecimalFormat("0.#");
+  static readonly FORMATTER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
   static readonly HALF_A_DAY_IN_MILLIS = 43200000;
   static readonly VALID_PLAYER_CHARACTERS = [
     "_",
@@ -218,8 +218,6 @@ export class Misc {
     "]",
   ];
 
-  private static zonedDateTime: ZonedDateTime;
-
   public static getRandom(length: number): number {
     return Math.floor(Math.random() * (length + 1));
   }
@@ -233,10 +231,10 @@ export class Misc {
   }
 
   public static getCurrentServerTime(): string {
-    this.zonedDateTime = ZonedDateTime.now();
-    let hour = this.zonedDateTime.hour();
+    const now = new Date();
+    let hour = now.getHours();
     let hourPrefix = hour < 10 ? "0" + hour + "" : "" + hour + "";
-    let minute = this.zonedDateTime.minute();
+    let minute = now.getMinutes();
     let minutePrefix = minute < 10 ? "0" + minute + "" : "" + minute + "";
     return "" + hourPrefix + ":" + minutePrefix + "";
   }
@@ -616,7 +614,7 @@ export class Misc {
 
   public static async getBuffers(filePath: string): Promise<Uint8Array | null> {
     try {
-      const buffer = await fs.readFile(filePath);
+      const buffer = await readFile(filePath);
       const inflated = await new Promise<Buffer>((resolve, reject) => {
         zlib.gunzip(buffer, (err, result) => {
           if (err) {

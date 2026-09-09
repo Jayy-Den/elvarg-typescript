@@ -445,7 +445,7 @@ export class PacketSender {
 
   public clearInterfaceText(start: number, end: number): PacketSender {
     for (let i = start; i <= end; i++) {
-      this.player.getFrameUpdater().interfaceTextMap.remove(i);
+      this.player.getFrameUpdater().interfaceTextMap.delete(i);
     }
     const out = new PacketBuilder(105);
     out.putInt(start);
