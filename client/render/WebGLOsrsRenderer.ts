@@ -490,7 +490,6 @@ export class WebGLOsrsRenderer extends GameRenderer<WebGLMapSquare> {
     public walkableOverlay?: any;
     public widgetsOverlay?: WidgetsOverlay;
     public model2DRenderer?: Model2DRenderer;
-    public itemIconRenderer?: any;
     public chatheadFactory?: ChatheadFactory;
     public playerChatheadFactory?: PlayerChatheadFactory;
     public playerModelLoader2D?: PlayerModelLoader;

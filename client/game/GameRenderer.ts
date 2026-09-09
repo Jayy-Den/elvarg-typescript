@@ -33,6 +33,9 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
     mapManager: MapManager<T>;
     uiHidden: boolean = false;
 
+    /** Lazily-created software rasterizer for item sprites (attached by render init). */
+    public itemIconRenderer?: import("../ui/item/ItemIconRenderer").ItemIconRenderer;
+
     /** Drops any cached roof visibility state so the next frame recomputes it. */
     invalidateRoofState(): void {}
 

@@ -84,5 +84,7 @@ jobs:
         run: |
           corepack yarn install --immutable
           corepack yarn --cwd client install --immutable
+      - name: Typecheck client
+        run: corepack yarn --cwd client typecheck
       - name: Run client tests
         run: corepack yarn --cwd client test
