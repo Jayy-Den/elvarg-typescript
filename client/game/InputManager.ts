@@ -135,6 +135,10 @@ export class InputManager {
     // When true, double-click may request Pointer Lock (hides cursor).
     enablePointerLock: boolean = false;
     private firstPersonToggleRequested: boolean = false;
+    private firstPersonEnabled: boolean = false;
+    private firstPersonCursorMode: boolean = false;
+    private firstPersonReticleX: number = -1;
+    private firstPersonReticleY: number = -1;
 
     // === OSRS Mouse State ===
 
@@ -271,19 +275,23 @@ export class InputManager {
     // === Legacy compatibility (for gradual migration) ===
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get leftClickX(): number {
-        return this.clickMode3 === ClickMode.LEFT ? this.saveClickX : -1;
+        if (this.clickMode3 !== ClickMode.LEFT) return -1;
+        return this.isFirstPersonReticleActive() ? this.firstPersonReticleX : this.saveClickX;
     }
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get leftClickY(): number {
-        return this.clickMode3 === ClickMode.LEFT ? this.saveClickY : -1;
+        if (this.clickMode3 !== ClickMode.LEFT) return -1;
+        return this.isFirstPersonReticleActive() ? this.firstPersonReticleY : this.saveClickY;
     }
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get pickX(): number {
-        return this.clickMode3 === ClickMode.RIGHT ? this.saveClickX : -1;
+        if (this.clickMode3 !== ClickMode.RIGHT) return -1;
+        return this.isFirstPersonReticleActive() ? this.firstPersonReticleX : this.saveClickX;
     }
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get pickY(): number {
-        return this.clickMode3 === ClickMode.RIGHT ? this.saveClickY : -1;
+        if (this.clickMode3 !== ClickMode.RIGHT) return -1;
+        return this.isFirstPersonReticleActive() ? this.firstPersonReticleY : this.saveClickY;
     }
     /** @deprecated Use mouseWheelX/Y with isDragging check */
     get dragX(): number {
@@ -469,6 +477,50 @@ export class InputManager {
         return requested;
     }
 
+    setFirstPersonEnabled(enabled: boolean): void {
+        this.firstPersonEnabled = enabled;
+        this.firstPersonCursorMode = false;
+        this.enablePointerLock = enabled;
+        if (!enabled) {
+            this.firstPersonReticleX = -1;
+            this.firstPersonReticleY = -1;
+        }
+        this.element?.parentElement?.classList.toggle("first-person-reticle", enabled);
+    }
+
+    setFirstPersonReticlePosition(x: number, y: number): void {
+        if (this.firstPersonReticleX === x && this.firstPersonReticleY === y) return;
+        this.firstPersonReticleX = x;
+        this.firstPersonReticleY = y;
+        const canvas = this.element as HTMLCanvasElement | undefined;
+        const host = canvas?.parentElement;
+        if (!host || !canvas?.width || !canvas.height) return;
+        host.style.setProperty("--first-person-reticle-x", `${(x / canvas.width) * 100}%`);
+        host.style.setProperty("--first-person-reticle-y", `${(y / canvas.height) * 100}%`);
+    }
+
+    isFirstPersonCursorMode(): boolean {
+        return this.firstPersonEnabled && (this.firstPersonCursorMode || !this.isPointerLock());
+    }
+
+    isFirstPersonReticleActive(): boolean {
+        return (
+            this.firstPersonEnabled &&
+            !this.firstPersonCursorMode &&
+            this.isPointerLock() &&
+            this.firstPersonReticleX !== -1 &&
+            this.firstPersonReticleY !== -1
+        );
+    }
+
+    getInteractionMouseX(): number {
+        return this.isFirstPersonReticleActive() ? this.firstPersonReticleX : this.mouseX;
+    }
+
+    getInteractionMouseY(): number {
+        return this.isFirstPersonReticleActive() ? this.firstPersonReticleY : this.mouseY;
+    }
+
     releasePointerLock(): void {
         if (this.isPointerLock()) {
             document.exitPointerLock();
@@ -612,7 +664,7 @@ export class InputManager {
     }
 
     private onDoubleClick = (_event: MouseEvent) => {
-        if (!this.enablePointerLock) return;
+        if (!this.enablePointerLock || this.firstPersonCursorMode) return;
         this.requestPointerLock();
     };
 
@@ -956,6 +1008,19 @@ export class InputManager {
             this.firstPersonToggleRequested = true;
             this.requestPointerLock();
             return;
+        }
+
+        if (
+            (event.code === "AltLeft" || event.code === "AltRight") &&
+            this.firstPersonEnabled &&
+            !event.repeat
+        ) {
+            this.firstPersonCursorMode = !this.firstPersonCursorMode;
+            if (this.firstPersonCursorMode) {
+                this.releasePointerLock();
+            } else {
+                this.requestPointerLock();
+            }
         }
 
         const keyCode = event.keyCode;

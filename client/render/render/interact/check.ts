@@ -198,6 +198,8 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
         let raycastHitCount = 0;
 
         const inputManager = host.osrsClient.inputManager;
+        const mouseX = inputManager.getInteractionMouseX();
+        const mouseY = inputManager.getInteractionMouseY();
         const isMouseDown = inputManager.dragX !== -1 || inputManager.dragY !== -1;
         const pickX = inputManager.pickX;
         const pickY = inputManager.pickY;
@@ -221,12 +223,12 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
         const menuCooldown = isTouchDevice ? 50 : 10;
 
         if (
-            (inputManager.mouseX === -1 ||
-                inputManager.mouseY === -1 ||
+            (mouseX === -1 ||
+                mouseY === -1 ||
                 frameCount - host.osrsClient.menuOpenedFrame < menuCooldown) &&
             !leftClicked
         ) {
-            if (inputManager.mouseX === -1 || inputManager.mouseY === -1) {
+            if (mouseX === -1 || mouseY === -1) {
                 host.clearInteractHighlightHoverTarget();
             }
             return;
@@ -284,8 +286,8 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
         const hasSelectedItem =
             ClientState.isItemSelected === 1 && (ClientState.selectedItemId | 0) > 0;
         const selectedItemName = String(ClientState.selectedSpellName || "");
-        const anchorX = picked ? pickX : inputManager.mouseX;
-        const anchorY = picked ? pickY : inputManager.mouseY;
+        const anchorX = picked ? pickX : mouseX;
+        const anchorY = picked ? pickY : mouseY;
         const anchorInSceneViewport = host.osrsClient.camera.containsScreenPoint(anchorX, anchorY);
 
         // Only build world menu entries (NPCs, objects, Walk here) when mouse is NOT
@@ -1479,8 +1481,8 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
             inputManager.clearPick();
         } else if (!host.osrsClient.menuOpen) {
             // No pick this frame and menu not open: update hover anchor to follow mouse
-            host.osrsClient.menuX = inputManager.mouseX;
-            host.osrsClient.menuY = inputManager.mouseY;
+            host.osrsClient.menuX = mouseX;
+            host.osrsClient.menuY = mouseY;
             host.osrsClient.menuTile = undefined;
         }
         const pinnedActive =

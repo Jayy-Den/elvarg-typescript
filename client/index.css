@@ -7,6 +7,15 @@
     src: url(./media/RuneScape-Plain-11.ttf);
 }
 
+:root {
+    --app-vw: 100vw;
+    --app-vh: 100dvh;
+    --ios-safari-landscape-w: var(--app-vw);
+    --ios-safari-landscape-h: var(--app-vh);
+    --first-person-reticle-x: 50%;
+    --first-person-reticle-y: 50%;
+}
+
 html,
 body,
 #root {
@@ -25,7 +34,6 @@ body,
 
     -webkit-touch-callout: none; /* iOS Safari */
     -webkit-user-select: none; /* Safari */
-    -khtml-user-select: none; /* Konqueror HTML */
     -moz-user-select: none; /* Old versions of Firefox */
     -ms-user-select: none; /* Internet Explorer/Edge */
     user-select: none; /* Non-prefixed version, currently
@@ -79,6 +87,22 @@ canvas {
     display: block;
 }
 
+.first-person-reticle::after {
+    content: "";
+    position: absolute;
+    left: var(--first-person-reticle-x, 50%);
+    top: var(--first-person-reticle-y, 50%);
+    width: 14px;
+    height: 14px;
+    transform: translate(-50%, -50%);
+    background:
+        linear-gradient(to right, transparent 6px, white 6px 8px, transparent 8px),
+        linear-gradient(to bottom, transparent 6px, white 6px 8px, transparent 8px);
+    filter: drop-shadow(0 0 1px black);
+    pointer-events: none;
+    z-index: 1;
+}
+
 .center-container {
     display: flex;
     justify-content: center;
@@ -103,7 +127,7 @@ canvas {
 
 .rs-border {
     border: 6px solid;
-    border-image: url(./media/interface-border.png) 6 / 6px / 0px repeat;
+    border-image: url(./media/interface-border.png) 6 / 6px / 0 repeat;
 }
 
 .rs-background {
