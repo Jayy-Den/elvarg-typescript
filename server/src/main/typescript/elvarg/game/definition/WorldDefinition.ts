@@ -12,11 +12,11 @@ export interface WorldPosition {
 }
 
 export interface WorldZone {
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-    z: number;
+    minX?: number;
+    maxX?: number;
+    minY?: number;
+    maxY?: number;
+    z?: number;
     tags: WorldZoneTag[];
 }
 
@@ -81,20 +81,28 @@ export function parseWorldPosition(value: unknown, label = "world spawn"): World
     };
 }
 
+const ZONE_BOUND_KEYS = ["minX", "maxX", "minY", "maxY", "z"] as const;
+
 export function parseWorldZone(value: unknown, label = "world zone"): WorldZone {
     const zone = object(value, label);
-    const parsed: WorldZone = {
-        minX: coordinate(zone, "minX", label),
-        maxX: coordinate(zone, "maxX", label),
-        minY: coordinate(zone, "minY", label),
-        maxY: coordinate(zone, "maxY", label),
-        z: plane(zone, label),
-        tags: [],
-    };
-    if (parsed.minX > parsed.maxX || parsed.minY > parsed.maxY) {
+    const bounded = ZONE_BOUND_KEYS.some((key) => zone[key] !== undefined);
+    const parsed: WorldZone = bounded
+        ? {
+              minX: coordinate(zone, "minX", label),
+              maxX: coordinate(zone, "maxX", label),
+              minY: coordinate(zone, "minY", label),
+              maxY: coordinate(zone, "maxY", label),
+              z: plane(zone, label),
+              tags: [],
+          }
+        : { tags: [] };
+    if (bounded && (parsed.minX! > parsed.maxX! || parsed.minY! > parsed.maxY!)) {
         throw new WorldDefinitionValidationError(`${label} has reversed bounds`);
     }
-    if (!Array.isArray(zone.tags) || zone.tags.length === 0) {
+    if (!Array.isArray(zone.tags)) {
+        throw new WorldDefinitionValidationError(`${label}.tags must be a non-empty array`);
+    }
+    if (bounded && zone.tags.length === 0) {
         throw new WorldDefinitionValidationError(`${label}.tags must be a non-empty array`);
     }
     for (const tag of new Set(zone.tags)) {
@@ -146,13 +154,20 @@ export const WORLD_ZONE_BOUNDARIES: Record<WorldZoneTag, Boundary[]> = {
     "multi-combat": [],
 };
 
+function zoneBoundaries(zone: WorldZone): Boundary[] {
+    if (zone.minX === undefined) {
+        return [0, 1, 2, 3].map((z) => new Boundary(0, 0x3fff, 0, 0x3fff, z));
+    }
+    return [new Boundary(zone.minX, zone.maxX!, zone.minY!, zone.maxY!, zone.z!)];
+}
+
 function syncRuntime(): void {
     WORLD_SPAWN.set(definition.spawn.x, definition.spawn.y, definition.spawn.z);
     WORLD_ZONE_BOUNDARIES.pvp.length = 0;
     WORLD_ZONE_BOUNDARIES["multi-combat"].length = 0;
     for (const zone of definition.zones) {
-        const boundary = new Boundary(zone.minX, zone.maxX, zone.minY, zone.maxY, zone.z);
-        for (const tag of zone.tags) WORLD_ZONE_BOUNDARIES[tag].push(boundary);
+        const boundaries = zoneBoundaries(zone);
+        for (const tag of zone.tags) WORLD_ZONE_BOUNDARIES[tag].push(...boundaries);
     }
 }
 
