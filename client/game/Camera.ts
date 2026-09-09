@@ -31,7 +31,7 @@ export class Camera {
     private targetPitch: number;
     private targetYaw: number;
     private scenePitchOverride: number | undefined;
-    private firstPersonPitch: number | undefined;
+    private viewPitchOverride: number | undefined;
 
     private readonly positionMaxSpeedPerSec = 12; // tiles per second toward target
     private readonly positionSpringPerSec = 6; // proportional easing factor
@@ -145,7 +145,7 @@ export class Camera {
     }
 
     getScenePitchAngle(): number {
-        return this.firstPersonPitch ?? this.scenePitchOverride ?? this.getControlPitchAngle();
+        return this.viewPitchOverride ?? this.scenePitchOverride ?? this.getControlPitchAngle();
     }
 
     getScenePitchOverride(): number | undefined {
@@ -158,12 +158,12 @@ export class Camera {
         this.updated = true;
     }
 
-    getFirstPersonPitch(): number | undefined {
-        return this.firstPersonPitch;
+    getViewPitchOverride(): number | undefined {
+        return this.viewPitchOverride;
     }
 
-    setFirstPersonPitch(pitch: number | undefined): void {
-        this.firstPersonPitch =
+    setViewPitchOverride(pitch: number | undefined): void {
+        this.viewPitchOverride =
             pitch === undefined ? undefined : clamp(Math.trunc(pitch), -256, 256);
         this.updated = true;
     }

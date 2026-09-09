@@ -694,12 +694,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
 
         // CPU-side interactions with latest camera
         profiler.startPhase("interact");
-        if (host.osrsClient.firstPersonMode) {
-            inputManager.setFirstPersonReticlePosition(
-                camera.viewportXOffset + camera.viewportWidth / 2,
-                camera.viewportYOffset + camera.viewportHeight / 2,
-            );
-        }
+        host.osrsClient.clientPlugins.updateInteractionPointer(camera);
         const leftClickedNow = inputManager.leftClickX !== -1 && inputManager.leftClickY !== -1;
         const pickedNow = inputManager.pickX !== -1 && inputManager.pickY !== -1;
         const cycleChanged = (clientCycle | 0) !== (host.lastInteractionClientCycle | 0);
@@ -711,7 +706,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
             cycleChanged ||
             menuStateChanged;
         if (
-            (!inputManager.isPointerLock() || inputManager.isFirstPersonReticleActive()) &&
+            (!inputManager.isPointerLock() || inputManager.hasInteractionPointerOverride()) &&
             shouldRunInteractionPass
         ) {
             host.checkInteractions();

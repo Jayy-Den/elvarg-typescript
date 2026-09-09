@@ -256,6 +256,8 @@ import {
 import { NpcMovementSync } from "./movement/NpcMovementSync";
 import { PlayerMovementSync } from "./movement/PlayerMovementSync";
 import { NpcInstanceFlushController } from "./npc/NpcInstanceFlushController";
+import { ClientPluginManager } from "./plugins/ClientPluginManager";
+import { FirstPersonPlugin } from "./plugins/firstperson/FirstPersonPlugin";
 import { createBrowserGroundItemsPluginPersistence } from "./plugins/grounditems/BrowserGroundItemsPluginPersistence";
 import { GroundItemsPlugin } from "./plugins/grounditems/GroundItemsPlugin";
 import { createBrowserInteractHighlightPluginPersistence } from "./plugins/interacthighlight/BrowserInteractHighlightPluginPersistence";
@@ -515,6 +517,8 @@ export class OsrsClient {
     readonly tileMarkersPlugin: TileMarkersPlugin;
     readonly vengeanceTimerPlugin: VengeanceTimerPlugin;
     readonly splitPrivateChatPlugin: SplitPrivateChatPlugin;
+    readonly clientPlugins: ClientPluginManager = new ClientPluginManager();
+    readonly firstPersonPlugin: FirstPersonPlugin;
     readonly tileHighlightManager: TileHighlightManager = new TileHighlightManager();
     private sidebarPluginVisibility: Required<SidebarPluginVisibilityOptions> = {
         groundItemsEnabled: true,
@@ -836,9 +840,6 @@ export class OsrsClient {
     // Camera behavior
     // When true, disables free-cam and keeps camera focused on Player[0]
     followPlayerCamera: boolean = true;
-    firstPersonMode: boolean = false;
-    private firstPersonRestoreRenderSelf: boolean | undefined;
-    private firstPersonRestoreFollowPlayerCamera: boolean | undefined;
     // OSRS-style zoom shape parameters (match vanilla defaults)
     // Used to convert pitch into camera distance with viewport scaling
     zoomHeight: number = 256;
@@ -849,28 +850,6 @@ export class OsrsClient {
     // Hide-roofs toggle: when true, every plane above the player's plane is hidden.
     // When false, roofs are only removed while the player/camera is inside a building.
     roofsHidden: boolean = true;
-
-    setFirstPersonMode(enabled: boolean): void {
-        if (this.firstPersonMode === enabled) return;
-        this.firstPersonMode = enabled;
-        if (enabled) {
-            this.firstPersonRestoreRenderSelf = this.renderSelf;
-            this.firstPersonRestoreFollowPlayerCamera = this.followPlayerCamera;
-            this.renderSelf = false;
-            this.followPlayerCamera = true;
-            this.camera.setFirstPersonPitch(0);
-            return;
-        }
-        this.camera.setFirstPersonPitch(undefined);
-        if (this.firstPersonRestoreRenderSelf !== undefined) {
-            this.renderSelf = this.firstPersonRestoreRenderSelf;
-            this.firstPersonRestoreRenderSelf = undefined;
-        }
-        if (this.firstPersonRestoreFollowPlayerCamera !== undefined) {
-            this.followPlayerCamera = this.firstPersonRestoreFollowPlayerCamera;
-            this.firstPersonRestoreFollowPlayerCamera = undefined;
-        }
-    }
 
     setRoofsHidden(roofsHidden: boolean): void {
         if (this.roofsHidden === roofsHidden) {
@@ -1089,6 +1068,8 @@ export class OsrsClient {
             createBrowserVengeanceTimerPluginPersistence("osrs.plugin.vengeance_timer.v1"),
         );
         this.splitPrivateChatPlugin = new SplitPrivateChatPlugin();
+        this.firstPersonPlugin = new FirstPersonPlugin(this);
+        this.clientPlugins.add(this.firstPersonPlugin);
         this.syncSidebarPlugins(true);
         if (new URLSearchParams(window.location.search).has("edit")) {
             this.loadEditModePlugin();

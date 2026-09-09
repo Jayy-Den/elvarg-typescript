@@ -169,7 +169,7 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         this.handleKeyInput(deltaTime);
         this.handleControllerInput(deltaTime);
 
-        if (!this.uiHidden && !this.osrsClient.inputManager.isFirstPersonReticleActive()) {
+        if (!this.uiHidden && !this.osrsClient.inputManager.hasInteractionPointerOverride()) {
             // Process UI interaction BEFORE mouse input so widgets can consume scroll
             // before camera zoom uses it
             this.osrsClient.handleUiInput();
@@ -189,13 +189,6 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         const inputManager = this.osrsClient.inputManager;
         const camera = this.osrsClient.camera;
 
-        if (inputManager.consumeFirstPersonToggle()) {
-            const enabled = !this.osrsClient.firstPersonMode;
-            this.osrsClient.setFirstPersonMode(enabled);
-            inputManager.setFirstPersonEnabled(enabled);
-            if (!enabled) inputManager.releasePointerLock();
-        }
-
         let cameraSpeedMult = 1.0;
         if (inputManager.isShiftDown()) {
             cameraSpeedMult = 10.0;
@@ -208,27 +201,24 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         const deltaPitch = 64 * 8 * deltaTimeSec; // ~90°/s
         const deltaYaw = 512 * deltaTimeSec; // 2048 units / 4s
 
-        if (!inputManager.isFirstPersonCursorMode() && inputManager.isKeyDown("ArrowUp")) {
+        const pluginHandlesCameraKeys = this.osrsClient.clientPlugins.handleCameraKeys({
+            camera,
+            input: inputManager,
+            deltaTime,
+        });
+        if (!pluginHandlesCameraKeys && inputManager.isKeyDown("ArrowUp")) {
             // Up tilts camera downward (increase positive pitch)
-            if (this.osrsClient.firstPersonMode) {
-                camera.setFirstPersonPitch((camera.getFirstPersonPitch() ?? 0) + deltaPitch);
-            } else {
-                camera.updatePitch(camera.pitch, deltaPitch);
-            }
+            camera.updatePitch(camera.pitch, deltaPitch);
         }
-        if (!inputManager.isFirstPersonCursorMode() && inputManager.isKeyDown("ArrowDown")) {
+        if (!pluginHandlesCameraKeys && inputManager.isKeyDown("ArrowDown")) {
             // Down tilts camera upward (decrease positive pitch)
-            if (this.osrsClient.firstPersonMode) {
-                camera.setFirstPersonPitch((camera.getFirstPersonPitch() ?? 0) - deltaPitch);
-            } else {
-                camera.updatePitch(camera.pitch, -deltaPitch);
-            }
+            camera.updatePitch(camera.pitch, -deltaPitch);
         }
-        if (!inputManager.isFirstPersonCursorMode() && inputManager.isKeyDown("ArrowRight")) {
+        if (!pluginHandlesCameraKeys && inputManager.isKeyDown("ArrowRight")) {
             // Right rotates view to the right (negative yaw delta due to RS yaw basis)
             camera.updateYaw(camera.yaw, -deltaYaw);
         }
-        if (!inputManager.isFirstPersonCursorMode() && inputManager.isKeyDown("ArrowLeft")) {
+        if (!pluginHandlesCameraKeys && inputManager.isKeyDown("ArrowLeft")) {
             // Left rotates view to the left
             camera.updateYaw(camera.yaw, deltaYaw);
         }
@@ -305,16 +295,15 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         const deltaMouseX = inputManager.getDeltaMouseX();
         const deltaMouseY = inputManager.getDeltaMouseY();
 
-        if (
-            (!this.osrsClient.followPlayerCamera || this.osrsClient.firstPersonMode) &&
-            !inputManager.isFirstPersonCursorMode()
-        ) {
+        const pluginHandlesCameraMouse = this.osrsClient.clientPlugins.handleCameraMouse({
+            camera,
+            input: inputManager,
+            deltaTime: 0,
+        });
+        if (!pluginHandlesCameraMouse && !this.osrsClient.followPlayerCamera) {
             if (deltaMouseX !== 0 || deltaMouseY !== 0) {
                 if (inputManager.isTouch) {
                     camera.move(0, clamp(-deltaMouseY, -100, 100) * 0.004, 0);
-                } else if (this.osrsClient.firstPersonMode) {
-                    camera.setFirstPersonPitch((camera.getFirstPersonPitch() ?? 0) - deltaMouseY * 0.9);
-                    camera.updateYaw(camera.yaw, -deltaMouseX * 0.9);
                 } else {
                     camera.updatePitch(camera.pitch, deltaMouseY * 0.9);
                     camera.updateYaw(camera.yaw, deltaMouseX * 0.9);

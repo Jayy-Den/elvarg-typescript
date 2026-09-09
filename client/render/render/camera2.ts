@@ -277,12 +277,14 @@ export function updateCameraFollow(host: WebGLOsrsRendererHost, deltaTime?: numb
         );
 
         const camera = host.osrsClient.camera;
-        if (host.osrsClient.firstPersonMode) {
-            // A player model is roughly 1.5 tiles tall; keep the view at eye height.
-            const eyeY = playerHeightSample.valid
-                ? Math.round((playerHeightSample.height - 1.5) * 128) / 128
-                : undefined;
-            camera.snapToPosition(playerX, eyeY, playerZ);
+        if (
+            host.osrsClient.clientPlugins.handleCameraFollow({
+                camera,
+                playerX,
+                playerY: playerHeightSample.valid ? playerHeightSample.height : undefined,
+                playerZ,
+            })
+        ) {
             return;
         }
         // OSRS uses the effective viewport height after viewport-shape clamping,

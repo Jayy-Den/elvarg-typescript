@@ -108,6 +108,11 @@ export const ClickMode = {
     RIGHT: 2,
 } as const;
 
+export interface InputKeyHandler {
+    onKeyDown?(event: KeyboardEvent): boolean;
+    onKeyUp?(event: KeyboardEvent): boolean;
+}
+
 /**
  * OSRS-parity input manager.
  *
@@ -134,11 +139,8 @@ export class InputManager {
 
     // When true, double-click may request Pointer Lock (hides cursor).
     enablePointerLock: boolean = false;
-    private firstPersonToggleRequested: boolean = false;
-    private firstPersonEnabled: boolean = false;
-    private firstPersonCursorMode: boolean = false;
-    private firstPersonReticleX: number = -1;
-    private firstPersonReticleY: number = -1;
+    private readonly keyHandlers = new Set<InputKeyHandler>();
+    private interactionPointerOverride?: { x: number; y: number };
 
     // === OSRS Mouse State ===
 
@@ -276,22 +278,22 @@ export class InputManager {
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get leftClickX(): number {
         if (this.clickMode3 !== ClickMode.LEFT) return -1;
-        return this.isFirstPersonReticleActive() ? this.firstPersonReticleX : this.saveClickX;
+        return this.interactionPointerOverride?.x ?? this.saveClickX;
     }
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get leftClickY(): number {
         if (this.clickMode3 !== ClickMode.LEFT) return -1;
-        return this.isFirstPersonReticleActive() ? this.firstPersonReticleY : this.saveClickY;
+        return this.interactionPointerOverride?.y ?? this.saveClickY;
     }
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get pickX(): number {
         if (this.clickMode3 !== ClickMode.RIGHT) return -1;
-        return this.isFirstPersonReticleActive() ? this.firstPersonReticleX : this.saveClickX;
+        return this.interactionPointerOverride?.x ?? this.saveClickX;
     }
     /** @deprecated Use saveClickX/saveClickY with clickMode3 */
     get pickY(): number {
         if (this.clickMode3 !== ClickMode.RIGHT) return -1;
-        return this.isFirstPersonReticleActive() ? this.firstPersonReticleY : this.saveClickY;
+        return this.interactionPointerOverride?.y ?? this.saveClickY;
     }
     /** @deprecated Use mouseWheelX/Y with isDragging check */
     get dragX(): number {
@@ -471,54 +473,29 @@ export class InputManager {
         return document.pointerLockElement === this.element;
     }
 
-    consumeFirstPersonToggle(): boolean {
-        const requested = this.firstPersonToggleRequested;
-        this.firstPersonToggleRequested = false;
-        return requested;
+    addKeyHandler(handler: InputKeyHandler): () => void {
+        this.keyHandlers.add(handler);
+        return () => this.keyHandlers.delete(handler);
     }
 
-    setFirstPersonEnabled(enabled: boolean): void {
-        this.firstPersonEnabled = enabled;
-        this.firstPersonCursorMode = false;
-        this.enablePointerLock = enabled;
-        if (!enabled) {
-            this.firstPersonReticleX = -1;
-            this.firstPersonReticleY = -1;
-        }
-        this.element?.parentElement?.classList.toggle("first-person-reticle", enabled);
+    setInteractionPointerOverride(x: number, y: number): void {
+        this.interactionPointerOverride = { x, y };
     }
 
-    setFirstPersonReticlePosition(x: number, y: number): void {
-        if (this.firstPersonReticleX === x && this.firstPersonReticleY === y) return;
-        this.firstPersonReticleX = x;
-        this.firstPersonReticleY = y;
-        const canvas = this.element as HTMLCanvasElement | undefined;
-        const host = canvas?.parentElement;
-        if (!host || !canvas?.width || !canvas.height) return;
-        host.style.setProperty("--first-person-reticle-x", `${(x / canvas.width) * 100}%`);
-        host.style.setProperty("--first-person-reticle-y", `${(y / canvas.height) * 100}%`);
+    clearInteractionPointerOverride(): void {
+        this.interactionPointerOverride = undefined;
     }
 
-    isFirstPersonCursorMode(): boolean {
-        return this.firstPersonEnabled && (this.firstPersonCursorMode || !this.isPointerLock());
-    }
-
-    isFirstPersonReticleActive(): boolean {
-        return (
-            this.firstPersonEnabled &&
-            !this.firstPersonCursorMode &&
-            this.isPointerLock() &&
-            this.firstPersonReticleX !== -1 &&
-            this.firstPersonReticleY !== -1
-        );
+    hasInteractionPointerOverride(): boolean {
+        return this.interactionPointerOverride !== undefined;
     }
 
     getInteractionMouseX(): number {
-        return this.isFirstPersonReticleActive() ? this.firstPersonReticleX : this.mouseX;
+        return this.interactionPointerOverride?.x ?? this.mouseX;
     }
 
     getInteractionMouseY(): number {
-        return this.isFirstPersonReticleActive() ? this.firstPersonReticleY : this.mouseY;
+        return this.interactionPointerOverride?.y ?? this.mouseY;
     }
 
     releasePointerLock(): void {
@@ -657,14 +634,14 @@ export class InputManager {
         this.gamepadIndex = undefined;
     };
 
-    private requestPointerLock(): void {
+    requestPointerLock(): void {
         if (!document.pointerLockElement && this.element) {
             this.element.requestPointerLock();
         }
     }
 
     private onDoubleClick = (_event: MouseEvent) => {
-        if (!this.enablePointerLock || this.firstPersonCursorMode) return;
+        if (!this.enablePointerLock) return;
         this.requestPointerLock();
     };
 
@@ -1004,24 +981,7 @@ export class InputManager {
         this.idleTime = 0;
         this.lastInputTimeMs = this.nowMs();
 
-        if (event.code === "F4" && !event.repeat) {
-            this.firstPersonToggleRequested = true;
-            this.requestPointerLock();
-            return;
-        }
-
-        if (
-            (event.code === "AltLeft" || event.code === "AltRight") &&
-            this.firstPersonEnabled &&
-            !event.repeat
-        ) {
-            this.firstPersonCursorMode = !this.firstPersonCursorMode;
-            if (this.firstPersonCursorMode) {
-                this.releasePointerLock();
-            } else {
-                this.requestPointerLock();
-            }
-        }
+        for (const handler of this.keyHandlers) if (handler.onKeyDown?.(event)) return;
 
         const keyCode = event.keyCode;
         const charCode =
@@ -1085,6 +1045,8 @@ export class InputManager {
         event.preventDefault();
         this.idleTime = 0;
         this.lastInputTimeMs = this.nowMs();
+
+        for (const handler of this.keyHandlers) if (handler.onKeyUp?.(event)) return;
 
         const keyCode = event.keyCode;
 
