@@ -322,7 +322,10 @@ export function addUnbatchedNpcRenderData(host: WebGLOsrsRendererHost): void {
                 }
             }
             if (!map) continue;
-            if (!host.shouldRenderNpcFromMap(map, ecsId)) continue;
+            // batchedIds already excludes any npc a visible map's ready batch
+            // will draw, so anything reaching here must use the immediate path
+            // (e.g. server spawns that arrived before the map batch refresh,
+            // or npcs suppressed inside their batch).
 
             const dataOffset = host.actorRenderCount | 0;
             const required = dataOffset + 1;

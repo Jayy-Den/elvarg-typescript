@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Newer Yarn releases ship before some bundled corepack versions know their
+  # signing keys; disabling the check is the documented workaround.
+  COREPACK_INTEGRITY_KEYS: 0
+
+jobs:
+  server:
+    name: Server smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Enable corepack (repo-pinned Yarn 4)
+        run: corepack enable
+      - name: Install root + server dependencies
+        run: |
+          corepack yarn install --immutable
+          corepack yarn --cwd server install --immutable
+      - name: Download OSRS cache
+        run: corepack yarn --cwd server ensure-cache
+      - name: Start game server in background
+        run: corepack yarn --cwd server dev &
+      - name: Wait for the game server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:43594/regions > /dev/null; then
+              echo "game server is up"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "game server failed to start; last log lines:"
+          cat logs/server-*.log 2>/dev/null | tail -50 || true
+          exit 1
+      - name: Run server smoke tests
+        run: |
+          corepack yarn --cwd server test:login
+          corepack yarn --cwd server test:rejuvenation-pool
+          corepack yarn --cwd server test:occult-altar
+          corepack yarn --cwd server test:npc-drops
+          corepack yarn --cwd server test:npc-spawns
+          corepack yarn --cwd server test:cache-definitions
+
+  client:
+    name: Client test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+      - name: Enable corepack (repo-pinned Yarn 4)
+        run: corepack enable
+      - name: Install root + client dependencies
+        run: |
+          corepack yarn install --immutable
+          corepack yarn --cwd client install --immutable
+      - name: Run client tests
+        run: corepack yarn --cwd client test
