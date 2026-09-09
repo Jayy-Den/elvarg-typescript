@@ -32,6 +32,7 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler {
             !event.repeat
         ) {
             this.cursorUnlocked = !this.cursorUnlocked;
+            this.client.inputManager.enablePointerLock = !this.cursorUnlocked;
             if (this.cursorUnlocked) this.client.inputManager.releasePointerLock();
             else this.client.inputManager.requestPointerLock();
             return true;

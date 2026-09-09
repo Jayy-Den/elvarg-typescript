@@ -60,9 +60,11 @@ try {
     plugin.onKeyDown({ code: "AltLeft", repeat: false } as KeyboardEvent);
     plugin.updateInteractionPointer(client.camera);
     assert.equal(input.hasInteractionPointerOverride(), false, "Alt should release world targeting");
+    assert.equal(input.enablePointerLock, false, "Alt should keep double-clicks from hiding the cursor");
     plugin.onKeyDown({ code: "AltLeft", repeat: false } as KeyboardEvent);
     plugin.updateInteractionPointer(client.camera);
     assert.equal(input.hasInteractionPointerOverride(), true, "Alt should restore world targeting");
+    assert.equal(input.enablePointerLock, true, "relocking should restore pointer lock support");
 } finally {
     Object.defineProperty(globalThis, "document", {
         configurable: true,
