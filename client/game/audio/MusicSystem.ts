@@ -4,6 +4,7 @@ import { MusicBuffer } from "../../rs/audio/music/MusicBuffer";
 import { SoundTrack } from "../../rs/audio/music/SoundTrack";
 import { CacheSystem } from "../../rs/cache/CacheSystem";
 import { IndexType } from "../../rs/cache/IndexType";
+import { StringUtil } from "../../rs/util/StringUtil";
 import { retryOnMissingGroup } from "../../rs/cache/js5/retryOnMissingGroup";
 import { copyArrayBufferLike, copyArrayBufferView } from "../../common/utils/ArrayBufferUtil";
 import { decodeOggVorbisToAudioBuffer, isOggVorbis } from "./VorbisWasm";
@@ -223,6 +224,36 @@ export class MusicSystem {
 
             // CacheIndex.getArchiveId() does the DJB2 hash lookup
             return index.getArchiveId(name);
+        } catch (e) {
+            // Ignore errors
+        }
+        return -1;
+    }
+
+    /**
+     * Resolve a song name (as shown in the music tab) to a playable track id.
+     * Tolerates OSRS list formatting (trailing spaces, case) and uses the
+     * client's own old-school name hash (StringUtil.hashOld, uppercase,
+     * base-61 with -32 bias).
+     * Returns -1 when no track with that name exists in the cache.
+     */
+    public findTrackIdByName(name: string): number {
+        const normalized = name.replace(/\s+/g, " ").trim();
+        if (!normalized) return -1;
+        const direct = this.findTrackByName(normalized);
+        if (direct >= 0) return direct;
+        // Fall back to scanning archive name hashes with the same normalization.
+        try {
+            const index = this.cache.getIndex(IndexType.DAT2.musicTracks);
+            if (!index) return -1;
+            const targetHash = StringUtil.hashOld(normalized);
+            const archiveIds = index.getArchiveIds();
+            for (let i = 0; i < archiveIds.length; i++) {
+                const ref = index.getArchiveReference(archiveIds[i]);
+                if (ref && ref.nameHash === targetHash) {
+                    return archiveIds[i];
+                }
+            }
         } catch (e) {
             // Ignore errors
         }

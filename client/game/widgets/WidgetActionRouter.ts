@@ -9,6 +9,7 @@ import type { WidgetManager } from "../../widgets/WidgetManager";
 import { shouldTransmitAction } from "../../widgets/WidgetFlags";
 import type { InputManager } from "../InputManager";
 import type { CustomInterfaceRuntime } from "../../widgets/custom/CustomInterfaceRuntime";
+import { handleMusicTabAction } from "./handlers/musicTab";
 import type { PlayerDesignController } from "./PlayerDesignController";
 import type { WidgetInteractionController } from "./WidgetInteractionController";
 import {
@@ -127,6 +128,11 @@ export class WidgetActionRouter {
         }
 
         if (handleTradeWidgetAction(this.deps, w, event, groupId | 0, childId | 0)) {
+            return;
+        }
+
+        // Music tab jukebox rows: play the clicked song client-side.
+        if (handleMusicTabAction(this.deps, w as any, event, groupId | 0, childId | 0)) {
             return;
         }
 
