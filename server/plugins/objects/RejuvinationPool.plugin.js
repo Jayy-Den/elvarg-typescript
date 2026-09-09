@@ -5,9 +5,9 @@ const { Skill } = require("../../src/main/typescript/elvarg/game/model/Skill");
 const { ObjectIds } = require("../../src/main/typescript/elvarg/util/IdEnums");
 
 const POOL_IDS = [
-  ObjectIds.FANCY_REJUVENATION_POOL,
-  ObjectIds.ORNATE_REJUVENATION_POOL,
-  ObjectIds.ORNATE_POOL_OF_REJUVENATION,
+  ObjectIds.POOL_OF_REJUVENATION, // 29239
+  ObjectIds.FANCY_POOL_OF_REJUVENATION, // 29240
+  ObjectIds.ORNATE_POOL_OF_REJUVENATION, // 29241
 ];
 const ATTR_BLEED_TASK_KEY = "combat:bleed:taskKey";
 const POOL_USE_DELAY_MS = 1000;

@@ -58,7 +58,9 @@ function handleOccultAltar(player, spellbook) {
 module.exports = {
   name: "Altars",
   register: (api) => {
-    api.onObjectFirstClick(ObjectIds.ANCIENT_ALTAR, ({ player }) =>
+    // The Ancient magicks altar (object 6552). The auto-generated enum name
+    // shifts between cache regenerations; ALTAR_30 is its current name.
+    api.onObjectFirstClick(ObjectIds.ALTAR_30, ({ player }) =>
       handleAncientAltar(player)
     );
 
