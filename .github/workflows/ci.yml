@@ -31,7 +31,13 @@ jobs:
         run: |
           corepack yarn install --immutable
           corepack yarn --cwd server install --immutable
-      - name: Download OSRS cache
+      - name: Restore OSRS cache (keyed on server/target.txt)
+        id: osrs-cache
+        uses: actions/cache@v4
+        with:
+          path: server/caches
+          key: osrs-cache-${{ hashFiles('server/target.txt') }}
+      - name: Download OSRS cache (skipped when restore validates)
         run: corepack yarn --cwd server ensure-cache
       - name: Start game server in background
         run: corepack yarn --cwd server dev &
@@ -55,6 +61,13 @@ jobs:
           corepack yarn --cwd server test:npc-drops
           corepack yarn --cwd server test:npc-spawns
           corepack yarn --cwd server test:cache-definitions
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs
+          path: logs/
+          if-no-files-found: ignore
 
   client:
     name: Client test suite
