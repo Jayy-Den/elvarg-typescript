@@ -11,12 +11,16 @@ export interface WorldPosition {
     z: number;
 }
 
+/**
+ * Bounds are absent on the fallback zone, whose tags apply to the whole world on every
+ * plane: a fallback tagged "pvp" makes the world pvp, and narrower zones add nothing.
+ */
 export interface WorldZone {
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-    z: number;
+    minX?: number;
+    maxX?: number;
+    minY?: number;
+    maxY?: number;
+    z?: number;
     tags: WorldZoneTag[];
 }
 
@@ -81,20 +85,31 @@ export function parseWorldPosition(value: unknown, label = "world spawn"): World
     };
 }
 
+const ZONE_BOUND_KEYS = ["minX", "maxX", "minY", "maxY", "z"] as const;
+
 export function parseWorldZone(value: unknown, label = "world zone"): WorldZone {
     const zone = object(value, label);
-    const parsed: WorldZone = {
-        minX: coordinate(zone, "minX", label),
-        maxX: coordinate(zone, "maxX", label),
-        minY: coordinate(zone, "minY", label),
-        maxY: coordinate(zone, "maxY", label),
-        z: plane(zone, label),
-        tags: [],
-    };
-    if (parsed.minX > parsed.maxX || parsed.minY > parsed.maxY) {
+    // No bounds at all is the fallback zone; a partial set still has to name them all.
+    const bounded = ZONE_BOUND_KEYS.some((key) => zone[key] !== undefined);
+    const parsed: WorldZone = bounded
+        ? {
+              minX: coordinate(zone, "minX", label),
+              maxX: coordinate(zone, "maxX", label),
+              minY: coordinate(zone, "minY", label),
+              maxY: coordinate(zone, "maxY", label),
+              z: plane(zone, label),
+              tags: [],
+          }
+        : { tags: [] };
+    if (bounded && (parsed.minX! > parsed.maxX! || parsed.minY! > parsed.maxY!)) {
         throw new WorldDefinitionValidationError(`${label} has reversed bounds`);
     }
-    if (!Array.isArray(zone.tags) || zone.tags.length === 0) {
+    if (!Array.isArray(zone.tags)) {
+        throw new WorldDefinitionValidationError(`${label}.tags must be an array`);
+    }
+    // The fallback zone is allowed to carry no tags: world.json ships one so the setting
+    // is visible. A bounded zone with no tags is still a mistake - it does nothing.
+    if (bounded && zone.tags.length === 0) {
         throw new WorldDefinitionValidationError(`${label}.tags must be a non-empty array`);
     }
     for (const tag of new Set(zone.tags)) {
@@ -146,13 +161,25 @@ export const WORLD_ZONE_BOUNDARIES: Record<WorldZoneTag, Boundary[]> = {
     "multi-combat": [],
 };
 
+const WORLD_EDGE = 0x3fff;
+const PLANES = [0, 1, 2, 3];
+
+/** The fallback zone has no rectangle, so it becomes one covering every plane. */
+function zoneBoundaries(zone: WorldZone): Boundary[] {
+    const { minX, maxX, minY, maxY, z } = zone;
+    if (minX === undefined || maxX === undefined || minY === undefined || maxY === undefined || z === undefined) {
+        return PLANES.map((plane) => new Boundary(0, WORLD_EDGE, 0, WORLD_EDGE, plane));
+    }
+    return [new Boundary(minX, maxX, minY, maxY, z)];
+}
+
 function syncRuntime(): void {
     WORLD_SPAWN.set(definition.spawn.x, definition.spawn.y, definition.spawn.z);
     WORLD_ZONE_BOUNDARIES.pvp.length = 0;
     WORLD_ZONE_BOUNDARIES["multi-combat"].length = 0;
     for (const zone of definition.zones) {
-        const boundary = new Boundary(zone.minX, zone.maxX, zone.minY, zone.maxY, zone.z);
-        for (const tag of zone.tags) WORLD_ZONE_BOUNDARIES[tag].push(boundary);
+        const boundaries = zoneBoundaries(zone);
+        for (const tag of zone.tags) WORLD_ZONE_BOUNDARIES[tag].push(...boundaries);
     }
 }
 

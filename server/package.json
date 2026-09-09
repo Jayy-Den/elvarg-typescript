@@ -70,6 +70,7 @@
     "test:emotes": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/emotes-plugin-smoke.ts",
     "test:skull-command": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/player-commands-skull-smoke.ts",
     "test:vengeance-timer": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2022\"}' ts-node ./scripts/vengeance-timer-plugin-smoke.ts",
+    "test:world-zones": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/world-zone-fallback-smoke.ts",
     "test:content-api": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/content-api-smoke.ts",
     "test:presets": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/presets-interface-smoke.ts",
     "test:commands-interface": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/commands-interface-smoke.ts",
