@@ -2,6 +2,7 @@
   "name": "@xrsps/client",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/play",
   "engines": {
     "node": ">=22.5.0"
   },

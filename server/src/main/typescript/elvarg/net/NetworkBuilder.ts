@@ -12,7 +12,7 @@ import { PluginManager } from "../plugins/PluginManager";
 import { Misc } from "../util/Misc";
 import { PlayerPunishment } from "../util/PlayerPunishment";
 import { BinaryChannel, MAX_GAME_MESSAGE_BYTES, WebSocketBinaryChannel } from "./BinaryChannel";
-import { WebRtcGameConnector } from "./webrtc/WebRtcGameConnector";
+import { BrowserHostHttpBridge, BROWSER_HOST_BRIDGE_HTML } from "./BrowserHostHttpBridge";
 import { PlayerSession } from "./PlayerSession";
 import { CachePipeline } from "../game/cache/CachePipeline";
 import { ContentApi } from "./http/ContentApi";
@@ -108,8 +108,20 @@ export function isConfiguredDeveloperUsername(username: string): boolean {
 
 export class NetworkBuilder {
   public initialize(port: number): WebSocketServer {
+    const browserHost = process.env.BROWSER_HOST === "1";
+    const browserHostBridge = browserHost
+      ? new BrowserHostHttpBridge((channel) => new ClientConnection(channel))
+      : undefined;
     const http = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
+      if (browserHostBridge) {
+        if (request.method === "GET" && request.url === "/") {
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.end(BROWSER_HOST_BRIDGE_HTML);
+          return;
+        }
+        if (browserHostBridge.handle(request, response)) return;
+      }
       const content = ContentApi.resolve(
         request.method ?? "GET",
         request.url ?? "",
@@ -148,10 +160,15 @@ export class NetworkBuilder {
     server.on("listening", () => console.info(`[network] client websocket listening on ${port}`));
     server.on("error", (error) => console.error("[network] websocket error", error));
     http.listen(port);
-    WebRtcGameConnector.startFromEnv(
-      (channel) => new ClientConnection(channel),
-      World.getNetworkPlayerCount
-    );
+    if (!browserHost) {
+      // node-datachannel is a native addon; only require it outside the
+      // WebContainer sandbox, which cannot load native modules.
+      const { WebRtcGameConnector } = require("./webrtc/WebRtcGameConnector") as typeof import("./webrtc/WebRtcGameConnector");
+      WebRtcGameConnector.startFromEnv(
+        (channel) => new ClientConnection(channel),
+        World.getNetworkPlayerCount
+      );
+    }
     return server;
   }
 }
