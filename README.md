@@ -43,6 +43,10 @@ yarn start
 safe to run again after pulling changes. `yarn start` launches both processes;
 the client is normally available at <http://localhost:3000>.
 
+Game-server output is teed to a timestamped, git-ignored file under `logs/`
+(e.g. `logs/server-2026-09-09-17-57-42.log`) as well as the console, so past
+boots and crashes stay inspectable.
+
 The first start downloads the OSRS cache from the OpenRS2 Archive. The selected
 cache is recorded in [`server/target.txt`](server/target.txt).
 
