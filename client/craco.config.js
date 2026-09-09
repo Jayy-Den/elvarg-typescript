@@ -12,6 +12,7 @@ if (process.env.NODE_ENV === "development" && !process.env.PUBLIC_URL) {
 
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 const JsonMinimizerPlugin = require("json-minimizer-webpack-plugin");
 const evalSourceMapMiddleware = require("react-dev-utils/evalSourceMapMiddleware");
@@ -32,11 +33,19 @@ paths.appTsConfig = path.resolve(appRoot, "tsconfig.json");
 paths.appBuild = path.resolve(appRoot, "build");
 
 // WebRTC clients cannot fetch custom interfaces from the signalling relay.
-const { buildPresetsInterfaceDefinition } = require("../server/plugins/interface/presetsWidget");
-const presetsInterface = buildPresetsInterfaceDefinition();
+// Export the same definitions that the server plugins register, rather than maintaining
+// a second list in the browser build.
 const interfaceOutput = path.join(paths.appPublic, "browser-host/interfaces");
 fs.mkdirSync(interfaceOutput, { recursive: true });
-fs.writeFileSync(path.join(interfaceOutput, `${presetsInterface.groupId}.json`), JSON.stringify(presetsInterface));
+const browserHostInterfaces = JSON.parse(
+    execFileSync(path.join(appRoot, "node_modules/.bin/tsx"), ["scripts/browser-host-interface-definitions.ts"], {
+        cwd: path.resolve(appRoot, "../server"),
+        encoding: "utf8",
+    }),
+);
+for (const definition of browserHostInterfaces) {
+    fs.writeFileSync(path.join(interfaceOutput, `${definition.groupId}.json`), JSON.stringify(definition));
+}
 
 module.exports = {
     paths: (existingPaths) => {
