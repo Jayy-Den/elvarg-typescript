@@ -237,9 +237,12 @@ export class MusicSystem {
      * Resolve a song name (as shown in the music tab) to a playable track id.
      *
      * The jukebox titles come from DB table 44 (music-track metadata): column 0
-     * holds the display title exactly as the music tab renders it and column 3
-     * holds the playable music-track id. The track archives themselves are not
-     * named by title, so this table is the only reliable title -> track mapping.
+     * holds the display title exactly as the music tab renders it and column 4
+     * (MIDI-typed) holds the music-track archive id in index 6 - the same id
+     * space the archive-name DJB2 lookup returns. Column 3 holds the song-list
+     * id (unlock-varp space), which is NOT the archive id and plays the wrong
+     * track. The track archives themselves are not named by title for every
+     * entry, so this table is the reliable title -> track mapping.
      * Falls back to direct/hash archive-name lookups for tracks without a DB row.
      * Returns -1 when no track with that name exists in the cache.
      */
@@ -254,7 +257,7 @@ export class MusicSystem {
             for (const row of rows) {
                 const title = row.getColumn(0)?.values?.[0];
                 if (typeof title === "string" && title.replace(/\s+/g, " ").trim().toLowerCase() === target) {
-                    const trackId = row.getColumn(3)?.values?.[0];
+                    const trackId = row.getColumn(4)?.values?.[0];
                     if (typeof trackId === "number" && trackId >= 0) {
                         return trackId;
                     }

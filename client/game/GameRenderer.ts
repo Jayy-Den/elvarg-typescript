@@ -319,10 +319,11 @@ export abstract class GameRenderer<T extends MapSquare = MapSquare> extends Rend
         const deltaCamY = inputManager.getDeltaCameraY();
         if (deltaCamX !== 0 || deltaCamY !== 0) {
             camera.updatePitch(camera.pitch, deltaCamY * -0.9);
-            // OSRS parity: dragging right rotates the camera clockwise (view pans
-            // right). The drag delta is previous-minus-current, so a rightward
-            // drag is negative - a positive multiplier yields the OSRS direction.
-            camera.updateYaw(camera.yaw, deltaCamX * 0.9);
+            // User preference (vanilla drag, deliberately inverted): dragging right
+            // swings the view left so the scene appears to rotate clockwise. The
+            // drag delta is previous-minus-current (a right drag is negative), so
+            // the negative multiplier yields the inverted direction.
+            camera.updateYaw(camera.yaw, deltaCamX * -0.9);
         }
 
         // Middle-mouse held + scroll: rotate camera (RuneLite parity).

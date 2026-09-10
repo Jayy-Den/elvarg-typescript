@@ -2,9 +2,7 @@ import type { WidgetActionRouterDeps } from "../WidgetActionRouter";
 import { MUSIC_GROUP_ID, MUSIC_JUKEBOX_CHILD_ID } from "../../../common/ui/music";
 
 // OSRS music-tab row colors.
-const COLOR_CURRENT = 0x00ff00; // green: currently playing
-const COLOR_UNLOCKED = 0xffffff; // white: playable
-const COLOR_LOCKED = 0xff0000; // red: the cache's default for every row
+const COLOR_UNLOCKED = 0x00ff00; // green: every song is treated as unlocked
 
 /**
  * Music tab (cache interface 239) jukebox list.
@@ -95,43 +93,23 @@ export function refreshMusicTabUnlockState(): void {
                   getWidgetByUid?(uid: number): { text?: string; textColor?: number; color?: number } | undefined;
                   invalidateWidgetRender?(w: unknown): void;
               };
-              musicSystem?: { getOsrsMusicDebugState?(): { songs: { trackId: number }[] } };
-              cs2Vm?: { context?: { dbRepository?: { getRows(tableId: number): { getColumn(col: number): { values?: unknown[] } | undefined }[] | undefined } } };
           }
         | undefined;
     const widgetManager = client?.widgetManager;
-    const repo = client?.cs2Vm?.context?.dbRepository;
-    if (!widgetManager?.getWidgetByUid || !repo) return;
+    if (!widgetManager?.getWidgetByUid) return;
 
     const root = widgetManager.getWidgetByUid((MUSIC_GROUP_ID << 16) >>> 0);
     if (!root) return; // music tab never opened this session
 
-    const titleToTrack = new Map<string, number>();
-    for (const row of repo.getRows(44) ?? []) {
-        const title = row.getColumn(0)?.values?.[0];
-        const trackId = row.getColumn(3)?.values?.[0];
-        if (typeof title === "string" && typeof trackId === "number") {
-            titleToTrack.set(title.replace(/\s+/g, " ").trim().toLowerCase(), trackId);
-        }
-    }
-
-    const currentTrackId =
-        client?.musicSystem?.getOsrsMusicDebugState?.().songs[0]?.trackId ?? -1;
-
+    // The user prefers every song rendered as unlocked/green - the mixed
+    // white/red palette (from partial unlock state) looks broken.
     const jukeboxParentUid = ((MUSIC_GROUP_ID << 16) | MUSIC_JUKEBOX_CHILD_ID) | 0;
     for (let child = 0; child < 40000; child++) {
         const w = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | child) >>> 0);
         if (!w || (w as { parentUid?: number }).parentUid !== jukeboxParentUid) continue;
-        const title = (w.text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-        const trackId = titleToTrack.get(title);
-        const color = trackId === undefined
-            ? COLOR_LOCKED
-            : trackId === currentTrackId
-              ? COLOR_CURRENT
-              : COLOR_UNLOCKED;
-        if (w.textColor !== color) {
-            w.textColor = color;
-            (w as { color?: number }).color = color;
+        if (w.textColor !== COLOR_UNLOCKED) {
+            w.textColor = COLOR_UNLOCKED;
+            (w as { color?: number }).color = COLOR_UNLOCKED;
             widgetManager.invalidateWidgetRender?.(w);
         }
     }
