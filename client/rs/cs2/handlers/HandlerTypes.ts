@@ -169,7 +169,7 @@ export interface Cs2VmLike {
     inputDialogType: number;
     inputDialogWidgetId: number;
     inputDialogString: string;
-    onInputDialogComplete?: (type: "count" | "name" | "string", value: string | number) => void;
+    onInputDialogComplete?: (type: "count" | "name" | "string" | "obj", value: string | number) => void;
     activeWidget: any | null;
     dotWidget: any | null;
     /** Clear handler caches to prevent memory leaks when interfaces change */

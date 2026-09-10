@@ -1,3 +1,5 @@
+import type { NpcDefinition } from "../game/definition/NpcDefinition";
+import type { ObjectDefinition } from "../game/definition/ObjectDefinition";
 import type { WeaponCombatProfile } from "../game/content/combat/WeaponProfile";
 import type { PlayerPersistence } from "../game/entity/impl/player/persistence/PlayerPersistence";
 import type { ActiveRegionSnapshot } from "../game/ActiveRegionIndex";
@@ -83,6 +85,7 @@ export interface PluginPlayerPathBlockedEvent extends PluginPathBlockedEvent {
 export interface PluginObjectInteractionEvent {
   player: any;
   object: any;
+  definition?: ObjectDefinition;
   objectId: number;
   clickType: number;
   location: { x: number; y: number; z: number };
@@ -93,6 +96,7 @@ export interface PluginObjectInteractionEvent {
 export interface PluginObjectRouteEvent {
   player: any;
   object: any;
+  definition?: ObjectDefinition;
   objectId: number;
   clickType: number;
   sourceLocation: { x: number; y: number; z: number };
@@ -102,6 +106,7 @@ export interface PluginObjectRouteEvent {
 export interface PluginNpcInteractionEvent {
   player: any;
   npc: any;
+  definition?: NpcDefinition;
   npcId: number;
   npcIndex: number;
   clickType: number;
@@ -511,7 +516,17 @@ export interface PluginApi {
   onPlayerPathBlocked(handler: (event: PluginPlayerPathBlockedEvent) => void): void;
   onObjectRoute(handler: (event: PluginObjectRouteEvent) => void): void;
   onObjectInteraction(handler: (event: PluginObjectInteractionEvent) => void): void;
+  /** Exact, case-sensitive object name and option matching. Return false to fall through. */
+  onObjectInteraction(
+    objectName: string,
+    actions: Record<string, (event: PluginObjectInteractionEvent) => void | boolean>
+  ): void;
   onNpcInteraction(handler: (event: PluginNpcInteractionEvent) => void): void;
+  /** Exact, case-sensitive NPC name and option matching. Return false to fall through. */
+  onNpcInteraction(
+    npcName: string,
+    actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+  ): void;
   registerNpcInteraction(
     npcIds: number | number[],
     definition: PluginNpcInteractionDefinition

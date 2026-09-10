@@ -1,57 +1,7 @@
 const { Bank } = require("../../src/main/typescript/elvarg/game/model/container/impl/Bank");
 const { PlayerStatus } = require("../../src/main/typescript/elvarg/game/model/PlayerStatus");
-const { ObjectIds } = require("../../src/main/typescript/elvarg/util/IdEnums");
 const { NpcIdentifiers } = require("../../src/main/typescript/elvarg/util/NpcIdentifiers");
 
-const BANK_BOOTH_IDS = Object.freeze([
-  ObjectIds.BANK_BOOTH,
-  ObjectIds.BANK_BOOTH_2,
-  ObjectIds.BANK_BOOTH_3,
-  ObjectIds.BANK_BOOTH_4,
-  ObjectIds.BANK_BOOTH_5,
-  ObjectIds.BANK_BOOTH_6,
-  ObjectIds.BANK_BOOTH_7,
-  ObjectIds.BANK_BOOTH_8,
-  ObjectIds.BANK_BOOTH_9,
-  ObjectIds.BANK_BOOTH_10,
-  ObjectIds.BANK_BOOTH_11,
-  ObjectIds.BANK_BOOTH_12,
-  ObjectIds.BANK_BOOTH_13,
-  ObjectIds.BANK_BOOTH_14,
-  ObjectIds.BANK_BOOTH_15,
-  ObjectIds.BANK_BOOTH_16,
-  ObjectIds.BANK_BOOTH_17,
-  ObjectIds.BANK_BOOTH_18,
-  ObjectIds.BANK_BOOTH_19,
-  ObjectIds.BANK_BOOTH_20,
-  ObjectIds.BANK_BOOTH_21,
-  ObjectIds.BANK_BOOTH_22,
-  ObjectIds.BANK_BOOTH_23,
-  ObjectIds.BANK_BOOTH_24,
-  ObjectIds.BANK_BOOTH_25,
-  ObjectIds.BANK_BOOTH_26,
-  ObjectIds.BANK_BOOTH_27,
-  ObjectIds.BANK_BOOTH_28,
-  ObjectIds.BANK_BOOTH_29,
-  ObjectIds.BANK_BOOTH_30,
-  ObjectIds.BANK_BOOTH_31,
-  ObjectIds.BANK_BOOTH_32,
-  ObjectIds.BANK_BOOTH_33,
-  ObjectIds.BANK_BOOTH_34,
-  ObjectIds.BANK_BOOTH_35,
-  ObjectIds.BANK_BOOTH_36,
-  ObjectIds.BANK_BOOTH_37,
-  ObjectIds.BANK_BOOTH_38,
-  ObjectIds.BANK_BOOTH_39,
-  ObjectIds.BANK_BOOTH_40,
-  ObjectIds.BANK_BOOTH_41,
-  ObjectIds.BANK_BOOTH_42,
-  ObjectIds.BANK_BOOTH_43,
-  ObjectIds.BANK_BOOTH_44,
-  ObjectIds.BANK_BOOTH_45,
-].filter(Number.isInteger));
-
-const BANK_BOOTH_ID_SET = new Set(BANK_BOOTH_IDS);
 const BANKER_NPC_IDS = Object.freeze([
   NpcIdentifiers.BANKER,
   NpcIdentifiers.BANKER_2,
@@ -217,16 +167,9 @@ module.exports = {
   handleBankButton,
   handleBankInterfaceAction,
   register(api) {
-    const onBankBoothClick = (event) => {
-      if (!BANK_BOOTH_ID_SET.has(event.objectId)) {
-        return;
-      }
-      if (openBank(event.player)) {
-        event.handled = true;
-      }
-    };
-    api.onObjectFirstClick(BANK_BOOTH_IDS, onBankBoothClick);
-    api.onObjectSecondClick(BANK_BOOTH_IDS, onBankBoothClick);
+    api.onObjectInteraction("Bank booth", {
+      "Bank": ({ player }) => openBank(player),
+    });
 
     function openBankFromNpc(event) {
       if (openBank(event.player)) {

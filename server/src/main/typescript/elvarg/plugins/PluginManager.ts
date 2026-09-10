@@ -594,6 +594,10 @@ export class PluginManager {
       return false;
     }
 
+    if (!("definition" in event)) {
+      event.definition = event.object.getDefinition();
+    }
+
     for (const hook of PluginManager.objectInteractionHooks) {
       if (event.handled) {
         break;
@@ -1934,17 +1938,29 @@ export class PluginManager {
           },
         });
       },
-      onObjectInteraction: (handler) => {
-        if (typeof handler !== "function") {
+      onObjectInteraction: (
+        handler: string | ((event: PluginObjectInteractionEvent) => void),
+        actions?: Record<string, (event: PluginObjectInteractionEvent) => void | boolean>
+      ) => {
+        if (typeof handler !== "function" && (typeof handler !== "string" || !actions)) {
           return;
         }
+        const namedActions = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
         PluginManager.objectInteractionHooks.push({
           pluginName,
           handler: (event) => {
             if (!event || event.handled || !event.player || !event.object) {
               return;
             }
-            handler(event);
+            if (typeof handler === "function") {
+              handler(event);
+              return;
+            }
+            if (!Number.isInteger(event.clickType) || event.clickType < 1 || event.clickType > 5) return;
+            const definition = event.definition;
+            if (definition?.getName() !== handler) return;
+            const action = namedActions.get(definition.getInteractions()?.[event.clickType - 1]);
+            if (action && action(event) !== false) event.handled = true;
           },
         });
       },
@@ -1954,17 +1970,29 @@ export class PluginManager {
         }
         PluginManager.objectRouteHooks.push({ pluginName, handler });
       },
-      onNpcInteraction: (handler) => {
-        if (typeof handler !== "function") {
+      onNpcInteraction: (
+        handler: string | ((event: PluginNpcInteractionEvent) => void),
+        actions?: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+      ) => {
+        if (typeof handler !== "function" && (typeof handler !== "string" || !actions)) {
           return;
         }
+        const namedActions = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
         PluginManager.npcInteractionHooks.push({
           pluginName,
           handler: (event) => {
             if (!event || event.handled || !event.player || !event.npc) {
               return;
             }
-            handler(event);
+            if (typeof handler === "function") {
+              handler(event);
+              return;
+            }
+            if (!Number.isInteger(event.clickType) || event.clickType < 1 || event.clickType > 5) return;
+            const definition = event.definition;
+            if (definition?.getName() !== handler) return;
+            const action = namedActions.get(definition.getActions()?.[event.clickType - 1]);
+            if (action && action(event) !== false) event.handled = true;
           },
         });
       },

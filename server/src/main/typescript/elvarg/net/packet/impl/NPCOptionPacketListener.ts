@@ -21,9 +21,10 @@ export class NPCOptionPacketListener {
     if (!npc) { trace("DROPPED: npc slot empty"); return; }
     if (!player.getLocation().isWithinDistance(npc.getLocation(), 24)) { trace("DROPPED: >24 tiles", npc); return; }
 
-    const option = npc.getCurrentDefinition?.()?.getActions?.()?.[clickType - 1]?.toLowerCase();
+    const definition = npc.getCurrentDefinition();
+    const option = definition?.getActions()?.[clickType - 1]?.toLowerCase();
     if (option === "attack") {
-      if (!npc.getCurrentDefinition?.()?.isAttackable?.() || npc.getHitpoints?.() <= 0) {
+      if (!definition?.isAttackable() || npc.getHitpoints?.() <= 0) {
         trace("DROPPED: not attackable / hp<=0", npc);
         return;
       }
@@ -58,6 +59,7 @@ export class NPCOptionPacketListener {
       const handled = PluginManager.emitNpcInteraction({
         player,
         npc,
+        definition,
         npcId: npc.getId(),
         npcIndex: index,
         clickType,

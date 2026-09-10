@@ -2074,7 +2074,7 @@ export class OsrsClient {
                         console.warn("[InputDialog] Deferred widget action failed", err);
                     }
                 }
-            } else if (type === "name") {
+            } else if (type === "name" || type === "obj") {
                 const text = String(value ?? "");
                 sendResumeNameDialog(text);
                 console.log(`[InputDialog] Name dialog submitted: "${text}"`);
