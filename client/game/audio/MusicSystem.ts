@@ -7,6 +7,7 @@ import { IndexType } from "../../rs/cache/IndexType";
 import { StringUtil } from "../../rs/util/StringUtil";
 import { retryOnMissingGroup } from "../../rs/cache/js5/retryOnMissingGroup";
 import { copyArrayBufferLike, copyArrayBufferView } from "../../common/utils/ArrayBufferUtil";
+import { DbRepository } from "../../rs/config/db/DbRepository";
 import { decodeOggVorbisToAudioBuffer, isOggVorbis } from "./VorbisWasm";
 import {
     addAudioContextResumeListeners,
@@ -75,6 +76,8 @@ export class MusicSystem {
     private isPlaying: boolean = false;
     private realtimeSynth: RealtimeMidiSynth;
     private loadSequence: number = 0; // Guard against concurrent track loads
+    // Lazily-created DB reader for the music-track metadata table (see findTrackIdByName).
+    private dbRepository?: DbRepository;
 
     // Secondary track for dual playback (layered music)
     private secondarySynth: RealtimeMidiSynth;
@@ -232,14 +235,35 @@ export class MusicSystem {
 
     /**
      * Resolve a song name (as shown in the music tab) to a playable track id.
-     * Tolerates OSRS list formatting (trailing spaces, case) and uses the
-     * client's own old-school name hash (StringUtil.hashOld, uppercase,
-     * base-61 with -32 bias).
+     *
+     * The jukebox titles come from DB table 44 (music-track metadata): column 0
+     * holds the display title exactly as the music tab renders it and column 3
+     * holds the playable music-track id. The track archives themselves are not
+     * named by title, so this table is the only reliable title -> track mapping.
+     * Falls back to direct/hash archive-name lookups for tracks without a DB row.
      * Returns -1 when no track with that name exists in the cache.
      */
     public findTrackIdByName(name: string): number {
         const normalized = name.replace(/\s+/g, " ").trim();
         if (!normalized) return -1;
+
+        try {
+            this.dbRepository ??= new DbRepository(this.cache);
+            const rows = this.dbRepository.getRows(44) ?? [];
+            const target = normalized.toLowerCase();
+            for (const row of rows) {
+                const title = row.getColumn(0)?.values?.[0];
+                if (typeof title === "string" && title.replace(/\s+/g, " ").trim().toLowerCase() === target) {
+                    const trackId = row.getColumn(3)?.values?.[0];
+                    if (typeof trackId === "number" && trackId >= 0) {
+                        return trackId;
+                    }
+                }
+            }
+        } catch (e) {
+            // DB unavailable; fall through to archive-name lookups.
+        }
+
         const direct = this.findTrackByName(normalized);
         if (direct >= 0) return direct;
         // Fall back to scanning archive name hashes with the same normalization.

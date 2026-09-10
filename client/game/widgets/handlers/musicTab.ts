@@ -11,9 +11,10 @@ import { MUSIC_GROUP_ID, MUSIC_JUKEBOX_CHILD_ID } from "../../../common/ui/music
  * a new region (server `Music.forRegion`).
  *
  * This controller closes that loop client-side: the row's display text is the
- * track name, so resolve it through the music-tracks index (name hash lookup)
- * and play it locally with a short fade. The "now playing" line is updated
- * through the same text widget the region system uses.
+ * track title, so resolve it through the DB music-metadata table (see
+ * `MusicSystem.findTrackIdByName`) and play it locally with a short fade.
+ * The "now playing" line is updated through the same text widget the region
+ * system uses.
  */
 export function handleMusicTabAction(
     deps: WidgetActionRouterDeps,
@@ -24,7 +25,7 @@ export function handleMusicTabAction(
 ): boolean {
     if ((groupId | 0) !== MUSIC_GROUP_ID) return false;
 
-    const client = (typeof window !== "undefined" ? (window as any).__osrsClient : undefined) as
+    const client = getOsrsClient() as
         | { musicSystem?: { findTrackIdByName(name: string): number; playSong(...args: unknown[]): void } }
         | undefined;
     if (!client?.musicSystem) return false;
@@ -42,6 +43,16 @@ export function handleMusicTabAction(
     client.musicSystem.playSong(trackId, 0, 150, 0, 250);
     updateNowPlaying(deps, songName);
     return true;
+}
+
+/**
+ * The in-page client handle. `window.osrsClient` is the canonical global;
+ * `__osrsClient` is kept as a legacy alias.
+ */
+function getOsrsClient(): unknown {
+    if (typeof window === "undefined") return undefined;
+    const w = window as unknown as Record<string, unknown>;
+    return (w.osrsClient ?? w.__osrsClient) as unknown;
 }
 
 /**
