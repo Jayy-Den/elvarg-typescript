@@ -83,3 +83,4 @@ docs/node_modules/
 # Discord handoff notes (local only — not for the repo)
 .dev-notes/
 *.discord.md
+/client-supervisor.log
