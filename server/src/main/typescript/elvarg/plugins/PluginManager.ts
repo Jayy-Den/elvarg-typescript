@@ -632,6 +632,8 @@ export class PluginManager {
       return false;
     }
 
+    event.definition ??= event.npc.getCurrentDefinition?.(event.player);
+
     for (const hook of PluginManager.npcInteractionHooks) {
       if (event.handled) {
         break;
@@ -1746,6 +1748,20 @@ export class PluginManager {
       });
     };
 
+    const registerNpcActions = (
+      name: string | null,
+      actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+    ): void => {
+      const handlers = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
+      PluginManager.npcInteractionHooks.push({ pluginName, handler: (event) => {
+        if (event.handled || !Number.isInteger(event.clickType) || event.clickType < 1 || event.clickType > 5) return;
+        const definition = event.definition;
+        if (!definition || (name !== null && definition.getName() !== name)) return;
+        const action = handlers.get(definition.getActions()?.[event.clickType - 1]);
+        if (action && action(event) !== false) event.handled = true;
+      } });
+    };
+
     return {
       onPlayerLogin: (handler) => {
         if (typeof handler !== "function") {
@@ -1974,28 +1990,13 @@ export class PluginManager {
         handler: string | ((event: PluginNpcInteractionEvent) => void),
         actions?: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
       ) => {
-        if (typeof handler !== "function" && (typeof handler !== "string" || !actions)) {
-          return;
+        if (typeof handler === "function") {
+          PluginManager.npcInteractionHooks.push({ pluginName, handler });
+        } else if (typeof handler === "string" && actions) {
+          registerNpcActions(handler, actions);
         }
-        const namedActions = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
-        PluginManager.npcInteractionHooks.push({
-          pluginName,
-          handler: (event) => {
-            if (!event || event.handled || !event.player || !event.npc) {
-              return;
-            }
-            if (typeof handler === "function") {
-              handler(event);
-              return;
-            }
-            if (!Number.isInteger(event.clickType) || event.clickType < 1 || event.clickType > 5) return;
-            const definition = event.definition;
-            if (definition?.getName() !== handler) return;
-            const action = namedActions.get(definition.getActions()?.[event.clickType - 1]);
-            if (action && action(event) !== false) event.handled = true;
-          },
-        });
       },
+      onAnyNpcInteraction: (actions) => registerNpcActions(null, actions),
       registerNpcInteraction: registerNpcInteractionDefinition,
       onNpcDeath: (handler) => {
         if (typeof handler !== "function") {

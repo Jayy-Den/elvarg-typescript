@@ -1,3 +1,5 @@
+import { ArchiveVarBitTypeLoader } from "./codec/rs/config/vartype/bit/VarBitTypeLoader";
+import type { VarManager } from "./codec/rs/config/vartype/VarManager";
 import { CacheIndexDat2 } from "./codec/rs/cache/CacheIndex";
 import type { CacheInfo } from "./codec/rs/cache/CacheInfo";
 import { ConfigType } from "./codec/rs/cache/ConfigType";
@@ -19,6 +21,7 @@ export class CacheDefinitions {
     private static spellNamesByWidget?: Map<number, string>;
     private static state?: {
         npcs: ArchiveNpcTypeLoader;
+        varbits: ArchiveVarBitTypeLoader;
         items: PostProcessedObjTypeLoader;
         objects: ArchiveLocTypeLoader;
     };
@@ -38,6 +41,7 @@ export class CacheDefinitions {
         const store = CachePipeline.getStore();
         const configs = CacheIndexDat2.fromStore(IndexType.DAT2.configs, store);
         this.state = {
+            varbits: new ArchiveVarBitTypeLoader(info, configs.getArchive(ConfigType.DAT2.varbits)),
             npcs: new ArchiveNpcTypeLoader(info, configs.getArchive(ConfigType.DAT2.npcs)),
             items: new PostProcessedObjTypeLoader(
                 new ArchiveObjTypeLoader(info, configs.getArchive(ConfigType.DAT2.objs)),
@@ -52,6 +56,21 @@ export class CacheDefinitions {
 
     static getNpc(id: number): NpcType {
         return this.getState().npcs.load(id);
+    }
+
+    static getVarbit(id: number) {
+        return this.getState().varbits.load(id);
+    }
+
+    static resolveNpc(id: number, vars: Pick<VarManager, "getVarp" | "getVarbit">): NpcType | undefined {
+        let npc = this.getNpc(id);
+        const seen = new Set<number>();
+        while (npc?.transforms) {
+            if (seen.has(npc.id)) return undefined;
+            seen.add(npc.id);
+            npc = npc.transform(vars, this.getState().npcs);
+        }
+        return npc;
     }
 
     static getItem(id: number): ObjType {

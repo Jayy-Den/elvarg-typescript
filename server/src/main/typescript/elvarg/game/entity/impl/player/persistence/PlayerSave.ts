@@ -103,8 +103,6 @@ export class PlayerSave {
     private friendsChatKickRank: number;
     private banks: Map<number, Item[]>;
     private presets: Presetable[];
-    private questPoints: number;
-    private questProgress: Map<number, number>;
     private flags: string[];
 
     public getPasswordHashWithSalt(): string {
@@ -504,22 +502,6 @@ export class PlayerSave {
         this.cachedDiscordAccessToken = cachedDiscordAccessToken;
     }
 
-    getQuestPoints(): number {
-        return this.questPoints;
-    }
-
-    setQuestPoints(questPoints: number) {
-        this.questPoints = questPoints;
-    }
-
-    getQuestProgress(): Map<number, number> {
-        return this.questProgress;
-    }
-
-    setQuestProgress(questProgress: Map<number, number>) {
-        this.questProgress = questProgress;
-    }
-
     getFlags(): string[] {
         return this.flags;
     }
@@ -710,8 +692,6 @@ export class PlayerSave {
         this.appearance = sanitizedAppearance;
         player.getSkillManager().setSkills(this.skills);
         player.getQuickPrayers().setPrayers(this.quickPrayers);
-        player.setQuestPoints(this.questPoints);
-        player.setQuestProgress(this.questProgress);
         player.setFlags(PlayerSave.normalizeFlags(this.flags));
 
         if (this.presets != null) {
@@ -825,8 +805,6 @@ export class PlayerSave {
         clonedSkills.experience = [...(liveSkills?.experience ?? clonedSkills.experience)];
         playerSave.skills = clonedSkills;
         playerSave.quickPrayers = [...(player.getQuickPrayers().getPrayers() ?? [])];
-        playerSave.questPoints = player.getQuestPoints();
-        playerSave.questProgress = new Map(player.getQuestProgress()?.entries?.() ?? []);
         playerSave.flags = PlayerSave.normalizeFlags(player.getFlags());
 
         playerSave.friends = PlayerSave.normalizeRelationListToStrings(

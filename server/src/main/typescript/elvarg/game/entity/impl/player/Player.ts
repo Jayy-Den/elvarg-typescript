@@ -151,8 +151,6 @@ export class Player extends Mobile {
     private newPlayer: boolean;
     private packetsBlocked = false;
 
-    public questPoints: number;
-    public questProgress = new Map<number, number>();
     // Skilling
     private skill: any;
     private creationMenu: CreationMenu;
@@ -1604,25 +1602,6 @@ export class Player extends Mobile {
 
     public setCachedDiscordAccessToken(cachedDiscordAccessToken: string) {
         this.cachedDiscordAccessToken = cachedDiscordAccessToken;
-    }
-
-    public getQuestProgress(): Map<number, number> {
-        return this.questProgress;
-    }
-
-    public getQuestPoints(): number {
-        return this.questPoints;
-    }
-
-    public setQuestPoints(questPoints: number) {
-        this.questPoints = questPoints;
-    }
-
-    public setQuestProgress(questProgress: Map<number, number>) {
-        if (!questProgress) {
-            return;
-        }
-        this.questProgress = questProgress;
     }
 
     public climb(down: boolean, location: Location): void {

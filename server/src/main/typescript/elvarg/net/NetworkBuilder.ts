@@ -514,7 +514,9 @@ class ClientConnection {
                 slot: actionPacket.slot,
                 option: actionPacket.option,
               });
-              if (!handled && actionPacket.simple) {
+              // A prompt callback may start a new dialogue; do not send this same click to it.
+              if (handled) continue;
+              if (actionPacket.simple) {
                 PluginManager.emitButtonClick({
                   player: this.player,
                   buttonId: actionPacket.childId,

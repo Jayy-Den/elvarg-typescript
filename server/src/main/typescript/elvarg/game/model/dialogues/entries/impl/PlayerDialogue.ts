@@ -1,10 +1,14 @@
 import { Dialogue } from "../Dialogue";
 import { Player } from "../../../../entity/impl/player/Player";
 import { DialogueExpression } from "../../DialogueExpression";
-import { Misc } from "../../../../../util/Misc";
 
 export class PlayerDialogue extends Dialogue {
-    private static CHATBOX_INTERFACES = [971, 976, 982, 989];
+    // CHAT_RIGHT, confirmed against the active cache (scripts/dump-widget.ts 217).
+    private static readonly GROUP_ID = 217;
+    private static readonly HEAD_UID = (PlayerDialogue.GROUP_ID << 16) | 2;
+    private static readonly NAME_UID = (PlayerDialogue.GROUP_ID << 16) | 4;
+    private static readonly TEXT_UID = (PlayerDialogue.GROUP_ID << 16) | 6;
+    private static readonly CONTINUE_UID = (PlayerDialogue.GROUP_ID << 16) | 5;
     private text: string;
     private expression: DialogueExpression;
 
@@ -19,19 +23,11 @@ export class PlayerDialogue extends Dialogue {
     }
 
     static send(player: Player, text: string, expression: DialogueExpression) {
-        let lines = Misc.wrapText(text, 53);
-        let length = lines.length;
-        if (length > 5) {
-            length = 5;
-        }
-        let startDialogueChildId = PlayerDialogue.CHATBOX_INTERFACES[length - 1];
-        let headChildId = startDialogueChildId - 2;
-        player.getPacketSender().sendPlayerHeadOnInterface(headChildId);
-        player.getPacketSender().sendInterfaceAnimation(headChildId, expression.getExpression());
-        player.getPacketSender().sendString( player.getUsername(), startDialogueChildId - 1);
-        for (let i = 0; i < length; i++) {
-            player.getPacketSender().sendString(lines[i], startDialogueChildId + i);
-        }
-        player.getPacketSender().sendConfiguredInterface(startDialogueChildId - 3);
+        player.getPacketSender()
+            .sendChatboxInterface(PlayerDialogue.GROUP_ID)
+            .sendPlayerHeadOnInterface(PlayerDialogue.HEAD_UID)
+            .sendInterfaceAnimation(PlayerDialogue.HEAD_UID, expression.getExpression())
+            .sendString(player.getUsername(), PlayerDialogue.NAME_UID);
+        PlayerDialogue.sendChatText(player, text, PlayerDialogue.TEXT_UID, PlayerDialogue.CONTINUE_UID);
     }
 }

@@ -25,12 +25,4 @@ export class StatementDialogue extends Dialogue {
         player.getPacketSender().sendConfiguredInterface(chatboxInterface);
     }
 
-    public static sends(player: Player, lines: string[]): void {
-        const length = lines.length > 5 ? 5 : lines.length;
-        const chatboxInterface = StatementDialogue.CHATBOX_INTERFACES[length - 1];
-        for (let i = 0; i < length; i++) {
-            player.getPacketSender().sendString(lines[i], (chatboxInterface + 1) + i);
-        }
-        player.getPacketSender().sendConfiguredInterface(chatboxInterface);
-    }
 }

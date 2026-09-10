@@ -21,8 +21,9 @@ export class NPCOptionPacketListener {
     if (!npc) { trace("DROPPED: npc slot empty"); return; }
     if (!player.getLocation().isWithinDistance(npc.getLocation(), 24)) { trace("DROPPED: >24 tiles", npc); return; }
 
-    const definition = npc.getCurrentDefinition();
+    const definition = npc.getCurrentDefinition(player);
     const option = definition?.getActions()?.[clickType - 1]?.toLowerCase();
+    if (!option) return;
     if (option === "attack") {
       if (!definition?.isAttackable() || npc.getHitpoints?.() <= 0) {
         trace("DROPPED: not attackable / hp<=0", npc);
@@ -39,6 +40,10 @@ export class NPCOptionPacketListener {
       player.setPositionToFace(npc.getLocation());
       npc.setMobileInteraction?.(player);
       npc.setPositionToFace?.(player.getLocation());
+
+      const definition = npc.getCurrentDefinition(player);
+      const option = definition?.getActions()?.[clickType - 1]?.toLowerCase();
+      if (!option || option === "attack") return;
 
       if (
         NpcInteractionManager.handle(
@@ -85,7 +90,7 @@ export class NPCOptionPacketListener {
     const npc = World.getNpcs().get(index);
     const spell = CombatSpells.getCombatSpell(spellId);
     if (!npc || !spell || !player.getLocation().isWithinDistance(npc.getLocation(), 24) ||
-        !npc.getCurrentDefinition?.()?.isAttackable?.() || npc.getHitpoints?.() <= 0) {
+        !npc.getCurrentDefinition?.(player)?.isAttackable?.() || npc.getHitpoints?.() <= 0) {
       player.getMovementQueue().reset();
       return false;
     }

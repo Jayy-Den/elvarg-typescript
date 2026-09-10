@@ -1,3 +1,4 @@
+import { CacheDefinitions } from "../../../cache/CacheDefinitions";
 import { Mobile } from "../Mobile";
 import { Sound } from "../../../Sound";
 import { World } from "../../../World";
@@ -420,12 +421,11 @@ export class NPC extends Mobile {
      *
      * @return
      */
-    public getCurrentDefinition(): NpcDefinition {
-        if (this.getNpcTransformationId() !== -1) {
-            return NpcDefinition.forId(this.getNpcTransformationId());
-        }
-
-        return this.getDefinition();
+    public getCurrentDefinition(player?: Player): NpcDefinition {
+        const id = this.getNpcTransformationId() !== -1 ? this.getNpcTransformationId() : this.id;
+        if (!player) return NpcDefinition.forId(id);
+        const resolved = CacheDefinitions.resolveNpc(id, player.getPacketSender());
+        return resolved ? NpcDefinition.forId(resolved.id) : undefined;
     }
 
     /**

@@ -348,7 +348,6 @@ class JsonPlayerPersistence extends PlayerPersistence {
         friends: [],
         ignores: [],
         presets: [],
-        questPoints: 0,
         flags: [],
       },
       parsed
@@ -369,7 +368,6 @@ class JsonPlayerPersistence extends PlayerPersistence {
     save.recentKills = this.hydrateStringArray(parsed.recentKills);
     save.flags = this.hydrateFlags(parsed.flags);
     save.banks = this.hydrateBanks(parsed.banks);
-    save.questProgress = this.hydrateQuestProgress(parsed.questProgress);
     return save;
   }
 
@@ -522,18 +520,6 @@ class JsonPlayerPersistence extends PlayerPersistence {
       banks.set(index, this.hydrateItems(value));
     }
     return banks;
-  }
-
-  hydrateQuestProgress(raw) {
-    const questProgress = new Map();
-    for (const [key, value] of this.entriesFrom(raw)) {
-      const questId = this.toNumber(key, -1);
-      if (questId < 0) {
-        continue;
-      }
-      questProgress.set(questId, this.toNumber(value, 0));
-    }
-    return questProgress;
   }
 
   entriesFrom(raw) {

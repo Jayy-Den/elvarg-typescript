@@ -527,6 +527,10 @@ export interface PluginApi {
     npcName: string,
     actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
   ): void;
+  /** Exact, case-sensitive option matching for any NPC name. Return false to fall through. */
+  onAnyNpcInteraction(
+    actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+  ): void;
   registerNpcInteraction(
     npcIds: number | number[],
     definition: PluginNpcInteractionDefinition
