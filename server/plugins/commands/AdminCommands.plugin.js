@@ -819,10 +819,7 @@ module.exports = {
     registerSpellbookCommand("ancients", MagicSpellbook.ANCIENT);
     registerSpellbookCommand("arceuus", MagicSpellbook.ARCEUUS);
 
-    api.registerCommand("master", ({ player }) => {
-      if (!requireRights(player, ownerOrDev)) {
-        return true;
-      }
+    function maxAllSkills(player) {
       for (const skill of Skill.values()) {
         const level = SkillManager.getMaxAchievingLevel(skill);
         player
@@ -833,6 +830,84 @@ module.exports = {
       }
       WeaponInterfaces.assign(player);
       player.getUpdateFlag().flag(Flag.APPEARANCE);
+    }
+
+    api.registerCommand("master", ({ player }) => {
+      if (!requireRights(player, ownerOrDev)) {
+        return true;
+      }
+      maxAllSkills(player);
+      return true;
+    });
+
+    // Alias for ::master - "::max" is what most people try first.
+    api.registerCommand("max", ({ player }) => {
+      if (!requireRights(player, ownerOrDev)) {
+        return true;
+      }
+      maxAllSkills(player);
+      player.getPacketSender().sendMessage("All skills maxed (::max is an alias for ::master).");
+      return true;
+    });
+
+    const KIT_LOADOUT = Object.freeze([
+      // Gear
+      [1323, 1], // iron scimitar
+      [884, 500], // iron arrows
+      [1151, 1], // iron kiteshield
+      [1067, 1], // iron platelegs
+      [1115, 1], // iron platebody
+      [1153, 1], // iron full helm
+      [1731, 1], // amulet of defence
+      // Food
+      [379, 20], // lobster
+      // Potions
+      [2434, 1], // prayer potion(4)
+      [2440, 1], // super attack(4)
+      [2442, 1], // super defence(4)
+      [2436, 1], // super strength(4)
+      // Teleports + tools
+      [8007, 5], // varrock teleport
+      [995, 100000], // coins
+    ]);
+
+    /**
+     * Give one loadout entry. Non-stackables are clamped to a single item
+     * (amount > 1 on armour would just be discarded), stackables keep the
+     * requested amount.
+     */
+    function giveKitItem(inventory, id, amount) {
+      const def = ItemDefinition.forId(id);
+      const count = def && def.isStackable() ? amount : Math.min(1, amount);
+      if (inventory.getFreeSlots() <= 0 && !inventory.contains(id)) {
+        return false;
+      }
+      inventory.adds(id, count);
+      return true;
+    }
+
+    api.registerCommand("kit", ({ player }) => {
+      if (!requireRights(player, ownerOrDev)) {
+        return true;
+      }
+      const inventory = player.getInventory();
+      let given = 0;
+      let missing = 0;
+      for (const [id, amount] of KIT_LOADOUT) {
+        if (giveKitItem(inventory, id, amount)) {
+          given++;
+        } else {
+          missing++;
+        }
+      }
+      player.getUpdateFlag().flag(Flag.APPEARANCE);
+      player
+        .getPacketSender()
+        .sendMessage(
+          missing === 0
+            ? `Starter kit granted (${given} item types).`
+            : `Starter kit granted (${given} types, ${missing} skipped - inventory full).`
+        );
       return true;
     });
 
