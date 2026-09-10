@@ -38,7 +38,7 @@ paths.appBuild = path.resolve(appRoot, "build");
 const interfaceOutput = path.join(paths.appPublic, "browser-host/interfaces");
 fs.mkdirSync(interfaceOutput, { recursive: true });
 const browserHostInterfaces = JSON.parse(
-    execFileSync(path.join(appRoot, "node_modules/.bin/tsx"), ["scripts/browser-host-interface-definitions.ts"], {
+    execFileSync(process.execPath, [path.join(appRoot, "node_modules/tsx/dist/cli.mjs"), "scripts/browser-host-interface-definitions.ts"], {
         cwd: path.resolve(appRoot, "../server"),
         encoding: "utf8",
     }),
