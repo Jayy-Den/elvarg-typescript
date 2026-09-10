@@ -273,11 +273,11 @@ function OsrsClientApp() {
                 if (!complete) {
                     cacheInvalidated = true;
                     await removeCacheManifestEntry(cacheInfo.name);
-                    if (!new URLSearchParams(window.location.search).has("edit")) {
-                        addStorageWarning(
-                            "Cached RuneScape data was cleared by the browser; assets will be re-downloaded.",
-                        );
-                    }
+                    // Diagnostic only - a banner here is obstructive during normal
+                    // play, so surface the eviction in the console instead.
+                    console.warn(
+                        "[storage] Cached RuneScape data was cleared by the browser; assets will be re-downloaded.",
+                    );
                 }
             }
 
