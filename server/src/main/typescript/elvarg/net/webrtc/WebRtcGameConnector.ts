@@ -18,6 +18,7 @@ type PeerState = {
 };
 
 const DEFAULT_SIGNAL_URL = "wss://worlds.rsps.app";
+const MAX_REGISTRATION_ATTEMPTS = 5;
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.rsps.app:3478" }];
 
 function parseIceServers(raw: string | undefined): RTCIceServer[] {
@@ -41,6 +42,7 @@ function signallingEndpoint(raw: string): string {
 export class WebRtcGameConnector {
   private socket?: WebSocket;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private registrationAttempts = 0;
   private readonly peers = new Map<string, PeerState>();
 
   public static startFromEnv(
@@ -85,7 +87,9 @@ export class WebRtcGameConnector {
   ) {}
 
   public connect(): void {
+    if (this.registrationAttempts >= MAX_REGISTRATION_ATTEMPTS) return;
     if (this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return;
+    this.registrationAttempts++;
     const socket = new WebSocket(this.signalUrl, { maxPayload: 64 * 1024 });
     this.socket = socket;
     socket.on("open", () => {
@@ -111,6 +115,10 @@ export class WebRtcGameConnector {
       for (const [sessionId, state] of this.peers) {
         if (!state.channel) this.closePeer(sessionId);
       }
+      if (this.registrationAttempts >= MAX_REGISTRATION_ATTEMPTS) {
+        console.warn(`[webrtc] stopping signalling retries after ${MAX_REGISTRATION_ATTEMPTS} unsuccessful registration attempts`);
+        return;
+      }
       this.reconnectTimer = setTimeout(() => this.connect(), 1000);
       this.reconnectTimer.unref?.();
     });
@@ -120,6 +128,7 @@ export class WebRtcGameConnector {
   private handle(message: any): void {
     if (!message || typeof message.type !== "string") return;
     if (message.type === "registered") {
+      this.registrationAttempts = 0;
       console.info(`[webrtc] registered world ${this.worldId} with signalling relay`);
       return;
     }
