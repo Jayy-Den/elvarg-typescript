@@ -401,6 +401,9 @@ module.exports = {
       "Exchange": openGrandExchange,
       "Collect": openCollectionBox,
     });
+    api.onObjectInteraction("Bank chest", {
+      "Collect": openCollectionBox,
+    });
 
     api.onInterfaceActionButton(COLLECTION_BUTTONS, handleCollectionButton);
     api.onItemFirstAction(handleInventoryItem);
