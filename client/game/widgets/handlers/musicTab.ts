@@ -3,6 +3,7 @@ import { MUSIC_GROUP_ID, MUSIC_JUKEBOX_CHILD_ID } from "../../../common/ui/music
 
 // OSRS music-tab row colors.
 const COLOR_UNLOCKED = 0x00ff00; // green: every song is treated as unlocked
+const MUSIC_UNLOCK_COUNTER_CHILD_ID = 5;
 
 /**
  * Music tab (cache interface 239) jukebox list.
@@ -102,16 +103,40 @@ export function refreshMusicTabUnlockState(): void {
     if (!root) return; // music tab never opened this session
 
     // The user prefers every song rendered as unlocked/green - the mixed
-    // white/red palette (from partial unlock state) looks broken.
+    // white/red palette (from partial unlock state) looks broken. The cache's
+    // own onMouseOver/onMouseLeave handlers repaint rows red/white on hover,
+    // so those handler colors are rewritten to green here as well.
     const jukeboxParentUid = ((MUSIC_GROUP_ID << 16) | MUSIC_JUKEBOX_CHILD_ID) | 0;
     for (let child = 0; child < 40000; child++) {
-        const w = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | child) >>> 0);
+        const w = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | child) >>> 0) as
+            | { textColor?: number; color?: number; onMouseOver?: number[]; onMouseLeave?: number[] }
+            | undefined;
         if (!w || (w as { parentUid?: number }).parentUid !== jukeboxParentUid) continue;
         if (w.textColor !== COLOR_UNLOCKED) {
             w.textColor = COLOR_UNLOCKED;
-            (w as { color?: number }).color = COLOR_UNLOCKED;
+            w.color = COLOR_UNLOCKED;
             widgetManager.invalidateWidgetRender?.(w);
         }
+        // Hover/leave handlers: [scriptId, intArgs...] where script 85 carries
+        // [unused, unused, color]. Rewrite the color operand so hovering keeps
+        // the unlocked-green look instead of the cache's locked-red repaint.
+        for (const key of ["onMouseOver", "onMouseLeave"] as const) {
+            const handler = w[key];
+            if (Array.isArray(handler) && handler.length >= 4 && handler[0] === 85) {
+                if (handler[3] !== COLOR_UNLOCKED) handler[3] = COLOR_UNLOCKED;
+            }
+        }
+    }
+
+    // The unlock counter ("Unlocked: 17 / 835") reads a varp the server never
+    // sends, so override the label while the tab is open.
+    const counter = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | MUSIC_UNLOCK_COUNTER_CHILD_ID) | 0) as
+        | { text?: string }
+        | undefined;
+    const counterText = "Unlocked: <col=00ff00>835 / 835</col>";
+    if (counter && counter.text !== counterText) {
+        counter.text = counterText;
+        widgetManager.invalidateWidgetRender?.(counter);
     }
 }
 
