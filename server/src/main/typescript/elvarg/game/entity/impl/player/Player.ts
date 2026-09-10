@@ -52,6 +52,7 @@ import { TimerKey } from "../../../../util/timers/TimerKey";
 import { Trading } from "../../../content/Trading";
 import { Dueling } from "../../../content/Duelling";
 import { QuickPrayers } from "../../../content/QuickPrayers";
+import { MusicUnlocks } from "../../../content/MusicUnlocks";
 import { MagicSpellbook } from "../../../model/MagicSpellbook";
 import { SkullType } from "../../../model/SkullType";
 import { EffectTimer } from "../../../model/EffectTimer";
@@ -643,6 +644,10 @@ export class Player extends Mobile {
         for (const [varpId, value] of Object.entries(this.audioSettings)) {
             this.getPacketSender().sendConfig(Number(varpId), value);
         }
+        // Song-unlock varps for the jukebox (this fork unlocks every song).
+        // Must go out during login like the audio settings above - the client
+        // reads them when building/recoloring the music tab.
+        MusicUnlocks.sendAllUnlocked(this);
     }
 
     closeInterruptibleInterfaces(): void {

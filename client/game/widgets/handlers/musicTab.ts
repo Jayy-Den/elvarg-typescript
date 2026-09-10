@@ -109,7 +109,13 @@ export function refreshMusicTabUnlockState(): void {
     const jukeboxParentUid = ((MUSIC_GROUP_ID << 16) | MUSIC_JUKEBOX_CHILD_ID) | 0;
     for (let child = 0; child < 40000; child++) {
         const w = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | child) >>> 0) as
-            | { textColor?: number; color?: number; onMouseOver?: number[]; onMouseLeave?: number[] }
+            | {
+                  textColor?: number;
+                  color?: number;
+                  onMouseOver?: number[];
+                  onMouseLeave?: number[];
+                  eventHandlers?: Record<string, { scriptId: number; intArgs?: number[] } | undefined>;
+              }
             | undefined;
         if (!w || (w as { parentUid?: number }).parentUid !== jukeboxParentUid) continue;
         if (w.textColor !== COLOR_UNLOCKED) {
@@ -117,26 +123,70 @@ export function refreshMusicTabUnlockState(): void {
             w.color = COLOR_UNLOCKED;
             widgetManager.invalidateWidgetRender?.(w);
         }
-        // Hover/leave handlers: [scriptId, intArgs...] where script 85 carries
-        // [unused, unused, color]. Rewrite the color operand so hovering keeps
-        // the unlocked-green look instead of the cache's locked-red repaint.
+        // Hover/leave recolor handlers (cache script 85, args [_, _, color]).
+        // invokeEventHandler prefers the structured eventHandlers entry over the
+        // flat [scriptId, ...args] cache listener, so BOTH must be rewritten or
+        // hovering repaints rows from the locked palette.
         for (const key of ["onMouseOver", "onMouseLeave"] as const) {
-            const handler = w[key];
-            if (Array.isArray(handler) && handler.length >= 4 && handler[0] === 85) {
-                if (handler[3] !== COLOR_UNLOCKED) handler[3] = COLOR_UNLOCKED;
+            const flat = w[key];
+            if (Array.isArray(flat) && flat.length >= 4 && flat[0] === 85 && flat[3] !== COLOR_UNLOCKED) {
+                flat[3] = COLOR_UNLOCKED;
+            }
+            const structured = w.eventHandlers?.[key];
+            if (structured?.scriptId === 85 && Array.isArray(structured.intArgs) && structured.intArgs.length >= 3) {
+                if (structured.intArgs[2] !== COLOR_UNLOCKED) structured.intArgs[2] = COLOR_UNLOCKED;
             }
         }
     }
 
-    // The unlock counter ("Unlocked: 17 / 835") reads a varp the server never
-    // sends, so override the label while the tab is open.
+    // The "Unlocked: X / Y" counter: the server now sends real unlock varps
+    // (song list id + 20) at login, so total the varps the client actually
+    // holds. Fall back to the old full-unlock label only when the client or
+    // the DB metadata is unavailable.
     const counter = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | MUSIC_UNLOCK_COUNTER_CHILD_ID) | 0) as
         | { text?: string }
         | undefined;
-    const counterText = "Unlocked: <col=00ff00>835 / 835</col>";
-    if (counter && counter.text !== counterText) {
-        counter.text = counterText;
-        widgetManager.invalidateWidgetRender?.(counter);
+    if (counter) {
+        const clientAny = client as { varManager?: { getVarp?(id: number): number | undefined } };
+        const songListIds = (getOsrsClient() as
+            | { musicSystem?: { getSongListIds?(): number[] } }
+            | undefined)?.musicSystem?.getSongListIds?.() ?? [];
+        if (songListIds.length > 0 && typeof clientAny.varManager?.getVarp === "function") {
+            // Must match MusicUnlocks.MUSIC_UNLOCK_FIRST_VARP on the server.
+            // Vanilla would be 20 (varp = songListId + 20), but that range
+            // collides with client-state varps the client's own init scripts
+            // rewrite after login - so this fork's block lives at 2000+.
+            const FIRST_SONG_VARP = 2000;
+            // The list builds one row per DB table-44 row (835 rows share 413
+            // distinct unlock ids through duplicate titles/versions), so the
+            // honest denominator is the built row count, not the distinct id
+            // count. A row counts unlocked when its unlock varp is set.
+            const listParentUid = ((MUSIC_GROUP_ID << 16) | MUSIC_JUKEBOX_CHILD_ID) | 0;
+            let listRows = 0;
+            let unlockedRows = 0;
+            const idMap = (getOsrsClient() as
+                | { musicSystem?: { getSongListIdMap?(): Map<string, number> } }
+                | undefined)?.musicSystem?.getSongListIdMap?.();
+            for (let child = 0; child < 40000; child++) {
+                const w = widgetManager.getWidgetByUid(((MUSIC_GROUP_ID << 16) | child) >>> 0) as
+                    | { parentUid?: number; text?: string }
+                    | undefined;
+                if (!w || (w.parentUid ?? -1) !== listParentUid) continue;
+                const title = (w.text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+                const songListId = idMap?.get(title);
+                if (songListId === undefined) continue;
+                listRows++;
+                if ((clientAny.varManager.getVarp(FIRST_SONG_VARP + songListId) ?? 0) === 1) unlockedRows++;
+            }
+            const counterText =
+                listRows > 0
+                    ? `Unlocked: <col=00ff00>${unlockedRows} / ${listRows}</col>`
+                    : `Unlocked: <col=00ff00>${songListIds.length} / ${songListIds.length}</col>`;
+            if (counter.text !== counterText) {
+                counter.text = counterText;
+                widgetManager.invalidateWidgetRender?.(counter);
+            }
+        }
     }
 }
 

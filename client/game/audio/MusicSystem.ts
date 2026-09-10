@@ -288,6 +288,77 @@ export class MusicSystem {
     }
 
     /**
+     * Distinct song-list ids in DB table 44. The unlock varp for a song is
+     * (songListId + 20); see getSongListIdMap for the per-title mapping.
+     * Empty when the DB is unavailable.
+     */
+    public getSongListIds(): number[] {
+        try {
+            this.dbRepository ??= new DbRepository(this.cache);
+            const rows = this.dbRepository.getRows(44) ?? [];
+            const ids = new Set<number>();
+            for (const row of rows) {
+                const id = row.getColumn(3)?.values?.[0];
+                if (typeof id === "number" && id >= 0) ids.add(id);
+            }
+            return [...ids];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    /** Memoized normalized-title -> songListId map from DB table 44. */
+    public getSongListIdMap(): Map<string, number> {
+        this.songListIdMap ??= (() => {
+            const map = new Map<string, number>();
+            try {
+                this.dbRepository ??= new DbRepository(this.cache);
+                const rows = this.dbRepository.getRows(44) ?? [];
+                for (const row of rows) {
+                    const title = row.getColumn(0)?.values?.[0];
+                    const id = row.getColumn(3)?.values?.[0];
+                    if (typeof title === "string" && typeof id === "number" && id >= 0) {
+                        map.set(title.replace(/\s+/g, " ").trim().toLowerCase(), id);
+                    }
+                }
+            } catch (e) {
+                // DB unavailable - empty map falls back to the legacy label.
+            }
+            return map;
+        })();
+        return this.songListIdMap;
+    }
+
+    private songListIdMap?: Map<string, number>;
+
+    /**
+     * Song-list id (unlock-varp space: varp = id + 20) for a jukebox title.
+     * Distinct from the audio track id - see findTrackIdByName. Returns -1 when
+     * the title has no DB row.
+     */
+    public findSongListIdByName(name: string): number {
+        const normalized = name.replace(/\s+/g, " ").trim();
+        if (!normalized) return -1;
+        try {
+            this.dbRepository ??= new DbRepository(this.cache);
+            const rows = this.dbRepository.getRows(44) ?? [];
+            const target = normalized.toLowerCase();
+            for (const row of rows) {
+                const title = row.getColumn(0)?.values?.[0];
+                if (typeof title === "string" && title.replace(/\s+/g, " ").trim().toLowerCase() === target) {
+                    const songListId = row.getColumn(3)?.values?.[0];
+                    if (typeof songListId === "number" && songListId >= 0) {
+                        return songListId;
+                    }
+                }
+            }
+        } catch (e) {
+            // DB unavailable.
+        }
+        return -1;
+    }
+
+    /**
      * Find a track ID by its name hash (DJB2).
      * Falls back to iterating archive references.
      */
