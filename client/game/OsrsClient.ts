@@ -158,6 +158,7 @@ import type { SeqSoundEffect, SeqType } from "../rs/config/seqtype/SeqType";
 import { SeqTypeLoader } from "../rs/config/seqtype/SeqTypeLoader";
 import { SpotAnimTypeLoader } from "../rs/config/spotanimtype/SpotAnimTypeLoader";
 import { VarManager } from "../rs/config/vartype/VarManager";
+import { scheduleMusicTabRefresh } from "./widgets/handlers/musicTab";
 import { chatHistory } from "../rs/cs2/ChatHistory";
 import { Cs2Vm, ScriptArgMagic, type ScriptEvent, createScriptEvent } from "../rs/cs2/Cs2Vm";
 import { Opcodes as Cs2Opcodes } from "../rs/cs2/Opcodes";
@@ -6156,6 +6157,11 @@ export class OsrsClient {
                 }
                 if (this.cs2Vm?.isRunning()) {
                     this.cs2Vm.queueVarcChange(varcId);
+                }
+                if (varcId === 171) {
+                    // Selected-tab changes rebuild the tab rows via CS2; refresh
+                    // the music tab's unlock coloring once that settles.
+                    scheduleMusicTabRefresh();
                 }
             };
             this.varManager.onVarcStringChange = (varcId) => {

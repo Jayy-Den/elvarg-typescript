@@ -400,6 +400,24 @@ export function processWidgetClickInput(
                                     break;
                                 }
                             }
+                            if ((groupId | 0) === 239) {
+                                // Music tab jukebox rows are handled client-side
+                                // (title -> DB table 44 -> playSong); the server has
+                                // no group-239 op handler, so routing these through
+                                // the generic transmit path dead-ends silently.
+                                deps.handleWidgetAction({
+                                    widget: w,
+                                    option,
+                                    target,
+                                    source: "primary",
+                                    cursorX: widgetInteraction.clickedWidgetX,
+                                    cursorY: widgetInteraction.clickedWidgetY,
+                                    slot,
+                                    itemId,
+                                    opIndex,
+                                });
+                                break;
+                            }
 
                             const transmitFlagWidget = deps.resolveTransmitFlagWidget(
                                 w,
