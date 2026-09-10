@@ -7,6 +7,8 @@ import { FirstPersonPlugin } from "../game/plugins/firstperson/FirstPersonPlugin
 const originalDocument = globalThis.document;
 let pointerLockElement: HTMLElement | undefined;
 const element = {
+    width: 640,
+    height: 480,
     requestPointerLock: () => {
         pointerLockElement = element as HTMLElement;
     },
@@ -93,23 +95,19 @@ try {
     plugin.onMouseDown({ button: 2 } as MouseEvent);
     plugin.updateInteractionPointer(client.camera);
     assert.equal(input.hasInteractionPointerOverride(), true, "opening a menu should keep the reticle target");
+    assert.deepEqual(input.getContextMenuAnchor(0, 0), { x: 320, y: 228 }, "the menu should open above the reticle");
     client.menuOpen = true;
     assert.equal(plugin.shouldKeepWorldMenuOpen(), true, "an open F4 menu should remain available");
-    assert.equal(input.isPointerLock(), false, "opening a menu should reveal the cursor");
-    input.mouseX = 1;
-    input.mouseY = 1;
-    plugin.updateInteractionPointer(client.camera);
-    assert.equal(input.mouseX, 320, "an unopened menu should remain under the reticle");
-    plugin.onMouseMove({ movementX: 1, movementY: 0 } as MouseEvent);
-    input.mouseX = 1;
-    plugin.updateInteractionPointer(client.camera);
-    assert.equal(input.mouseX, 320, "the pointer-lock transition must not dismiss the menu");
-    plugin.onMouseMove({ movementX: 1, movementY: 0 } as MouseEvent);
-    input.mouseX = 1;
-    plugin.updateInteractionPointer(client.camera);
-    assert.equal(input.mouseX, 1, "moving the cursor should restore normal menu hover behavior");
+    assert.equal(input.isPointerLock(), true, "the virtual menu cursor should keep pointer lock active");
+    plugin.onMouseMove({ movementX: 10, movementY: 5 } as MouseEvent);
+    assert.equal(input.mouseX, 330, "the virtual cursor should move from the reticle");
+    assert.equal(input.mouseY, 245, "the virtual cursor should move from the reticle");
+    input.clickX = 1;
+    input.clickY = 1;
     plugin.onMouseDown({ button: 0 } as MouseEvent);
     assert.equal(client.menuOpen, true, "the menu action must receive the left click before closing");
+    assert.equal(input.clickX, 330, "menu clicks should use the virtual cursor position");
+    assert.equal(input.clickY, 245, "menu clicks should use the virtual cursor position");
     assert.equal(input.isPointerLock(), true, "a left click should resume mouse look");
     client.menuOpen = false;
 

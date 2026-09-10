@@ -1446,8 +1446,9 @@ export function checkInteractions(host: WebGLOsrsRendererHost, ): void {
         }
         // If a pick event happened, anchor menu to the true click position and compute exact tile at click
         if (picked) {
-            host.osrsClient.menuX = pickX;
-            host.osrsClient.menuY = pickY;
+            const menuAnchor = inputManager.getContextMenuAnchor(pickX, pickY);
+            host.osrsClient.menuX = menuAnchor.x;
+            host.osrsClient.menuY = menuAnchor.y;
             const clicked = host.computeTileAt(pickX, pickY);
             if (clicked) {
                 host.osrsClient.menuTile = clicked;

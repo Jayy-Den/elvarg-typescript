@@ -147,6 +147,7 @@ export class InputManager {
     private readonly keyHandlers = new Set<InputKeyHandler>();
     private readonly mouseHandlers = new Set<InputMouseHandler>();
     private interactionPointerOverride?: { x: number; y: number };
+    private contextMenuAnchorOverride?: { x: number; y: number };
 
     // === OSRS Mouse State ===
 
@@ -499,6 +500,18 @@ export class InputManager {
 
     hasInteractionPointerOverride(): boolean {
         return this.interactionPointerOverride !== undefined;
+    }
+
+    setContextMenuAnchorOverride(x: number, y: number): void {
+        this.contextMenuAnchorOverride = { x, y };
+    }
+
+    clearContextMenuAnchorOverride(): void {
+        this.contextMenuAnchorOverride = undefined;
+    }
+
+    getContextMenuAnchor(fallbackX: number, fallbackY: number): { x: number; y: number } {
+        return this.contextMenuAnchorOverride ?? { x: fallbackX, y: fallbackY };
     }
 
     getInteractionMouseX(): number {

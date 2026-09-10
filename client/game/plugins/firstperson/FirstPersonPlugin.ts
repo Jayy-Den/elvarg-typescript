@@ -15,14 +15,15 @@ type FirstPersonClient = {
 };
 
 type CursorMode = "none" | "alt" | "menu";
+const MENU_ANCHOR_Y_OFFSET = 12;
 
 export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMouseHandler {
     private enabled = false;
     private cursorMode: CursorMode = "none";
     private awaitingMenuOpen = false;
     private menuOpenChecked = false;
-    private menuCursorMoved = false;
-    private ignoreNextMenuMouseMove = false;
+    private menuPointerX = 0;
+    private menuPointerY = 0;
     private restoreRenderSelf?: boolean;
     private restoreFollowPlayerCamera?: boolean;
 
@@ -42,7 +43,7 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
             !event.repeat
         ) {
             if (this.cursorMode === "alt") this.resumeMouseLook();
-            else this.unlockCursor("alt");
+            else this.unlockCursor();
             return true;
         }
         return false;
@@ -57,14 +58,19 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
         if (event.button === 2 && this.cursorMode === "none") {
             this.awaitingMenuOpen = true;
             this.menuOpenChecked = false;
-            this.menuCursorMoved = false;
-            this.ignoreNextMenuMouseMove = true;
-            this.unlockCursor("menu");
+            this.menuPointerX = this.client.camera.viewportXOffset + this.client.camera.viewportWidth / 2;
+            this.menuPointerY = this.client.camera.viewportYOffset + this.client.camera.viewportHeight / 2;
+            this.client.inputManager.setContextMenuAnchorOverride(
+                this.menuPointerX,
+                this.menuPointerY - MENU_ANCHOR_Y_OFFSET,
+            );
+            this.cursorMode = "menu";
             return;
         }
         if (this.cursorMode !== "menu" || !this.client.menuOpen) return;
         if (event.button === 0) {
             // Leave the menu state intact until its existing click handler invokes or cancels it.
+            this.setMenuClickPosition();
             this.resumeMouseLook();
         } else if (event.button === 2) {
             this.closeWorldMenu();
@@ -75,12 +81,14 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
     }
 
     onMouseMove(event: MouseEvent): void {
-        if (!this.enabled || this.cursorMode !== "menu" || !this.client.menuOpen) return;
-        if (this.ignoreNextMenuMouseMove) {
-            this.ignoreNextMenuMouseMove = false;
-            return;
-        }
-        if (event.movementX !== 0 || event.movementY !== 0) this.menuCursorMoved = true;
+        if (!this.enabled || this.cursorMode !== "menu") return;
+        const canvas = this.client.inputManager.element as HTMLCanvasElement | undefined;
+        const width = canvas?.width ?? 0;
+        const height = canvas?.height ?? 0;
+        this.menuPointerX = Math.max(0, Math.min(width, this.menuPointerX + event.movementX));
+        this.menuPointerY = Math.max(0, Math.min(height, this.menuPointerY + event.movementY));
+        this.client.inputManager.mouseX = this.menuPointerX;
+        this.client.inputManager.mouseY = this.menuPointerY;
     }
 
     handleCameraKeys({ camera, input, deltaTime }: CameraInputContext): boolean {
@@ -98,7 +106,7 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
     handleCameraMouse({ camera, input }: CameraInputContext): boolean {
         if (!this.enabled) return false;
         if (this.client.menuOpen) {
-            if (this.cursorMode === "none") this.unlockCursor("menu");
+            if (this.cursorMode === "none") this.enterMenuMode();
             this.awaitingMenuOpen = false;
         } else if (
             this.cursorMode === "menu" &&
@@ -129,15 +137,14 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
             input.clearInteractionPointerOverride();
             return;
         }
-        const waitingForMenu = this.cursorMode === "menu" && !this.client.menuOpen;
-        const holdMenuPointer =
-            this.cursorMode === "menu" && this.client.menuOpen && !this.menuCursorMoved;
-        if (holdMenuPointer) {
+        if (this.cursorMode === "menu" && this.client.menuOpen) {
             input.clearInteractionPointerOverride();
-            input.mouseX = camera.viewportXOffset + camera.viewportWidth / 2;
-            input.mouseY = camera.viewportYOffset + camera.viewportHeight / 2;
+            input.mouseX = this.menuPointerX;
+            input.mouseY = this.menuPointerY;
+            this.updateReticlePosition(input, this.menuPointerX, this.menuPointerY);
             return;
         }
+        const waitingForMenu = this.cursorMode === "menu" && !this.client.menuOpen;
         if (
             !this.enabled ||
             (!waitingForMenu && this.cursorMode !== "none") ||
@@ -152,12 +159,7 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
         input.mouseY = y;
         input.setInteractionPointerOverride(x, y);
         if (waitingForMenu) this.menuOpenChecked = true;
-        const canvas = input.element as HTMLCanvasElement | undefined;
-        const host = canvas?.parentElement;
-        if (host && canvas?.width && canvas.height) {
-            host.style.setProperty("--first-person-reticle-x", `${(x / canvas.width) * 100}%`);
-            host.style.setProperty("--first-person-reticle-y", `${(y / canvas.height) * 100}%`);
-        }
+        this.updateReticlePosition(input, x, y);
     }
 
     handleCameraFollow({ camera, playerX, playerY, playerZ }: CameraFollowContext): boolean {
@@ -179,11 +181,10 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
         this.cursorMode = "none";
         this.awaitingMenuOpen = false;
         this.menuOpenChecked = false;
-        this.menuCursorMoved = false;
-        this.ignoreNextMenuMouseMove = false;
         const { inputManager: input, camera } = this.client;
         input.enablePointerLock = enabled;
         input.clearInteractionPointerOverride();
+        input.clearContextMenuAnchorOverride();
         this.closeWorldMenu();
         this.updateReticleVisibility();
         if (enabled) {
@@ -204,8 +205,8 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
         input.releasePointerLock();
     }
 
-    private unlockCursor(mode: Exclude<CursorMode, "none">): void {
-        this.cursorMode = mode;
+    private unlockCursor(): void {
+        this.cursorMode = "alt";
         this.client.inputManager.enablePointerLock = false;
         this.client.inputManager.clearInteractionPointerOverride();
         this.client.inputManager.releasePointerLock();
@@ -215,10 +216,9 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
         this.cursorMode = "none";
         this.awaitingMenuOpen = false;
         this.menuOpenChecked = false;
-        this.menuCursorMoved = false;
-        this.ignoreNextMenuMouseMove = false;
         this.client.inputManager.enablePointerLock = true;
         this.client.inputManager.clearInteractionPointerOverride();
+        this.client.inputManager.clearContextMenuAnchorOverride();
         this.client.inputManager.requestPointerLock();
     }
 
@@ -230,6 +230,29 @@ export class FirstPersonPlugin implements ClientPlugin, InputKeyHandler, InputMo
         if (canvas?.__ui?.menu?.source === "map") {
             canvas.__ui.menu.open = false;
             canvas.__ui.menu = undefined;
+        }
+    }
+
+    private enterMenuMode(): void {
+        this.cursorMode = "menu";
+        this.menuPointerX = this.client.camera.viewportXOffset + this.client.camera.viewportWidth / 2;
+        this.menuPointerY = this.client.camera.viewportYOffset + this.client.camera.viewportHeight / 2;
+    }
+
+    private setMenuClickPosition(): void {
+        const input = this.client.inputManager;
+        input.mouseX = this.menuPointerX;
+        input.mouseY = this.menuPointerY;
+        input.clickX = this.menuPointerX;
+        input.clickY = this.menuPointerY;
+    }
+
+    private updateReticlePosition(input: InputManager, x: number, y: number): void {
+        const canvas = input.element as HTMLCanvasElement | undefined;
+        const host = canvas?.parentElement;
+        if (host && canvas?.width && canvas.height) {
+            host.style.setProperty("--first-person-reticle-x", `${(x / canvas.width) * 100}%`);
+            host.style.setProperty("--first-person-reticle-y", `${(y / canvas.height) * 100}%`);
         }
     }
 
