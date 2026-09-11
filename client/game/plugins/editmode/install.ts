@@ -1,3 +1,5 @@
+import { isKnownWaterTextureId } from "../../../render/water/WaterTextureIds";
+import { getContentApiBase } from "../../../network/serverConnection/contentApi";
 import { ClientState } from "../../ClientState";
 import { GameState } from "../../login/GameState";
 import { setAudioSuspended } from "../../audio/audioContext";
@@ -65,7 +67,7 @@ import {
     type LocPlacementPreviewRenderer,
 } from "./LocPlacementPreviewOverlay";
 import { ModelImageCaptureOverlay } from "./ModelImageCaptureOverlay";
-import { buildRegionPack, parseRegionPack } from "./RegionPack";
+import { buildAreaClipboard, buildRegionPack, parseRegionPack } from "./RegionPack";
 import {
     ZoneGroundOverlay,
     type ZoneGroundRect,
@@ -302,7 +304,7 @@ export function parseEditModeWorldDefinition(value: unknown): EditModeWorldDefin
         const zone = value as Record<string, unknown>;
         if (
             !Array.isArray(zone.tags) ||
-            zone.tags.some((tag) => tag !== "pvp" && tag !== "multi-combat")
+            zone.tags.some((tag) => tag !== "pvp" && tag !== "multi-combat" && tag !== "safe")
         ) {
             throw new Error(`World API zone ${index} has invalid tags`);
         }
@@ -481,6 +483,14 @@ function requestBrowserHostNpcInteractions(): Promise<EditModeNpcInteractions> {
     });
 }
 
+async function loadLocalEditorData(resource = ""): Promise<string> {
+    const base = getContentApiBase();
+    if (!base) throw new Error("Connect to a local development server to load editor data");
+    const response = await fetch(`${base}/api/world${resource ? `/${resource}` : ""}`);
+    if (!response.ok) throw new Error(`Editor API returned ${response.status}`);
+    return response.text();
+}
+
 async function loadWorldDefinition(): Promise<EditModeWorldDefinition> {
     const params = new URLSearchParams(window.location.search);
     if (params.get("browser-host-client") === "1") {
@@ -491,9 +501,7 @@ async function loadWorldDefinition(): Promise<EditModeWorldDefinition> {
               ? parseBrowserHostWorldSpawn(params.get("browser-host-spawn"))
               : requestBrowserHostWorldDefinition();
     }
-    const response = await fetch(`http://${window.location.hostname || "127.0.0.1"}:49600/world`);
-    if (!response.ok) throw new Error(`World API returned ${response.status}`);
-    return parseEditModeWorldDefinition(await response.json());
+    return parseEditModeWorldDefinition(JSON.parse(await loadLocalEditorData()));
 }
 
 function filterIndex(index: NameIndex, query: string): EditModeSearchResult[] {
@@ -525,14 +533,13 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         () => {
             const state = plugin.getState();
             return state.world.definition
-                ? { zones: state.world.definition.zones, showPvp: state.config.showPvpZones, showMulti: state.config.showMultiCombatZones }
+                ? { zones: state.world.definition.zones, showPvp: state.config.showPvpZones, showMulti: state.config.showMultiCombatZones, showSafe: state.config.showSafeZones }
                 : undefined;
         },
         (index, bounds) => plugin.resizeWorldZone(index, bounds),
-        (bounds) => plugin.addWorldZone(bounds),
+        (bounds, tag) => plugin.addWorldZone(bounds, tag),
         (index, tag) => plugin.setWorldZoneType(index, tag),
         (index) => plugin.deleteWorldZone(index),
-        browserHostWindow() !== null,
     );
     let previewNpc = false;
     let previewNpcType = -1;
@@ -852,7 +859,8 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             const showPvp = state.config.showPvpZones && zone.tags.includes("pvp");
             const showMulti =
                 state.config.showMultiCombatZones && zone.tags.includes("multi-combat");
-            if (!showPvp && !showMulti) continue;
+            const showSafe = state.config.showSafeZones && zone.tags.includes("safe");
+            if (!showPvp && !showMulti && !showSafe) continue;
             for (let i = 0; i < renderer.mapManager.visibleMapCount; i++) {
                 const map = renderer.mapManager.visibleMaps[i];
                 if (
@@ -873,6 +881,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
                 const minY = Math.max(zone.minY, mapMinY);
                 const maxY = Math.min(zone.maxY, mapMinY + 63);
                 if (minX > maxX || minY > maxY) continue;
+                if (showSafe) rects.push({ minX, maxX, minY, maxY, plane: zone.z, colorRgb: 0x86efac, alpha: ZONE_OVERLAY_ALPHA });
                 if (showPvp) {
                     rects.push({
                         minX,
@@ -902,7 +911,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
     };
     const syncWorldZoneLoop = (): void => {
         const state = plugin.getState();
-        const visible = state.config.showPvpZones || state.config.showMultiCombatZones;
+        const visible = state.config.showPvpZones || state.config.showMultiCombatZones || state.config.showSafeZones;
         if (state.config.active && state.world.definition && visible) {
             if (zoneFrame === undefined) zoneFrame = requestAnimationFrame(drawWorldZones);
             return;
@@ -1555,11 +1564,15 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
             return filterIndex(await getNameIndex(kind, loader), query);
         },
         describeDefinition: (kind, id) => describeDefinition(client, kind, id),
-        loadShops: requestBrowserHostShops,
-        loadNpcInteractions: requestBrowserHostNpcInteractions,
+        loadShops: () => browserHostWindow() ? requestBrowserHostShops() : loadLocalEditorData("shops").then(parseBrowserHostShops),
+        loadNpcInteractions: () => browserHostWindow() ? requestBrowserHostNpcInteractions() : loadLocalEditorData("npc-interactions").then(parseBrowserHostNpcInteractions),
         getNpcMenuOptions: (npcTypeId) => {
             const npc = client.npcTypeLoader?.load(npcTypeId);
             return npc ? getNpcMenuOptions(npc) : [];
+        },
+        isWaterOverlay: (id) => {
+            const overlay = id > 0 ? client.loaderFactory?.getOverlayTypeLoader?.().load(id - 1) : undefined;
+            return !!overlay && overlay.textureId !== 91 && isKnownWaterTextureId(overlay.textureId);
         },
         getOverlaySwatches: () => {
             const loader = client.loaderFactory?.getOverlayTypeLoader?.();
@@ -1617,6 +1630,11 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         jumpCameraToTile: (tile) => {
             frameCameraOnTile(client, tile, false);
         },
+        copyArea: (bounds, edits) => buildAreaClipboard(
+            bounds,
+            (tileX, tileY) => buildEditorRegionPack(client, { tileX, tileY, plane: 0 }, edits, editorRegionReplacements).data,
+            client.loadedCache?.info.game === "oldschool" && (client.loadedCache?.info.revision ?? 0) >= 209,
+        ),
         exportRegionPack: (tile, edits) => {
             return buildEditorRegionPack(client, tile, edits, editorRegionReplacements);
         },
