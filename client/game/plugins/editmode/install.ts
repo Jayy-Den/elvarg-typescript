@@ -301,18 +301,22 @@ export function parseEditModeWorldDefinition(value: unknown): EditModeWorldDefin
         const zone = value as Record<string, unknown>;
         if (
             !Array.isArray(zone.tags) ||
-            zone.tags.length === 0 ||
             zone.tags.some((tag) => tag !== "pvp" && tag !== "multi-combat")
         ) {
             throw new Error(`World API zone ${index} has invalid tags`);
         }
+        const tags = [...new Set(zone.tags)] as EditModeWorldZone["tags"];
+        if (["minX", "maxX", "minY", "maxY", "z"].every((key) => zone[key] === undefined)) {
+            return { tags };
+        }
+        if (tags.length === 0) throw new Error(`World API zone ${index} has invalid tags`);
         const parsed: EditModeWorldZone = {
             minX: worldCoordinate(zone.minX, `World API zone ${index}.minX`),
             maxX: worldCoordinate(zone.maxX, `World API zone ${index}.maxX`),
             minY: worldCoordinate(zone.minY, `World API zone ${index}.minY`),
             maxY: worldCoordinate(zone.maxY, `World API zone ${index}.maxY`),
             z: worldPlane(zone.z, `World API zone ${index}.z`),
-            tags: [...new Set(zone.tags)] as EditModeWorldZone["tags"],
+            tags,
         };
         if (parsed.minX > parsed.maxX || parsed.minY > parsed.maxY) {
             throw new Error(`World API zone ${index} has reversed bounds`);
@@ -842,6 +846,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         const renderDistance = Math.ceil(renderer.getFrameRenderDistanceTiles());
         const rects: ZoneGroundRect[] = [];
         for (const zone of world.zones) {
+            if (zone.minX === undefined) continue; // Global rules have no editable rectangle.
             if (!state.config.renderAllHeightLevels && zone.z !== state.config.heightLevel) continue;
             const showPvp = state.config.showPvpZones && zone.tags.includes("pvp");
             const showMulti =

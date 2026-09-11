@@ -58,7 +58,7 @@ export type EditModeNpcInteractions = Record<string, Record<string, unknown>>;
 
 export type EditModeWorldZoneTag = "pvp" | "multi-combat";
 
-export interface EditModeWorldZone {
+export interface EditModeBoundedWorldZone {
     minX: number;
     maxX: number;
     minY: number;
@@ -66,6 +66,16 @@ export interface EditModeWorldZone {
     z: number;
     tags: EditModeWorldZoneTag[];
 }
+
+// Global rules have no rectangle; keep them intact when editing and saving the world.
+export type EditModeWorldZone = EditModeBoundedWorldZone | {
+    minX?: never;
+    maxX?: never;
+    minY?: never;
+    maxY?: never;
+    z?: never;
+    tags: EditModeWorldZoneTag[];
+};
 
 export interface EditModeWorldDefinition {
     spawn: { x: number; y: number; z: number };

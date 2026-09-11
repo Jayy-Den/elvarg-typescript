@@ -16,6 +16,7 @@ import {
     type EditModeTile,
     type EditModeTool,
     type EditModeWorldDefinition,
+    type EditModeBoundedWorldZone,
 } from "./types";
 
 type EditModePluginListener = () => void;
@@ -202,17 +203,19 @@ export class EditModePlugin {
         this.worldDefinitionDirty = false;
     }
 
-    resizeWorldZone(index: number, bounds: Pick<EditModeWorldDefinition["zones"][number], "minX" | "maxX" | "minY" | "maxY">): void {
+    resizeWorldZone(index: number, bounds: Pick<EditModeBoundedWorldZone, "minX" | "maxX" | "minY" | "maxY">): void {
         const definition = this.world.definition;
         if (!definition || index < 0 || index >= definition.zones.length) return;
         const zones = [...definition.zones];
-        zones[index] = { ...zones[index], ...bounds };
+        const zone = zones[index];
+        if (zone.minX === undefined) return;
+        zones[index] = { ...zone, ...bounds };
         this.world = { ...this.world, definition: { ...definition, zones } };
         this.worldDefinitionDirty = true;
         this.commit();
     }
 
-    addWorldZone(bounds: Pick<EditModeWorldDefinition["zones"][number], "minX" | "maxX" | "minY" | "maxY">): void {
+    addWorldZone(bounds: Pick<EditModeBoundedWorldZone, "minX" | "maxX" | "minY" | "maxY">): void {
         const definition = this.world.definition;
         if (!definition) return;
         this.world = { ...this.world, definition: { ...definition, zones: [...definition.zones, { ...bounds, z: this.config.heightLevel, tags: ["pvp"] }] } };

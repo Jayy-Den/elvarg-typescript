@@ -1,4 +1,4 @@
-import type { EditModeTile, EditModeWorldZone } from "./types";
+import type { EditModeTile, EditModeWorldZone, EditModeBoundedWorldZone } from "./types";
 
 type WorldMapArea = {
     id: number;
@@ -55,8 +55,8 @@ export class EditorWorldMap {
         private readonly client: EditorWorldMapClient,
         private readonly onNavigate: (tile: EditModeTile) => void,
         private readonly getZones: () => { zones: readonly EditModeWorldZone[]; showPvp: boolean; showMulti: boolean } | undefined,
-        private readonly onZoneResize: (index: number, bounds: Pick<EditModeWorldZone, "minX" | "maxX" | "minY" | "maxY">) => void,
-        private readonly onNewZone: (bounds: Pick<EditModeWorldZone, "minX" | "maxX" | "minY" | "maxY">) => void,
+        private readonly onZoneResize: (index: number, bounds: Pick<EditModeBoundedWorldZone, "minX" | "maxX" | "minY" | "maxY">) => void,
+        private readonly onNewZone: (bounds: Pick<EditModeBoundedWorldZone, "minX" | "maxX" | "minY" | "maxY">) => void,
         private readonly onZoneTypeChange: (index: number, tag: EditModeWorldZone["tags"][number]) => void,
         private readonly onZoneDelete: (index: number) => void,
         private readonly canEditZones: boolean,
@@ -262,7 +262,7 @@ export class EditorWorldMap {
             if (zoneDrag) {
                 const zone = this.getZones()?.zones[zoneDrag.index];
                 const next = this.worldTileAt(event.offsetX, event.offsetY);
-                if (zone && next) {
+                if (zone && zone.minX !== undefined && next) {
                     const bounds = {
                         minX: zoneDrag.corner.includes("w") ? Math.min(next.x, zone.maxX - 1) : zone.minX,
                         maxX: zoneDrag.corner.includes("e") ? Math.max(next.x, zone.minX + 1) : zone.maxX,
@@ -336,12 +336,13 @@ export class EditorWorldMap {
         const canvas = this.canvas;
         const visible = this.getZones();
         if (!canvas || !visible) return undefined;
-        const corners = (zone: EditModeWorldZone) => [
+        const corners = (zone: EditModeBoundedWorldZone) => [
             ["nw", zone.minX, zone.maxY + 1], ["ne", zone.maxX + 1, zone.maxY + 1],
             ["sw", zone.minX, zone.minY], ["se", zone.maxX + 1, zone.minY],
         ] as const;
         for (let index = 0; index < visible.zones.length; index++) {
             const zone = visible.zones[index];
+            if (zone.minX === undefined) continue;
             if (!(visible.showPvp && zone.tags.includes("pvp")) && !(visible.showMulti && zone.tags.includes("multi-combat"))) continue;
             for (const [corner, x, y] of corners(zone)) {
                 const px = canvas.width / 2 + (x - this.centerX) * this.pixelsPerTile;
@@ -359,6 +360,7 @@ export class EditorWorldMap {
         if (!tile || !visible) return undefined;
         for (let index = visible.zones.length - 1; index >= 0; index--) {
             const zone = visible.zones[index];
+            if (zone.minX === undefined) continue;
             const shown = (visible.showPvp && zone.tags.includes("pvp")) || (visible.showMulti && zone.tags.includes("multi-combat"));
             if (shown && tile.x >= zone.minX && tile.x <= zone.maxX && tile.y >= zone.minY && tile.y <= zone.maxY) return index;
         }
@@ -380,6 +382,7 @@ export class EditorWorldMap {
         const visible = this.getZones();
         if (!canvas || !visible) return "grab";
         for (const zone of visible.zones) {
+            if (zone.minX === undefined) continue;
             const color = (visible.showPvp && zone.tags.includes("pvp")) || (visible.showMulti && zone.tags.includes("multi-combat"));
             if (!color) continue;
             const left = canvas.width / 2 + (zone.minX - this.centerX) * this.pixelsPerTile;
@@ -446,6 +449,7 @@ export class EditorWorldMap {
         if (visible) {
             for (let index = 0; index < visible.zones.length; index++) {
                 const zone = visible.zones[index];
+                if (zone.minX === undefined) continue;
                 const color = visible.showPvp && zone.tags.includes("pvp") ? "#fca5a5" : visible.showMulti && zone.tags.includes("multi-combat") ? "#fcd34d" : undefined;
                 if (!color) continue;
                 const x = width / 2 + (zone.minX - this.centerX) * this.pixelsPerTile;
