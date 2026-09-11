@@ -3,7 +3,6 @@ import type { ObjectDefinition } from "../game/definition/ObjectDefinition";
 import type { WeaponCombatProfile } from "../game/content/combat/WeaponProfile";
 import type { PlayerPersistence } from "../game/entity/impl/player/persistence/PlayerPersistence";
 import type { ActiveRegionSnapshot } from "../game/ActiveRegionIndex";
-import type { ServerDataProvider } from "../game/data/ServerDataRegistry";
 import type { DefinitionSource } from "../game/definition/loader/DefinitionLoader";
 import type { FriendsChatAction } from "../net/protocol/ClientProtocol";
 
@@ -700,10 +699,6 @@ export interface PluginApi {
   replaceMapRegion(
     regionId: number,
     source: string | [string, string]
-  ): void;
-  registerServerDataResource(
-    name: string,
-    provider: ServerDataProvider
   ): void;
   registerDefinitionSource(
     definitionType: string,

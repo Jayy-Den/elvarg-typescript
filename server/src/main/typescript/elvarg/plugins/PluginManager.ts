@@ -6,7 +6,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { GameConstants } from "../game/GameConstants";
 import { MapRegionReplacementManager } from "../game/collision/MapRegionReplacementManager";
-import { ServerDataRegistry } from "../game/data/ServerDataRegistry";
 import { DefinitionLoader } from "../game/definition/loader/DefinitionLoader";
 import { ShopManager } from "../game/model/container/shop/ShopManager";
 import { WeaponProfiles } from "../game/content/combat/WeaponProfile";
@@ -2828,19 +2827,6 @@ export class PluginManager {
             `[plugins] ${pluginName} failed to replace map region ${regionId}`,
             err
           );
-        }
-      },
-      registerServerDataResource: (name, provider) => {
-        try {
-          ServerDataRegistry.register(name, `plugin:${pluginName}`, provider);
-        } catch (error) {
-          console.warn(
-            `[plugins] ${pluginName} failed to register server data resource ${String(
-              name
-            )}`,
-            error
-          );
-          throw error;
         }
       },
       registerDefinitionSource: (definitionType, source) => {
