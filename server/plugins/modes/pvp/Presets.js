@@ -11,7 +11,6 @@ const { Item } = require("../../../src/main/typescript/elvarg/game/model/Item");
 const { Skill } = require("../../../src/main/typescript/elvarg/game/model/Skill");
 const { Flag } = require("../../../src/main/typescript/elvarg/game/model/Flag");
 const { Bank } = require("../../../src/main/typescript/elvarg/game/model/container/impl/Bank");
-const { Task } = require("../../../src/main/typescript/elvarg/game/task/Task");
 const { Misc } = require("../../../src/main/typescript/elvarg/util/Misc");
 const {
   GROUP_ID,
@@ -31,9 +30,14 @@ const {
   buildPresetsInterfaceDefinition,
 } = require("./presetsWidget");
 
+const OPEN_ON_DEATH_ATTRIBUTE = "pvp:openPresetsOnDeath";
+
+function shouldOpenOnDeath(player) {
+  return player.getAttribute(OPEN_ON_DEATH_ATTRIBUTE) !== false;
+}
+
 const MAX_PRESETS = CUSTOM_ROW_COUNT;
 const MAIN_MODAL_UID = (161 << 16) | 16;
-const OPEN_PRESETS_DELAY_TICKS = 2;
 
 const INTERFACE_DEFINITION = buildPresetsInterfaceDefinition();
 
@@ -271,7 +275,7 @@ function renderButtons(player) {
   const isCustom = selected != null && !selected.getIsGlobal?.();
   sender
     .sendString(
-      player.isOpenPresetsOnDeath?.() ? "On death: <col=40ff40>on</col>" : "On death: <col=ff981f>off</col>",
+      shouldOpenOnDeath(player) ? "On death: <col=40ff40>on</col>" : "On death: <col=ff981f>off</col>",
       uid(COMPONENT.DEATH_BUTTON + 50)
     )
     .sendString("Load preset", uid(COMPONENT.LOAD_BUTTON + 50))
@@ -585,7 +589,7 @@ function handlePresetActionButton(player, buttonId) {
 
   switch (buttonId) {
     case uid(COMPONENT.DEATH_BUTTON):
-      player.setOpenPresetsOnDeath(!player.isOpenPresetsOnDeath());
+      player.setAttribute(OPEN_ON_DEATH_ATTRIBUTE, !shouldOpenOnDeath(player));
       renderButtons(player);
       return true;
 
@@ -620,23 +624,9 @@ function handlePresetActionButton(player, buttonId) {
   }
 }
 
-function isAtDefaultRespawn(player) {
-  const location = player?.getLocation?.();
-  const respawn = GameConstants.DEFAULT_LOCATION;
-  if (!location || !respawn) {
-    return false;
-  }
-  return (
-    location.getX?.() === respawn.getX?.() &&
-    location.getY?.() === respawn.getY?.() &&
-    location.getZ?.() === respawn.getZ?.()
-  );
-}
-
 let PrayerHandler;
 let CombatFactory;
 let SkillManager;
-let TaskManager;
 
 module.exports = {
   name: "Presets",
@@ -645,41 +635,16 @@ module.exports = {
   getGlobalPresetByName,
   getGlobalPresetPool,
   openPresetInterface,
+  shouldOpenOnDeath,
   register(api) {
     PrayerHandler = api.getPrayerHandler();
     CombatFactory = api.getCombatFactory();
     SkillManager = api.getSkillManager();
-    TaskManager = api.getTaskManager();
     api.registerCustomInterface(INTERFACE_DEFINITION);
 
     api.onInterfaceActionButton(PRESET_BUTTON_UIDS, ({ player, buttonId }) =>
       handlePresetActionButton(player, buttonId)
     );
 
-    api.onPlayerDefeated(({ victim }) => {
-      const shouldOpenPresetInterface = victim.isOpenPresetsOnDeath?.() === true;
-      if (!shouldOpenPresetInterface) {
-        return;
-      }
-
-      TaskManager.submit(
-        new (class extends Task {
-          constructor() {
-            super(OPEN_PRESETS_DELAY_TICKS, false);
-          }
-
-          execute() {
-            this.stop();
-            if (!victim || !victim.isRegistered?.() || victim.getHitpoints?.() <= 0) {
-              return;
-            }
-
-            if (shouldOpenPresetInterface && isAtDefaultRespawn(victim)) {
-              openPresetInterface(victim, victim.getCurrentPreset?.() ?? null);
-            }
-          }
-        })()
-      );
-    });
   },
 };

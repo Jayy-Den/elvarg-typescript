@@ -109,7 +109,6 @@ export class Player extends Mobile {
     // Presets
     private currentPreset: Presetable;
     public presets: Presetable[] = new Array(Player.MAX_PLAYER_PRESETS);
-    private openPresetsOnDeath = true;
 
     public username: string;
     private passwordHashWithSalt: string;
@@ -1436,14 +1435,6 @@ export class Player extends Mobile {
 
     public setPresets(sets: Presetable[]): void {
         this.presets = sets;
-    }
-
-    public isOpenPresetsOnDeath(): boolean {
-        return this.openPresetsOnDeath;
-    }
-
-    public setOpenPresetsOnDeath(openPresetsOnDeath: boolean): void {
-        this.openPresetsOnDeath = openPresetsOnDeath;
     }
 
     public getCurrentPreset(): Presetable {

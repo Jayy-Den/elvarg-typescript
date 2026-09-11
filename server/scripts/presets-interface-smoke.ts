@@ -57,7 +57,7 @@ function stubPlayer(sent: Sent[]) {
   let currentPreset: any = null;
   let presets: any[] = [];
   let interfaceId = -1;
-  let openOnDeath = false;
+  const attributes = new Map<string, unknown>();
   return {
     getPacketSender: () => sender,
     getCurrentPreset: () => currentPreset,
@@ -72,10 +72,8 @@ function stubPlayer(sent: Sent[]) {
     setInterfaceId: (id: number) => {
       interfaceId = id;
     },
-    isOpenPresetsOnDeath: () => openOnDeath,
-    setOpenPresetsOnDeath: (value: boolean) => {
-      openOnDeath = value;
-    },
+    getAttribute: (key: string) => attributes.get(key),
+    setAttribute: (key: string, value: unknown) => attributes.set(key, value),
     isPlayerBot: () => false,
     busy: () => false,
     getLocation: () => null,
