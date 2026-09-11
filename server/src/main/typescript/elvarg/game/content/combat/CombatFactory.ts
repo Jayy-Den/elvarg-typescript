@@ -3,6 +3,7 @@ import { Sounds } from "../../Sounds";
 import { PrayerHandler } from "../PrayerHandler";
 import { Dueling, DuelRule, DuelState } from "../Duelling";
 import { WeaponInterfaces } from "./WeaponInterfaces";
+import { WeaponInterfaceManager } from "./WeaponInterfaceManager";
 import { DamageFormulas } from "./formula/DamageFormulas";
 import { HitDamage } from "./hit/HitDamage";
 import { HitMask } from "./hit/HitMask";
@@ -1217,7 +1218,7 @@ export class CombatFactory {
             player.getEquipment().set(slot, new Item(-1));
 
             if (slot == Equipment.WEAPON_SLOT) {
-                WeaponInterfaces.assign(player);
+                WeaponInterfaceManager.assign(player);
                 player.getUpdateFlag().flag(Flag.APPEARANCE);
             }
         }

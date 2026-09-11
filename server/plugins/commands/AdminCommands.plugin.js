@@ -6,7 +6,7 @@ const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameCon
 const { PlayerRights } = require("../../src/main/typescript/elvarg/game/model/rights/PlayerRights");
 const { Skill } = require("../../src/main/typescript/elvarg/game/model/Skill");
 const { MagicSpellbook } = require("../../src/main/typescript/elvarg/game/model/MagicSpellbook");
-const { WeaponInterfaces } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces");
+const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
 const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
 const { NPC } = require("../../src/main/typescript/elvarg/game/entity/impl/npc/NPC");
 const { GameObject } = require("../../src/main/typescript/elvarg/game/entity/impl/object/GameObject");
@@ -832,7 +832,7 @@ module.exports = {
           .setMaxLevel(skill, level)
           .setExperience(skill, SkillManager.getExperienceForLevel(level));
       }
-      WeaponInterfaces.assign(player);
+      WeaponInterfaceManager.assign(player);
       player.getUpdateFlag().flag(Flag.APPEARANCE);
       return true;
     });
@@ -849,7 +849,7 @@ module.exports = {
           .setMaxLevel(skill, level)
           .setExperience(skill, SkillManager.getExperienceForLevel(level));
       }
-      WeaponInterfaces.assign(player);
+      WeaponInterfaceManager.assign(player);
       return true;
     });
 

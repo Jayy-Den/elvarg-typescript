@@ -6,6 +6,7 @@ import { CombatSpecial } from "../../../content/combat/CombatSpecial";
 import { CombatType } from "../../../content/combat/CombatType";
 import { FightType } from "../../../content/combat/FightType";
 import { WeaponInterfaces } from "../../../content/combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../../../content/combat/WeaponInterfaceManager";
 import { WeaponProfiles } from "../../../content/combat/WeaponProfile";
 import { PendingHit } from "../../../content/combat/hit/PendingHit";
 import { Autocasting } from "../../../content/combat/magic/Autocasting";
@@ -257,7 +258,7 @@ export class Player extends Mobile {
         this.setRecoilDamage(0);
         this.setSkullTimer(0);
         this.setSkullType(SkullType.WHITE_SKULL);
-        WeaponInterfaces.assign(this);
+        WeaponInterfaceManager.assign(this);
         BonusManager.update(this);
         PrayerHandler.deactivatePrayers(this);
         this.getEquipment().refreshItems();
@@ -629,7 +630,7 @@ export class Player extends Mobile {
         // Equipment is restored from the save without going through the equip
         // packet path, so the weapon interface/fight-styles/attack animation
         // (all driven by player.weapon, set here) are never assigned on login.
-        WeaponInterfaces.assign(this);
+        WeaponInterfaceManager.assign(this);
         CombatSpecial.ensureRestoreTask(this);
         const autocastSpell = this.getCombat().getAutocastSpell();
         if (autocastSpell != null && autocastSpell.getSpellbook?.() !== this.getSpellbook()) {

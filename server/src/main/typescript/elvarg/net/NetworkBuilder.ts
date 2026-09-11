@@ -62,7 +62,7 @@ import { Emotes } from "../game/content/Emotes";
 import { BonusManager } from "../game/model/equipment/BonusManager";
 import { ShopManager } from "../game/model/container/shop/ShopManager";
 import { CombatSpecial } from "../game/content/combat/CombatSpecial";
-import { WeaponInterfaces } from "../game/content/combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../game/content/combat/WeaponInterfaceManager";
 import { PrayerHandler } from "../game/content/PrayerHandler";
 import { Autocasting } from "../game/content/combat/magic/Autocasting";
 import { EffectSpells } from "../game/content/combat/magic/EffectSpells";
@@ -532,7 +532,7 @@ class ClientConnection {
         case "varp_transmit":
           if (this.player) {
             if (packet.varpId === 43) {
-              WeaponInterfaces.changeCombatStyle(this.player, packet.value);
+              WeaponInterfaceManager.changeCombatStyle(this.player, packet.value);
               BonusManager.update(this.player);
             } else if (packet.varpId === 172) {
               this.player.setAutoRetaliate(packet.value === 0);

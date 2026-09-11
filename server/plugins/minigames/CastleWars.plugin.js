@@ -6,7 +6,7 @@ const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
 const { Animation } = require("../../src/main/typescript/elvarg/game/model/Animation");
 const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
 const { Equipment } = require("../../src/main/typescript/elvarg/game/model/container/impl/Equipment");
-const { WeaponInterfaces } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces");
+const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
 const { GameObject } = require("../../src/main/typescript/elvarg/game/entity/impl/object/GameObject");
 const { NPC } = require("../../src/main/typescript/elvarg/game/entity/impl/npc/NPC");
 const { CountdownTask } = require("../../src/main/typescript/elvarg/game/task/impl/CountdownTask");
@@ -191,7 +191,7 @@ function createCastleWars(api) {
 
   function refreshPlayerAppearance(player, weaponChanged = false) {
     if (weaponChanged) {
-      WeaponInterfaces.assign(player);
+      WeaponInterfaceManager.assign(player);
       player.setSpecialActivated(false);
       player.getPacketSender().sendSpecialAttackState(false);
     }

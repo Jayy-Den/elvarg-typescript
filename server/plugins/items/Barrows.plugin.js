@@ -9,7 +9,7 @@ const { PendingHit } = require("../../src/main/typescript/elvarg/game/content/co
 const { HitDamage } = require("../../src/main/typescript/elvarg/game/content/combat/hit/HitDamage");
 const { HitMask } = require("../../src/main/typescript/elvarg/game/content/combat/hit/HitMask");
 const { Graphic } = require("../../src/main/typescript/elvarg/game/model/Graphic");
-const getWeaponInterfaces = () => require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces").WeaponInterfaces;
+const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
 
 const META_KEY = "barrows";
 const MAX_DURABILITY = 1000;
@@ -56,7 +56,7 @@ function refresh(player, weaponChanged = false) {
   player.getEquipment().refreshItems();
   player.getUpdateFlag()?.flag?.(Flag.APPEARANCE);
   BonusManager.update(player);
-  if (weaponChanged) getWeaponInterfaces().assign(player);
+  if (weaponChanged) WeaponInterfaceManager.assign(player);
 }
 
 function degradeEquipment(player) {

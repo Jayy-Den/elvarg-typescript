@@ -6,7 +6,7 @@ import { PlayerRights } from "../../model/rights/PlayerRights";
 import { Flag } from "../../model/Flag";
 import { World } from "../../World";
 import { PrayerData, PrayerHandler } from "../PrayerHandler";
-import { WeaponInterfaces } from "../combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../combat/WeaponInterfaceManager";
 import { BonusManager } from "../../model/equipment/BonusManager";
 import { GameObject } from "../../entity/impl/object/GameObject";
 import { EnteredAmountAction } from "../../model/EnteredAmountAction";
@@ -269,7 +269,7 @@ export class SkillManager {
         // Update weapon tab to send combat level etc.
         this.player.setHasVengeance(false);
         BonusManager.update(this.player);
-        WeaponInterfaces.assign(this.player);
+        WeaponInterfaceManager.assign(this.player);
         PrayerHandler.deactivatePrayers(this.player);
         this.player.getUpdateFlag().flag(Flag.APPEARANCE);
     }

@@ -6,7 +6,7 @@ import { ItemDefinition } from "../../../definition/ItemDefinition";
 import { StackType } from "../StackType";
 import { Equipment } from "./Equipment";
 import { GameConstants } from "../../../GameConstants";
-import { WeaponInterfaces } from "../../../content/combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../../../content/combat/WeaponInterfaceManager";
 import { Inventory } from "./Inventory";
 import { Flag } from "../../Flag";
 import { BonusManager } from "../../equipment/BonusManager";
@@ -520,7 +520,7 @@ export class Bank extends ItemContainer {
             Sounds.sendSound(player, from instanceof Equipment ? Sound.EQUIPMENT_OFF : Sound.DROP_ITEM);
         }
         if (from instanceof Equipment) {
-            WeaponInterfaces.assign(player);
+            WeaponInterfaceManager.assign(player);
             BonusManager.update(player);
             player.getUpdateFlag().flag(Flag.APPEARANCE);
         }

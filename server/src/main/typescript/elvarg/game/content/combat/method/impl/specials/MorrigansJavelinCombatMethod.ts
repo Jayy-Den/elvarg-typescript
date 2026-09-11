@@ -7,7 +7,7 @@ import { Projectile } from "../../../../../model/Projectile";
 import { ItemIdentifiers } from "../../../../../../util/ItemIdentifiers";
 import { Equipment } from "../../../../../model/container/impl/Equipment";
 import { Item } from "../../../../../model/Item";
-import { WeaponInterfaces } from "../../../WeaponInterfaces";
+import { WeaponInterfaceManager } from "../../../WeaponInterfaceManager";
 import { Flag } from "../../../../../model/Flag";
 import { Task } from "../../../../../task/Task";
 import { TaskManager } from "../../../../../task/TaskManager";
@@ -105,7 +105,7 @@ export class MorrigansJavelinCombatMethod extends RangedCombatMethod {
         if (item.getAmount() <= 0) {
             player.getPacketSender().sendMessage("You have run out of ammunition!");
             player.getEquipment().set(Equipment.WEAPON_SLOT, new Item(-1));
-            WeaponInterfaces.assign(player);
+            WeaponInterfaceManager.assign(player);
             player.getUpdateFlag().flag(Flag.APPEARANCE);
         }
 

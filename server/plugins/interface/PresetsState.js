@@ -1,6 +1,6 @@
 const { PlayerSave } = require("../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
 const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
-const { WeaponInterfaces } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces");
+const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
 const { Autocasting } = require("../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
 const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
 const {
@@ -127,7 +127,7 @@ function restorePresetSnapshot(player, options = {}) {
     ?.sendTabInterface?.(6, player.getSpellbook?.()?.getInterfaceId?.());
   // Clearing a preset should always clear active/default autocast selection.
   Autocasting.setAutocast?.(player, null);
-  WeaponInterfaces.assign?.(player);
+  WeaponInterfaceManager.assign?.(player);
   BonusManager.update?.(player);
 
   player.getUpdateFlag?.()?.flag?.(Flag.APPEARANCE);
