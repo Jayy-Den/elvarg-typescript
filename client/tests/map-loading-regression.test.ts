@@ -6,6 +6,35 @@ import { onLocAddChange } from "../render/render/locs";
 import { onLocDel, scheduleLocReload } from "../render/render/locs2";
 import { getMapSquareId } from "../rs/map/MapFileIndex";
 import { MapFileLoader } from "../rs/map/MapFileLoader";
+import { LocModelLoader } from "../rs/config/loctype/LocModelLoader";
+import { LocModelType } from "../rs/config/loctype/LocModelType";
+import { LocType } from "../rs/config/loctype/LocType";
+import { ModelData } from "../rs/model/ModelData";
+
+function multipartLocsRequestAllMissingModelsTogether(): void {
+    for (const typed of [false, true]) {
+        const requested: number[] = [];
+        const present = new Set<number>();
+        const loader = new LocModelLoader({} as any, {
+            getModel(id) {
+                requested.push(id);
+                return present.has(id) ? new ModelData() : undefined;
+            },
+        }, {} as any, {} as any, {} as any, undefined);
+        const loc = new LocType(1, { game: "oldschool", revision: 237 } as any);
+        loc.models = [[10, 20, 30]];
+        loc.types = typed ? [LocModelType.NORMAL] : undefined;
+
+        assert.equal(loader.getLocModelData(loc, LocModelType.NORMAL, 0), undefined);
+        assert.deepEqual(requested, [10, 20, 30], "all missing parts must be requested in one build pass");
+        present.add(10);
+        present.add(30);
+        assert.equal(loader.getLocModelData(loc, LocModelType.NORMAL, 0), undefined,
+            "a missing middle part must not merge stale or partial geometry");
+        present.add(20);
+        assert.ok(loader.getLocModelData(loc, LocModelType.NORMAL, 0));
+    }
+}
 
 function mapLoadBackoff(): void {
     const originalNow = Date.now;
@@ -141,6 +170,7 @@ function regionReplacementUsesNativeMapData(): void {
 }
 
 mapLoadBackoff();
+multipartLocsRequestAllMissingModelsTogether();
 incomingMapsRenderBeforeTheWholeGridIsReady();
 duplicateLocReplayIsIgnored();
 locUpdateBeforeInitialMapDoesNotStartADuplicateMapTask();
