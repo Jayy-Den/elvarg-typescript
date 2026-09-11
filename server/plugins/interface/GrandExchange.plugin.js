@@ -1,3 +1,4 @@
+const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
 const { CacheDefinitions } = require("../../src/main/typescript/elvarg/game/cache/CacheDefinitions");
 const { ItemDefinition } = require("../../src/main/typescript/elvarg/game/definition/ItemDefinition");
 const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
@@ -30,7 +31,7 @@ const OFFER_DELAY_MS = 5000;
 const MAX = 0x7fffffff;
 const COINS = ItemIdentifiers.COINS;
 const offers = new WeakMap();
-const completed = new WeakMap();
+const completionTimers = new WeakMap();
 const viewing = new WeakMap();
 
 function validItem(id) {
@@ -50,12 +51,34 @@ function active(player, offer) {
 }
 
 function completedOffers(player) {
-  let slots = completed.get(player);
-  if (!slots) {
-    slots = new Map();
-    completed.set(player, slots);
-  }
+  let slots = player.getAttribute("grandExchangeOffers");
+  if (!slots) player.setAttribute("grandExchangeOffers", slots = {});
   return slots;
+}
+
+function saveOffers(player) {
+  GameConstants.PLAYER_PERSISTENCE.save(player);
+}
+
+function scheduleCompletion(player, offer) {
+  if (offer.finished) return;
+  let timers = completionTimers.get(player);
+  if (!timers) completionTimers.set(player, timers = new Set());
+  const timer = setTimeout(() => {
+    timers.delete(timer);
+    if (completedOffers(player)[offer.slot] !== offer) return;
+    offer.finished = true;
+    saveOffers(player);
+    refreshCollectionBox(player);
+    const sender = player.getPacketSender();
+    sender.sendInterfaceScript(786, [], marketVarps(offer.slot, offer), undefined,
+      { [COLLECTIONS[offer.slot]]: collection(offer) });
+    if (player.getInterfaceId() === GE && viewing.get(player) === offer.slot && !offers.has(player)) {
+      sender.sendVarbit(SELECTED_SLOT, 0).sendVarbit(SELECTED_SLOT, offer.slot + 1);
+    }
+    sender.sendMessage(`${offer.sell ? "Sold" : "Bought"} ${offer.quantity.toLocaleString("en-US")} x ${ItemDefinition.forId(offer.itemId).getName()}. Click Collect.`);
+  }, Math.max(0, offer.completesAt - Date.now()));
+  timers.add(timer);
 }
 
 function marketVarps(slot, offer) {
@@ -75,7 +98,7 @@ function marketVarps(slot, offer) {
 function allMarketVarps(player) {
   const varps = {};
   const slots = completedOffers(player);
-  for (let slot = 0; slot < 8; slot++) Object.assign(varps, marketVarps(slot, slots.get(slot)));
+  for (let slot = 0; slot < 8; slot++) Object.assign(varps, marketVarps(slot, slots[slot]));
   return varps;
 }
 
@@ -93,7 +116,7 @@ function collection(offer) {
 function allCollections(player) {
   const inventories = {};
   const slots = completedOffers(player);
-  for (let slot = 0; slot < 8; slot++) inventories[COLLECTIONS[slot]] = collection(slots.get(slot));
+  for (let slot = 0; slot < 8; slot++) inventories[COLLECTIONS[slot]] = collection(slots[slot]);
   return inventories;
 }
 
@@ -127,7 +150,7 @@ function home(player) {
 }
 
 function showCompleted(player, slot) {
-  if (!completedOffers(player).has(slot)) return;
+  if (!Object.hasOwn(completedOffers(player), slot)) return;
   offers.delete(player);
   viewing.set(player, slot);
   player.setEnteredAmountAction(null);
@@ -155,8 +178,8 @@ function chooseItem(player, offer) {
 }
 
 function start(player, sell, slot = 0, itemId = -1) {
-  if (completedOffers(player).has(slot)) {
-    const free = Array.from({ length: 8 }, (_, i) => i).find((i) => !completedOffers(player).has(i));
+  if (Object.hasOwn(completedOffers(player), slot)) {
+    const free = Array.from({ length: 8 }, (_, i) => i).find((i) => !Object.hasOwn(completedOffers(player), i));
     if (free == null) {
       player.getPacketSender().sendMessage("Collect an offer before creating another one.");
       return;
@@ -197,8 +220,9 @@ function confirm(player, offer) {
     return;
   }
   inventory.setItems(result.getItems()).refreshItems();
-  const finished = { ...offer, total, finished: false };
-  completedOffers(player).set(offer.slot, finished);
+  const finished = { ...offer, total, finished: false, completesAt: Date.now() + OFFER_DELAY_MS };
+  completedOffers(player)[offer.slot] = finished;
+  saveOffers(player);
   offers.delete(player);
   viewing.set(player, offer.slot);
   player.setEnteredAmountAction(null);
@@ -209,22 +233,12 @@ function confirm(player, offer) {
       { [SELECTED_SLOT]: offer.slot + 1 },
       { [COLLECTIONS[offer.slot]]: collection(finished) })
     .sendMessage("Offer placed. It will complete in five seconds.");
-  setTimeout(() => {
-    if (completedOffers(player).get(offer.slot) !== finished) return;
-    finished.finished = true;
-    refreshCollectionBox(player);
-    sender.sendInterfaceScript(786, [], marketVarps(offer.slot, finished), undefined,
-      { [COLLECTIONS[offer.slot]]: collection(finished) });
-    if (player.getInterfaceId() === GE && viewing.get(player) === offer.slot && !offers.has(player)) {
-      sender.sendVarbit(SELECTED_SLOT, 0).sendVarbit(SELECTED_SLOT, offer.slot + 1);
-    }
-    sender.sendMessage(`${offer.sell ? "Sold" : "Bought"} ${amount.toLocaleString("en-US")} x ${ItemDefinition.forId(offer.itemId).getName()}. Click Collect.`);
-  }, OFFER_DELAY_MS);
+  scheduleCompletion(player, finished);
 
 }
 
 function collect(player, action, slot = viewing.get(player)) {
-  const offer = completedOffers(player).get(slot);
+  const offer = completedOffers(player)[slot];
   if (!offer?.finished) return;
   const baseId = offer.sell ? COINS : ItemDefinition.forId(offer.itemId).unNote();
   const noteId = ItemDefinition.forId(baseId).getNoteId();
@@ -246,7 +260,8 @@ function collect(player, action, slot = viewing.get(player)) {
   }
   destination.setItems(result.getItems());
   if (action !== 3) inventory.refreshItems();
-  completedOffers(player).delete(slot);
+  delete completedOffers(player)[slot];
+  saveOffers(player);
   const sender = player.getPacketSender();
   sender.sendInterfaceScript(786, [], marketVarps(slot), undefined,
     { [COLLECTIONS[slot]]: collection() });
@@ -281,7 +296,8 @@ function openGrandExchange({ player }) {
   sender.sendInterfaceScript(786, [], undefined, undefined, allCollections(player));
   // Collection inventories arrive after the slot widgets mount. Re-trigger
   // completed slots so their native render scripts see those inventories.
-  for (const [slot, offer] of completedOffers(player)) {
+  for (const [key, offer] of Object.entries(completedOffers(player))) {
+    const slot = Number(key);
     sender.sendConfig(OFFER_ITEMS[slot], -1).sendConfig(OFFER_ITEMS[slot], offer.itemId);
   }
   player.getInventory().refreshItems();
@@ -326,7 +342,7 @@ function handleCollectionButton({ player, buttonId, slot, action }) {
   if (player.getInterfaceId() !== GE_COLLECT) return true;
   const child = buttonId & 0xffff;
   if ((child === 3 || child === 4) && action === 1) {
-    for (const index of [...completedOffers(player).keys()]) collect(player, child === 4 ? 3 : 1, index);
+    for (const index of Object.keys(completedOffers(player)).map(Number)) collect(player, child === 4 ? 3 : 1, index);
   } else if (child >= 5 && child <= 12 && slot === 3 && action >= 1 && action <= 3) {
     collect(player, action, child - 5);
   }
@@ -354,7 +370,7 @@ function handleExchangeButton({ player, buttonId, slot, action }) {
   if (child >= 7 && child <= 14) {
     // Script 798 assigns Buy to child 3 and Sell to child 4.
     const offerSlot = child - 7;
-    if (completedOffers(player).has(offerSlot)) showCompleted(player, offerSlot);
+    if (Object.hasOwn(completedOffers(player), offerSlot)) showCompleted(player, offerSlot);
     else if (slot === 3 || slot === 4) start(player, slot === 4, offerSlot);
     return true;
   }
@@ -390,6 +406,14 @@ const EXCHANGE_BUTTONS = [uid(4), uid(24), uid(26), uid(30), ...Array.from({ len
 module.exports = {
   name: "GrandExchange",
   register(api) {
+    api.persistAttribute("grandExchangeOffers");
+    api.onPlayerLogin(({ player }) => {
+      for (const offer of Object.values(completedOffers(player))) scheduleCompletion(player, offer);
+    });
+    api.onPlayerLogout(({ player }) => {
+      for (const timer of completionTimers.get(player) ?? []) clearTimeout(timer);
+      completionTimers.delete(player);
+    });
     api.registerCommand("ge", openGrandExchange);
     api.registerCommand("gecollect", openCollectionBox);
 
