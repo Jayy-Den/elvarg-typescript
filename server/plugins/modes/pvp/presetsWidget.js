@@ -79,7 +79,7 @@ const INVENTORY_WIDTH = INVENTORY_PITCH * INVENTORY_COLUMNS;
 const INVENTORY_X = CONTENT_RIGHT - INVENTORY_WIDTH;
 
 const BUTTON_GAP = 8;
-const BUTTON_COUNT = 4;
+const BUTTON_COUNT = 3;
 const BUTTON_WIDTH = Math.floor(
   (CONTENT_RIGHT - CONTENT_X - (BUTTON_COUNT - 1) * BUTTON_GAP) / BUTTON_COUNT
 );
@@ -134,7 +134,6 @@ const COMPONENT = {
   SPELLBOOK: 31,
   LOAD_BUTTON: 40,
   SAVE_BUTTON: 41,
-  CLEAR_BUTTON: 42,
   DEATH_BUTTON: 43,
 };
 
@@ -387,8 +386,7 @@ function buildPresetsWidgetGroup() {
   const buttonX = (index) => CONTENT_X + index * (BUTTON_WIDTH + BUTTON_GAP);
   button(COMPONENT.LOAD_BUTTON, buttonX(0), BUTTON_INSET_Y, BUTTON_WIDTH);
   button(COMPONENT.SAVE_BUTTON, buttonX(1), BUTTON_INSET_Y, BUTTON_WIDTH);
-  button(COMPONENT.CLEAR_BUTTON, buttonX(2), BUTTON_INSET_Y, BUTTON_WIDTH);
-  button(COMPONENT.DEATH_BUTTON, buttonX(3), BUTTON_INSET_Y, BUTTON_WIDTH);
+  button(COMPONENT.DEATH_BUTTON, buttonX(2), BUTTON_INSET_Y, BUTTON_WIDTH);
 
   return { groupId: GROUP_ID, widgets };
 }
@@ -436,7 +434,6 @@ module.exports = {
     ...[
       COMPONENT.LOAD_BUTTON,
       COMPONENT.SAVE_BUTTON,
-      COMPONENT.CLEAR_BUTTON,
       COMPONENT.DEATH_BUTTON,
     ].map((component) => [component, component + 50]),
   ],

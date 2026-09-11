@@ -12,7 +12,6 @@ const {
 } = require("../navigation/BotNavigation");
 const { callModeHook } = require("../hooks/ModeHookContract");
 const {
-  clearBotActivePreset,
   isPvpOnlyBotState,
   resetMovementState,
   setModePvp,
@@ -1546,8 +1545,6 @@ class BotBehaviorTask extends Task {
       if (this.isPvpOnlyBot(state) && this.handlePersistentPvpRespawn) {
         this.handlePersistentPvpRespawn(entry, nowMs);
       }
-      // Clear any active preset after respawn, not during the death animation.
-      clearBotActivePreset(player, state);
       state.deathResetApplied = false;
       this.scheduleNextDecision(state, nowMs);
     }

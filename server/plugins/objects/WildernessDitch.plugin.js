@@ -4,11 +4,6 @@ const { Location } = require("../../src/main/typescript/elvarg/game/model/Locati
 const { Sound } = require("../../src/main/typescript/elvarg/game/Sound");
 const { Sounds } = require("../../src/main/typescript/elvarg/game/Sounds");
 const { ObjectIds } = require("../../src/main/typescript/elvarg/util/IdEnums");
-const {
-  commitPresetState,
-  isPresetActive,
-  initPresetsStateCoreAccess,
-} = require("../modes/pvp/PresetsState");
 
 const WILDERNESS_DITCH_OBJECT_ID = ObjectIds.WILDERNESS_DITCH;
 
@@ -34,9 +29,6 @@ function tryCrossWildernessDitch(player, ditchY, sourceY, options = {}) {
   }
 
   const yOffset = resolveDitchYOffset(player, ditchY, sourceY);
-  if (yOffset < 0 && isPresetActive(player)) {
-    commitPresetState(player);
-  }
 
   const crossDitch = new Location(0, yOffset);
   const forceMovement = new ForceMovement(
@@ -58,7 +50,6 @@ module.exports = {
   name: "WildernessDitch",
   register: (api) => {
     TaskManager = api.getTaskManager();
-    initPresetsStateCoreAccess(api);
     api.onObjectFirstClick(
       WILDERNESS_DITCH_OBJECT_ID,
       ({ player, location, sourceLocation }) =>

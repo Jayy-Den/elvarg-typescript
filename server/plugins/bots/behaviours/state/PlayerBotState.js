@@ -3,12 +3,6 @@ const { Animation } = require("../../../../src/main/typescript/elvarg/game/model
 const { Graphic } = require("../../../../src/main/typescript/elvarg/game/model/Graphic");
 const { Location } = require("../../../../src/main/typescript/elvarg/game/model/Location");
 const { clearMovementRequest } = require("../navigation/BotNavigation");
-const {
-  clearPresetState,
-  isPresetActive,
-  restorePresetSnapshot,
-  initPresetsStateCoreAccess,
-} = require("../../../modes/pvp/PresetsState");
 
 const HOME_TELEPORT_START_ANIMATION = new Animation(714);
 const HOME_TELEPORT_END_ANIMATION = new Animation(715);
@@ -327,7 +321,6 @@ let TaskManager = null;
 /** Called once from PlayerBots.plugin.js's register(api), before any bot behavior runs. */
 function initPlayerBotStateCoreAccess(api) {
   TaskManager = api.getTaskManager();
-  initPresetsStateCoreAccess(api);
 }
 
 function resetMovementState(player) {
@@ -427,32 +420,7 @@ function isPvpOnlyBotState(state) {
   return Array.isArray(allowedModes) && allowedModes.length === 1 && allowedModes[0] === "pvp";
 }
 
-function clearBotActivePreset(player, state = null) {
-  if (!player || player.isPlayerBot?.() !== true) {
-    return false;
-  }
-  if (isPvpOnlyBotState(state) || player.getAttribute?.("botRecruitOwnerUsername")) {
-    return false;
-  }
-  // Avoid visually clearing gear mid-death animation. We clear presets once
-  // the bot is alive again in the post-death reset flow.
-  const deadOrDying =
-    (player.getHitpoints?.() ?? 0) <= 0 || player.isDyingReturn?.() === true;
-  if (deadOrDying) {
-    return false;
-  }
-  if (!isPresetActive(player)) {
-    return false;
-  }
-  const restored = restorePresetSnapshot(player, { preserveLocation: true });
-  if (!restored) {
-    clearPresetState(player);
-  }
-  return true;
-}
-
 function applyModeTransitionSideEffects(player, state, mode, options = {}) {
-  clearBotActivePreset(player, state);
   restoreSuppressedAutoRetaliate(player, state, mode);
   if (options.resetMovement !== false) {
     resetMovementState(player);
@@ -819,5 +787,4 @@ module.exports = {
   setModeSmelting,
   setModeFiremaking,
   teleportHome,
-  clearBotActivePreset,
 };

@@ -6,7 +6,6 @@ const { CombatSpells } = require("../../../src/main/typescript/elvarg/game/conte
 const { Autocasting } = require("../../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
 const { Presetable } = require("../../../src/main/typescript/elvarg/game/content/presets/Presetable");
 const { PredefinedPresets } = require("../../../src/main/typescript/elvarg/game/content/presets/PredefinedPresets");
-const { PlayerSave } = require("../../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
 const { Wilderness } = require("../../../src/main/typescript/elvarg/game/content/wilderness/Wilderness");
 const { Item } = require("../../../src/main/typescript/elvarg/game/model/Item");
 const { Skill } = require("../../../src/main/typescript/elvarg/game/model/Skill");
@@ -31,15 +30,6 @@ const {
   uid,
   buildPresetsInterfaceDefinition,
 } = require("./presetsWidget");
-const {
-  isPresetActive,
-  hasPresetSnapshot,
-  clearPresetState,
-  commitPresetState,
-  markPresetActiveWithSnapshot,
-  restorePresetSnapshot,
-  initPresetsStateCoreAccess,
-} = require("./PresetsState");
 
 const MAX_PRESETS = CUSTOM_ROW_COUNT;
 const MAIN_MODAL_UID = (161 << 16) | 16;
@@ -58,7 +48,6 @@ const CUSTOM_ROW_UIDS = Array.from({ length: CUSTOM_ROW_COUNT }, (_, row) =>
 const PRESET_BUTTON_UIDS = [
   uid(COMPONENT.LOAD_BUTTON),
   uid(COMPONENT.SAVE_BUTTON),
-  uid(COMPONENT.CLEAR_BUTTON),
   uid(COMPONENT.DEATH_BUTTON),
   ...GLOBAL_ROW_UIDS,
   ...CUSTOM_ROW_UIDS,
@@ -248,25 +237,8 @@ function getSpellbookDisplayName(spellbook) {
   return "Normal";
 }
 
-function shouldKeepPresetReversible(player) {
-  if (!player) {
-    return false;
-  }
-  if (isPlayerBot(player)) {
-    return true;
-  }
-  return !Wilderness.isIn(player) && !player.getDueling().inDuel();
-}
-
 function isPresetBlockedInWilderness(player) {
   return Wilderness.isIn(player) && !isPlayerBot(player);
-}
-
-function commitPresetIfNeeded(player) {
-  if (!player || isPlayerBot(player) || !isPresetActive(player)) {
-    return false;
-  }
-  return commitPresetState(player);
 }
 
 function customPresets(player) {
@@ -298,7 +270,6 @@ function renderButtons(player) {
   const selected = player.getCurrentPreset?.() ?? null;
   const isCustom = selected != null && !selected.getIsGlobal?.();
   sender
-    .sendString("Clear preset", uid(COMPONENT.CLEAR_BUTTON + 50))
     .sendString(
       player.isOpenPresetsOnDeath?.() ? "On death: <col=40ff40>on</col>" : "On death: <col=ff981f>off</col>",
       uid(COMPONENT.DEATH_BUTTON + 50)
@@ -398,11 +369,6 @@ function applyPreset(player, preset) {
     sender.sendMessage("You can't load a preset in the wilderness!");
     return false;
   }
-  const alreadyPresetActive = isPresetActive(player) && hasPresetSnapshot(player);
-  const prePresetSnapshot = alreadyPresetActive
-    ? null
-    : PlayerSave.fromPlayer(player);
-
   let movedToBank = false;
   const carriedItems = [
     ...player.getInventory().getCopiedItems(),
@@ -511,14 +477,6 @@ function applyPreset(player, preset) {
   player.setSpecialPercentage(100);
   CombatSpecial.updateBar(player);
   player.getUpdateFlag().flag(Flag.APPEARANCE);
-  if (shouldKeepPresetReversible(player)) {
-    markPresetActiveWithSnapshot(player, {
-      snapshot: alreadyPresetActive ? undefined : prePresetSnapshot,
-      setFlag: true,
-    });
-  } else {
-    commitPresetState(player);
-  }
   return true;
 }
 
@@ -657,24 +615,6 @@ function handlePresetActionButton(player, buttonId) {
       return true;
     }
 
-    case uid(COMPONENT.CLEAR_BUTTON): {
-      if (!isPresetActive(player)) {
-        player.getPacketSender().sendMessage("No active preset to clear.");
-        return true;
-      }
-      if (restorePresetSnapshot(player, { preserveLocation: true })) {
-        player
-          .getPacketSender()
-          .sendMessage("Preset cleared. Your original character state has been restored.");
-        selectPreset(player, null);
-      } else {
-        player
-          .getPacketSender()
-          .sendMessage("Unable to clear preset: no preset snapshot was found.");
-      }
-      return true;
-    }
-
     default:
       return handlePresetRowClick(player, buttonId);
   }
@@ -691,26 +631,6 @@ function isAtDefaultRespawn(player) {
     location.getY?.() === respawn.getY?.() &&
     location.getZ?.() === respawn.getZ?.()
   );
-}
-
-function handlePresetTradeRestriction(player, target) {
-  commitPresetIfNeeded(player);
-  commitPresetIfNeeded(target);
-  return false;
-}
-
-function handlePresetBankRestriction(player) {
-  commitPresetIfNeeded(player);
-  return false;
-}
-
-function handlePresetShopRestriction(player) {
-  commitPresetIfNeeded(player);
-  return false;
-}
-
-function applyPresetItemDropPolicy(event) {
-  commitPresetIfNeeded(event.player);
 }
 
 let PrayerHandler;
@@ -730,47 +650,13 @@ module.exports = {
     CombatFactory = api.getCombatFactory();
     SkillManager = api.getSkillManager();
     TaskManager = api.getTaskManager();
-    initPresetsStateCoreAccess(api);
-    api.onPlayerLogin(({ player }) => {
-      if (isPresetActive(player) && !hasPresetSnapshot(player)) {
-        clearPresetState(player);
-      }
-    });
-
     api.registerCustomInterface(INTERFACE_DEFINITION);
 
     api.onInterfaceActionButton(PRESET_BUTTON_UIDS, ({ player, buttonId }) =>
       handlePresetActionButton(player, buttonId)
     );
 
-    api.onCanTrade((event) => {
-      if (handlePresetTradeRestriction(event.player, event.target)) {
-        event.allow = false;
-      }
-    });
-
-    api.onCanBank((event) => {
-      if (handlePresetBankRestriction(event.player)) {
-        event.allow = false;
-      }
-    });
-
-    api.onCanShop((event) => {
-      if (handlePresetShopRestriction(event.player)) {
-        event.allow = false;
-      }
-    });
-
-    api.onItemDropPolicy((event) => {
-      applyPresetItemDropPolicy(event);
-    });
-
-    api.onShouldDropItemsOnDeath((event) => {
-      commitPresetIfNeeded(event.player);
-    });
-
     api.onPlayerDefeated(({ victim }) => {
-      commitPresetIfNeeded(victim);
       const shouldOpenPresetInterface = victim.isOpenPresetsOnDeath?.() === true;
       if (!shouldOpenPresetInterface) {
         return;
