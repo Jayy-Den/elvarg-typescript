@@ -692,6 +692,7 @@ class ClientConnection {
           continue;
         case "logout":
           this.send(encodeLogoutResponse());
+          this.player?.getSession().flushPackets();
           this.cleanup("logout");
           this.channel.close(1000, "logout");
           return;
@@ -959,7 +960,11 @@ class ClientConnection {
   }
 
   private send(packet: Buffer): void {
-    if (this.channel.isOpen()) this.channel.send(packet);
+    if (this.player) {
+      this.player.getSession().sendClientPacket(packet);
+    } else if (this.channel.isOpen()) {
+      this.channel.send(packet);
+    }
   }
 
   private releasePendingName(): void {

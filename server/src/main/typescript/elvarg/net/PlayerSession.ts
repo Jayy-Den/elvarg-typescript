@@ -1,3 +1,4 @@
+import { MAX_GAME_MESSAGE_BYTES } from "./BinaryChannel";
 import { Packet } from "./packet/Packet";
 import { PacketBuilder } from "./packet/PacketBuilder";
 import { NetworkConstants } from "./NetworkConstants";
@@ -47,6 +48,9 @@ const WS_CLOSE_SEND_FAILURE = 1011;
 
 export class PlayerSession {
   private channel: SessionChannel;
+  private pendingPackets: Buffer[] = [];
+  private pendingPacketBytes = 0;
+  private packetFlushScheduled = false;
   private player?: Player;
   private lastBackpressureLogAt = 0;
   private networkPerfStartedAt = Date.now();
@@ -109,6 +113,35 @@ export class PlayerSession {
     if (!this.isBinaryChannelOpen() || typeof this.channel.send !== "function") {
       return false;
     }
+    if (this.getBufferedAmount() >= NetworkConstants.OUTBOUND_WS_BUFFER_CRITICAL_BYTES) {
+      this.closeBackpressuredWebSocket("critical_buffered_amount");
+      return false;
+    }
+    // Keep synchronous interface opens and their contents in one browser message.
+    // The client already decodes concatenated packets before it can render a frame.
+    if (this.pendingPacketBytes + frame.length > MAX_GAME_MESSAGE_BYTES && !this.flushPackets()) {
+      return false;
+    }
+    this.pendingPackets.push(frame);
+    this.pendingPacketBytes += frame.length;
+    if (!this.packetFlushScheduled) {
+      this.packetFlushScheduled = true;
+      queueMicrotask(() => {
+        this.packetFlushScheduled = false;
+        this.flushPackets();
+      });
+    }
+    return true;
+  }
+
+  public flushPackets(): boolean {
+    if (this.pendingPackets.length === 0) return true;
+    const frame = this.pendingPackets.length === 1
+      ? this.pendingPackets[0]
+      : Buffer.concat(this.pendingPackets, this.pendingPacketBytes);
+    this.pendingPackets = [];
+    this.pendingPacketBytes = 0;
+    if (!this.isBinaryChannelOpen() || typeof this.channel.send !== "function") return false;
     if (this.getBufferedAmount() >= NetworkConstants.OUTBOUND_WS_BUFFER_CRITICAL_BYTES) {
       this.closeBackpressuredWebSocket("critical_buffered_amount");
       return false;
