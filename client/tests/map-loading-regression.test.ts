@@ -10,6 +10,58 @@ import { LocModelLoader } from "../rs/config/loctype/LocModelLoader";
 import { LocModelType } from "../rs/config/loctype/LocModelType";
 import { LocType } from "../rs/config/loctype/LocType";
 import { ModelData } from "../rs/model/ModelData";
+import { getEditModeSceneLoadingStatus } from "../game/plugins/editmode/editModeLoadingScreen";
+import { isMapProfileEnabled } from "../render/render/mapLoadProfile";
+
+function mapProfilingRequiresExplicitFlag(): void {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "location");
+    try {
+        for (const [search, enabled] of [["", false], ["?edit=1", false],
+            ["?edit=1&map-profile=0", false], ["?edit=1&map-profile=1", true],
+            ["?map-profile=1", true]] as const) {
+            Object.defineProperty(globalThis, "location", { configurable: true, value: { search } });
+            assert.equal(isMapProfileEnabled(), enabled, search);
+        }
+    } finally {
+        if (original) Object.defineProperty(globalThis, "location", original);
+        else Reflect.deleteProperty(globalThis, "location");
+    }
+}
+
+function editorWaitsForRenderableRegion(): void {
+    const maps = new MapManager<any>(4, () => {});
+    const progress = { pending: 3, active: 1, downloadedBytes: 2.5 * 1048576 };
+    const client = {
+        scenePreviewEnabled: true,
+        scenePreviewLoadingStartedAt: performance.now(),
+        renderer: { mapManager: maps },
+        js5: { getProgress: () => progress },
+    } as any;
+    assert.match(getEditModeSceneLoadingStatus(client)!, /Downloading scenery - 2.5 MiB received/);
+    progress.pending = 20; // A build pass discovers more dependencies.
+    assert.match(getEditModeSceneLoadingStatus(client)!, /Downloading scenery - 2.5 MiB received/);
+    progress.downloadedBytes = 3 * 1048576;
+    progress.pending = 0;
+    maps.loadingMapIds.add(1);
+    assert.match(getEditModeSceneLoadingStatus(client)!, /Building the first region - 3.0 MiB received/);
+    client.js5 = undefined;
+    maps.loadingMapIds.add(1);
+    assert.match(getEditModeSceneLoadingStatus(client)!, /Building the first region/);
+    // A received/uploaded region alone must not dismiss the screen.
+    maps.mapSquares.set(1, { mapX: 0, mapY: 1 });
+    assert.ok(getEditModeSceneLoadingStatus(client));
+    maps.visibleMaps = [{ mapX: 0, mapY: 1 }];
+    maps.visibleMapCount = 1;
+    assert.ok(getEditModeSceneLoadingStatus(client), "stale visible regions must not dismiss loading");
+    maps.isMapInTargetGrid = () => true;
+    assert.equal(getEditModeSceneLoadingStatus(client), undefined);
+    assert.equal(client.scenePreviewLoadingStartedAt, undefined);
+    maps.visibleMapCount = 0;
+    assert.equal(getEditModeSceneLoadingStatus(client), undefined, "later streaming must not reopen startup loading");
+    client.scenePreviewLoadingStartedAt = performance.now();
+    client.scenePreviewEnabled = false;
+    assert.equal(getEditModeSceneLoadingStatus(client), undefined, "leaving preview must release the overlay");
+}
 
 function multipartLocsRequestAllMissingModelsTogether(): void {
     for (const typed of [false, true]) {
@@ -170,6 +222,8 @@ function regionReplacementUsesNativeMapData(): void {
 }
 
 mapLoadBackoff();
+mapProfilingRequiresExplicitFlag();
+editorWaitsForRenderableRegion();
 multipartLocsRequestAllMissingModelsTogether();
 incomingMapsRenderBeforeTheWholeGridIsReady();
 duplicateLocReplayIsIgnored();

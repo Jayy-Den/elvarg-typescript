@@ -1,4 +1,5 @@
 import { ClientState } from "../../ClientState";
+import { GameState } from "../../login/GameState";
 import { setAudioSuspended } from "../../audio/audioContext";
 import type { App as PicoApp, UniformBuffer } from "picogl";
 import type { Ray } from "../../math/Raycast";
@@ -1589,6 +1590,7 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         },
         setScenePreview: (enabled, spawn) => {
             client.scenePreviewEnabled = enabled;
+            client.scenePreviewLoadingStartedAt = enabled ? performance.now() : undefined;
             if (!enabled) return;
             // Logged out the camera still holds the title-screen angles and sits
             // 26 tiles up with nothing framed, which reads as a skewed world.
@@ -1819,9 +1821,17 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         syncNpcSpawnRegions();
     }
     let teardownEditorUi: (() => void) | undefined;
+    let editorUiLoadingTimer: number | undefined;
     const syncEditorUi = () => {
         const state = plugin.getState();
-        const active = state.config.enabled && (state.scenePreview || state.config.active);
+        const loading = client.scenePreviewLoadingStartedAt !== undefined;
+        if (loading && editorUiLoadingTimer === undefined) {
+            editorUiLoadingTimer = window.setTimeout(() => {
+                editorUiLoadingTimer = undefined;
+                syncEditorUi();
+            }, 100);
+        }
+        const active = !loading && state.config.enabled && (state.scenePreview || state.config.active);
         if (active && !teardownEditorUi) teardownEditorUi = mountEditorUi(plugin);
         else if (!active && teardownEditorUi) {
             teardownEditorUi();
@@ -1837,6 +1847,8 @@ export function installEditMode(client: OsrsClient): EditModePlugin {
         // ponytail: polled, because the cache load and the world definition
         // fetch settle independently and neither has a ready event to hook.
         const timer = window.setInterval(() => {
+            // Entering LOGIN_SCREEN resets the world; don't queue regions before that reset.
+            if (client.gameState !== GameState.LOGIN_SCREEN) return;
             if (!client.loadedCache || plugin.getState().world.loading) return;
             window.clearInterval(timer);
             plugin.setScenePreview(true);

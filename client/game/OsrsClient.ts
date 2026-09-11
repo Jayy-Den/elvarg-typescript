@@ -650,6 +650,7 @@ export class OsrsClient {
      * edit mode plugin; the render loop reads it every frame.
      */
     scenePreviewEnabled: boolean = false;
+    scenePreviewLoadingStartedAt?: number;
 
     // DevTools: show object id labels per tile
     showObjectTileIds: boolean = false;
