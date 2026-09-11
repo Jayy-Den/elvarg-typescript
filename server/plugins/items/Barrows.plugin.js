@@ -14,7 +14,6 @@ const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/gam
 const META_KEY = "barrows";
 const MAX_DURABILITY = 1000;
 const TICKS_PER_DEGRADE = 90;
-const REPAIR_NPCS = [1358, 2635, 4105, 9157, 1759, 1760, 1761, 1762, 1764, 1765, 1766, 1767, 1768, 1769, 1770, 1771, 1772, 1773];
 const REPAIR_COSTS = [60, 100, 90, 80]; // helm, weapon, body, legs
 const BARROWS_WEAPONS = new Set([4710, 4718, 4726, 4734, 4747, 4755]);
 
@@ -161,10 +160,26 @@ function applyAhrimDamage(hit, target) {
 
 let BonusManager;
 
+let pluginApi;
+
+function repairEquipment(event) {
+  const { player } = event;
+  const cost = barrowsItems(player).reduce((total, item) => total + repairCost(item), 0);
+  if (cost <= 0) {
+    player.getPacketSender().sendMessage("You have no damaged Barrows equipment to repair.");
+    event.handled = true;
+    return true;
+  }
+  pluginApi.sendMultiChatboxPrompt(player, `Repair all Barrows equipment for ${cost.toLocaleString("en-US")} coins?`, "Repair", () => repairAll(player), "Cancel", () => {});
+  event.handled = true;
+  return true;
+}
+
 module.exports = {
   name: "Barrows",
   _test: { durability, setDurability, repairCost },
   register(api) {
+    pluginApi = api;
     BonusManager = api.getBonusManager();
     const tasks = new WeakMap();
     const TaskManager = api.getTaskManager();
@@ -246,17 +261,9 @@ module.exports = {
         event.handled = true;
       }
     });
-    api.onNpcFirstClick(REPAIR_NPCS, (event) => {
-      const { player } = event;
-      const cost = barrowsItems(player).reduce((total, item) => total + repairCost(item), 0);
-      if (cost <= 0) {
-        player.getPacketSender().sendMessage("You have no damaged Barrows equipment to repair.");
-        event.handled = true;
-        return true;
-      }
-      api.sendMultiChatboxPrompt(player, `Repair all Barrows equipment for ${cost.toLocaleString("en-US")} coins?`, "Repair", () => repairAll(player), "Cancel", () => {});
-      event.handled = true;
-      return true;
-    });
+    api.onNpcInteraction("Bob", { Repair: repairEquipment });
+    api.onNpcInteraction("Aneirin", { Repair: repairEquipment });
+    api.onNpcInteraction("Dunstan", { "Talk-to": repairEquipment });
+    api.onNpcInteraction("Tindel Marchant", { "Talk-to": repairEquipment });
   },
 };
