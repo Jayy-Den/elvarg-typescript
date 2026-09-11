@@ -1,3 +1,4 @@
+import { ItemDefinition } from "../game/definition/ItemDefinition";
 import { PlayerSave } from "../game/entity/impl/player/persistence/PlayerSave";
 import { ContentApi } from "../net/http/ContentApi";
 import { CustomInterfaceRegistry } from "../game/interfaces/CustomInterfaceRegistry";
@@ -25,6 +26,7 @@ import {
   PluginModule,
   PluginItemOnGroundItemEvent,
   PluginItemOnItemEvent,
+  PluginItemUseFilter,
   PluginItemOnNpcEvent,
   PluginItemOnPlayerEvent,
   PluginItemOnObjectEvent,
@@ -2409,7 +2411,7 @@ export class PluginManager {
       onGroundItemSecondClick: (itemIds, handler) => {
         registerGroundItemClickHook(2, itemIds, handler, "ground-item-second");
       },
-      onItemOnObject: (handler) => {
+      onItemOnObject: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2419,11 +2421,22 @@ export class PluginManager {
             if (!event || event.handled || !event.player || !event.object) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.itemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
       },
-      onItemOnItem: (handler) => {
+      onItemOnItem: (
+        itemNameOrHandler: string | ((event: PluginItemOnItemEvent) => void),
+        otherItemNameOrFilter?: string | PluginItemUseFilter,
+        namedHandler?: (event: PluginItemOnItemEvent) => void | boolean,
+        namedFilter?: PluginItemUseFilter
+      ) => {
+        const named = typeof itemNameOrHandler === "string";
+        const handler: ((event: PluginItemOnItemEvent) => void | boolean) | undefined =
+          named ? namedHandler : itemNameOrHandler;
+        const filter = named ? namedFilter : otherItemNameOrFilter as PluginItemUseFilter | undefined;
+        if (named && typeof otherItemNameOrFilter !== "string") return;
         if (typeof handler !== "function") {
           return;
         }
@@ -2439,11 +2452,20 @@ export class PluginManager {
             ) {
               return;
             }
-            handler(event);
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.usedItemId).isNoted() !== filter.noted || ItemDefinition.forId(event.usedWithItemId).isNoted() !== filter.noted)) return;
+            if (named) {
+              const usedName = event.usedItem.getDefinition().getName();
+              const targetName = event.usedWithItem.getDefinition().getName();
+              if (!((usedName === itemNameOrHandler && targetName === otherItemNameOrFilter)
+                || (usedName === otherItemNameOrFilter && targetName === itemNameOrHandler))) return;
+              if (handler(event) !== false) event.handled = true;
+            } else {
+              handler(event);
+            }
           },
         });
       },
-      onItemOnNpc: (handler) => {
+      onItemOnNpc: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2453,11 +2475,12 @@ export class PluginManager {
             if (!event || event.handled || !event.player || !event.target || !event.item) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.itemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
       },
-      onItemOnPlayer: (handler) => {
+      onItemOnPlayer: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2477,11 +2500,12 @@ export class PluginManager {
             ) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.itemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
       },
-      onItemOnGroundItem: (handler) => {
+      onItemOnGroundItem: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2491,6 +2515,7 @@ export class PluginManager {
             if (!event || event.handled || !event.player || !event.inventoryItem) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.inventoryItemId).isNoted() !== filter.noted || ItemDefinition.forId(event.groundItemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
