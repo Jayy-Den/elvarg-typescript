@@ -218,6 +218,7 @@ import {
     markClanTransmit,
     markFriendTransmit,
     markInvTransmit,
+    markStockTransmit,
     markMiscTransmit,
     markStatTransmit,
     markVarTransmit,
@@ -6141,6 +6142,8 @@ export class OsrsClient {
             this.combatOptions.initVarDefaults();
 
             this.varManager.onVarpChange = (varpId, _oldValue, newValue) => {
+                // Server-backed stockmarket fields are separate from cache pending-offer varps.
+                if (varpId >= 7900 && varpId < 7900 + 8 * 7) markStockTransmit();
                 if (this.cs2Vm?.isRunning()) {
                     this.cs2Vm.queueVarpChange(varpId);
                 } else {

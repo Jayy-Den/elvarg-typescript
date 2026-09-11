@@ -3,7 +3,7 @@ import { Opcodes } from "../rs/cs2/Opcodes";
 import { registerMarketOps } from "../rs/cs2/handlers/MarketOps";
 
 const values = new Int32Array(8000);
-values[3204] = -1;
+values[7906] = -1;
 const ctx: any = {
     intStack: new Int32Array(8),
     intStackSize: 0,
@@ -22,7 +22,7 @@ const run = (opcode: Opcodes, slot = 0) => {
 assert.equal(run(Opcodes.STOCKMARKET_ISOFFEREMPTY), 1);
 assert.equal(run(Opcodes.STOCKMARKET_GETOFFERITEM), -1);
 
-values[3204] = 4151;
+values[7906] = 4151;
 values[7900] = 1200000;
 values[7901] = 2;
 values[7902] = 2;

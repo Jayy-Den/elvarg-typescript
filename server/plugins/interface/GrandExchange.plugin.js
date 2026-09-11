@@ -20,12 +20,12 @@ const SELL = 4397;
 const QUANTITY = 4396;
 const PRICE = 4398;
 const SELECTED_ITEM = 1151;
-// Script 5733 reads these as the item IDs for the eight exchange slots.
-// Zero is Dwarf remains; -1 is an empty offer.
+// Cache script 5733 reads pending client requests here, not accepted offers.
+// Keep them separate from the stockmarket opcode data.
 const OFFER_ITEMS = [3204, 3206, 3208, 3210, 3212, 3214, 3216, 3218];
 const COLLECTIONS = [518, 519, 520, 521, 522, 523, 539, 540];
 const MARKET_BASE = 7900;
-const MARKET_STRIDE = 6;
+const MARKET_STRIDE = 7;
 const FINISHED = 5;
 const OFFER_DELAY_MS = 5000;
 const MAX = 0x7fffffff;
@@ -84,14 +84,15 @@ function scheduleCompletion(player, offer) {
 function marketVarps(slot, offer) {
   const base = MARKET_BASE + slot * MARKET_STRIDE;
   return {
-    [OFFER_ITEMS[slot]]: offer?.itemId ?? -1,
+    [OFFER_ITEMS[slot]]: -1,
+    [base + 6]: offer?.itemId ?? -1,
     [base]: offer ? price(offer.itemId) : 0,
     [base + 1]: offer?.quantity ?? 0,
     [base + 2]: offer?.finished ? offer.quantity : 0,
     [base + 3]: offer?.finished ? offer.total : 0,
     [base + 4]: offer?.sell ? 1 : 0,
     [base + 5]: offer ? (offer.finished ? FINISHED : 2) : 0,
-    [OFFER_ITEMS[slot] + 1]: offer?.finished ? 1 : 0,
+    [OFFER_ITEMS[slot] + 1]: 0,
   };
 }
 
@@ -227,9 +228,7 @@ function confirm(player, offer) {
   viewing.set(player, offer.slot);
   player.setEnteredAmountAction(null);
   player.setEnteredSyntaxAction(null);
-  sender.sendConfig(SELECTED_ITEM, -1)
-    .sendVarbit(SELECTED_SLOT, 0)
-    .sendInterfaceScript(786, [], marketVarps(offer.slot, finished),
+  sender.sendInterfaceScript(786, [], { [SELECTED_ITEM]: -1, ...marketVarps(offer.slot, finished) },
       { [SELECTED_SLOT]: offer.slot + 1 },
       { [COLLECTIONS[offer.slot]]: collection(finished) })
     .sendMessage("Offer placed. It will complete in five seconds.");
@@ -294,12 +293,6 @@ function openGrandExchange({ player }) {
   // only after the sub-interface has mounted.
   sender.sendConfig(SELECTED_ITEM, -1);
   sender.sendInterfaceScript(786, [], undefined, undefined, allCollections(player));
-  // Collection inventories arrive after the slot widgets mount. Re-trigger
-  // completed slots so their native render scripts see those inventories.
-  for (const [key, offer] of Object.entries(completedOffers(player))) {
-    const slot = Number(key);
-    sender.sendConfig(OFFER_ITEMS[slot], -1).sendConfig(OFFER_ITEMS[slot], offer.itemId);
-  }
   player.getInventory().refreshItems();
   // Scripts 794/798: child 2 views offers; children 3/4 create buy/sell offers.
   for (let child = 7; child <= 14; child++) {

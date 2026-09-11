@@ -5,9 +5,8 @@ import { Opcodes } from "../Opcodes";
 import type { HandlerContext, HandlerMap } from "./HandlerTypes";
 
 export function registerMarketOps(handlers: HandlerMap): void {
-    const itemVarps = [3204, 3206, 3208, 3210, 3212, 3214, 3216, 3218];
     const state = (ctx: HandlerContext, slot: number, field: number) =>
-        ctx.varManager.getVarp(7900 + slot * 6 + field);
+        ctx.varManager.getVarp(7900 + slot * 7 + field);
     const slot = (ctx: HandlerContext) => ctx.popInt();
 
     // === Stock Market ===
@@ -18,7 +17,7 @@ export function registerMarketOps(handlers: HandlerMap): void {
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERITEM, (ctx) => {
         const index = slot(ctx);
-        ctx.pushInt(ctx.varManager.getVarp(itemVarps[index] ?? 3204));
+        ctx.pushInt(state(ctx, index, 6));
     });
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERPRICE, (ctx) => {
@@ -43,7 +42,7 @@ export function registerMarketOps(handlers: HandlerMap): void {
 
     handlers.set(Opcodes.STOCKMARKET_ISOFFEREMPTY, (ctx) => {
         const index = slot(ctx);
-        ctx.pushInt(ctx.varManager.getVarp(itemVarps[index] ?? 3204) < 0 ? 1 : 0);
+        ctx.pushInt(state(ctx, index, 5) === 0 ? 1 : 0);
     });
 
     handlers.set(Opcodes.STOCKMARKET_ISOFFERSTABLE, (ctx) => {
