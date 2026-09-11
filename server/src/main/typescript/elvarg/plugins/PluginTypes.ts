@@ -700,6 +700,8 @@ export interface PluginApi {
     name: string,
     handler: { amount(player: any): number; add(player: any, amount: number): void; remove(player: any, amount: number): void; name: string }
   ): void;
+  /** Save and restore this player attribute; values must be JSON-compatible. */
+  persistAttribute(key: string): void;
   setPlayerPersistence(persistence: PlayerPersistence): void;
   setExperienceRate(rate: number): void;
   getActiveRegionSnapshot(): PluginActiveRegionsEvent;

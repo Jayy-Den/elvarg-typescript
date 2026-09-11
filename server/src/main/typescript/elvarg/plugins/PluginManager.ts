@@ -1,3 +1,4 @@
+import { PlayerSave } from "../game/entity/impl/player/persistence/PlayerSave";
 import { ContentApi } from "../net/http/ContentApi";
 import { CustomInterfaceRegistry } from "../game/interfaces/CustomInterfaceRegistry";
 import * as fs from "fs";
@@ -2833,6 +2834,7 @@ export class PluginManager {
       registerShopCurrency: (name, handler) => {
         ShopManager.registerCurrency(name, handler);
       },
+      persistAttribute: (key) => PlayerSave.persistAttribute(key),
       setPlayerPersistence: (persistence) => {
         if (
           !persistence ||
