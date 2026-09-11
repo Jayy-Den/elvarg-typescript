@@ -86,5 +86,53 @@
       "method": "core.dialogues.start",
       "args": { "dialogueId": 2 }
     }
+  },
+  "2817": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 0 }
+    }
+  },
+  "3000": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 10 }
+    }
+  },
+  "2813": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 9 }
+    }
+  },
+  "2818": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 1 }
+    }
+  },
+  "2814": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 8 }
+    }
+  },
+  "2815": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 4 }
+    }
+  },
+  "2816": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 6 }
+    }
+  },
+  "2868": {
+    "third_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 7 }
+    }
   }
 }

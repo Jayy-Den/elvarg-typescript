@@ -169884,5 +169884,77 @@
         "id": 14957,
         "direction": 4,
         "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - General Store",
+        "x": 3094,
+        "y": 3487,
+        "id": 2817,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - Points Shop",
+        "x": 3095,
+        "y": 3487,
+        "id": 3000,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - General Supplies",
+        "x": 3096,
+        "y": 3487,
+        "id": 2813,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - Food And Points",
+        "x": 3097,
+        "y": 3487,
+        "id": 2818,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - Warrior Supplies",
+        "x": 3098,
+        "y": 3487,
+        "id": 2814,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - Range Gear Shop",
+        "x": 3099,
+        "y": 3487,
+        "id": 2815,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - Mage Gear Shop",
+        "x": 3100,
+        "y": 3487,
+        "id": 2816,
+        "direction": 1,
+        "wanderRadius": 0
+    },
+    {
+        "level": 0,
+        "name": "Edgeville market - Mage Runes Shop",
+        "x": 3101,
+        "y": 3487,
+        "id": 2868,
+        "direction": 1,
+        "wanderRadius": 0
     }
 ]
