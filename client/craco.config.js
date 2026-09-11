@@ -1,6 +1,14 @@
 const fs = require("fs");
 const path = require("path");
 
+// Port 3000 is off-limits: the Freebuff desktop app reserves it (it reads PORT
+// from the environment it was launched from, default 8787) and periodically
+// probes then force-kills whatever else is listening there. The dev server
+// must never bind it, regardless of how PORT leaks in from the environment.
+if (Number(process.env.PORT) === 3000 || !Number(process.env.PORT)) {
+    process.env.PORT = "3005";
+}
+
 const JsonMinimizerPlugin = require("json-minimizer-webpack-plugin");
 const evalSourceMapMiddleware = require("react-dev-utils/evalSourceMapMiddleware");
 const noopServiceWorkerMiddleware = require("react-dev-utils/noopServiceWorkerMiddleware");
@@ -131,6 +139,10 @@ module.exports = {
         },
     },
     devServer: (devServerConfig) => {
+        if (Number(devServerConfig.port) === 3000 || !devServerConfig.port) {
+            devServerConfig.port = 3005;
+        }
+
         delete devServerConfig.onBeforeSetupMiddleware;
         delete devServerConfig.onAfterSetupMiddleware;
 

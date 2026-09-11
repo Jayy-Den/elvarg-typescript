@@ -83,7 +83,11 @@ GAMEMODE=leagues-v yarn start
 
 ## Client Startup
 
-This launches the React dev server (usually on `http://localhost:3000`). Your browser should open automatically. The client will also download the cache on first run if needed.
+This launches the React dev server (usually on `http://localhost:3005`, from `PORT` in `client/.env`). Your browser should open automatically. The client will also download the cache on first run if needed.
+
+> Do not run the dev server on port 3000: the Freebuff desktop app reserves that
+> port and will probe and force-kill anything else listening on it every few
+> minutes, which looks like a mystery dev-server crash.
 
 ## You're In
 
