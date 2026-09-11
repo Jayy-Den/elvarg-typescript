@@ -35,6 +35,9 @@ const {
   ShopDefinitionLoader,
 } = require("../../src/main/typescript/elvarg/game/definition/loader/impl/ShopDefinitionLoader");
 const {
+  ShopDefinition,
+} = require("../../src/main/typescript/elvarg/game/definition/ShopDefinition");
+const {
   ShopManager,
 } = require("../../src/main/typescript/elvarg/game/model/container/shop/ShopManager");
 
@@ -1597,6 +1600,31 @@ module.exports = {
       } catch (error) {
         console.error(error);
         player.getPacketSender().sendMessage("Error reloading shops.");
+      }
+      return true;
+    });
+
+    api.registerCommand("shop", ({ player, parts }) => {
+      if (!requireRights(player, ownerOrDev)) {
+        return true;
+      }
+      const shopId = parseIntArg(parts[1]);
+      if (shopId === null || shopId < 0) {
+        const ids = ShopDefinition.all()
+          .map((definition) => definition.getId())
+          .sort((a, b) => a - b);
+        player.getPacketSender().sendMessage(
+          `Usage: ::shop id - available: ${ids.join(",")}`
+        );
+        return true;
+      }
+      const definition = ShopDefinition.forId(shopId);
+      if (!definition) {
+        player.getPacketSender().sendMessage(`No shop exists with id ${shopId}.`);
+        return true;
+      }
+      if (!ShopManager.open(player, shopId, true)) {
+        player.getPacketSender().sendMessage(`Failed to open shop ${shopId}.`);
       }
       return true;
     });

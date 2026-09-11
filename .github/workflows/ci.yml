@@ -61,6 +61,26 @@ jobs:
           corepack yarn --cwd server test:npc-drops
           corepack yarn --cwd server test:npc-spawns
           corepack yarn --cwd server test:cache-definitions
+      - name: Start isolated dev-rights server for the shop smoke test
+        run: |
+          DEV_USERNAME=smoketest TCP_PORT=43596 WEBSOCKET_PORT=43595 \
+            VOICE_SIGNAL_PORT=49602 DEVELOPMENT_API_PORT=49601 \
+            corepack yarn --cwd server dev &
+      - name: Wait for the isolated server
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:43595/regions > /dev/null; then
+              echo "isolated game server is up"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "isolated game server failed to start; last log lines:"
+          cat logs/server-*.log 2>/dev/null | tail -50 || true
+          exit 1
+      - name: Run shop-open smoke test
+        run: |
+          WEBSOCKET_PORT=43595 corepack yarn --cwd server test:shop
       - name: Upload server logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

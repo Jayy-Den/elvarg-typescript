@@ -92,6 +92,7 @@
     "dev:stress": "SERVER_PERF_PERIODIC_ENABLED=1 SERVER_PERF_PERIODIC_INTERVAL_MS=10000 SERVER_PERF_PERIODIC_SUMMARY_TICKS=30 node ../scripts/tee-logs.mjs server ../scripts/run-with-env.mjs - ./node_modules/nodemon/bin/nodemon.js --ext ts,json,js ./src/main/typescript/elvarg/Server.ts 0 --stressTest",
     "ensure-cache": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/ensure-cache.ts",
     "test:login": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/login-smoke.ts",
+    "test:shop": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/shop-open-smoke.ts",
     "test:developer-rights": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/developer-rights-smoke.ts",
     "test:plugin-config": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/plugin-config-smoke.ts",
     "test:experience-rates": "TS_NODE_COMPILER_OPTIONS='{\"target\":\"es2020\"}' ts-node ./scripts/experience-rates-smoke.ts",

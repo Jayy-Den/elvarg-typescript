@@ -48,6 +48,7 @@ account is allowed to use.
 | `::reloaddrops` | Reload NPC drop tables |
 | `::reloaditems` | Reload item definitions |
 | `::reloadshops` | Reload shop definitions |
+| `::shop <id>` | Open a shop by id (no id lists available ids) |
 | `::npcanim*` | NPC animation scanning tools (`::npcanims`, `::npcanimscan`, …) |
 
 ## Teleportation

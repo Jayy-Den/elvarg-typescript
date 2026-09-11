@@ -51,6 +51,7 @@ const MAX_COMMENDATIONS = 4000;
 const ATTR_WAITING_BOAT = "pest-control:waiting-boat";
 const PEST_CONTROL_POINTS = "PEST_CONTROL_POINTS";
 const VOID_KNIGHT_SHOP = 11;
+const VOID_KNIGHT_ARCHERY_SHOP = 12;
 const VOID_KNIGHT_IDS = [
   NpcIdentifiers.VOID_KNIGHT, NpcIdentifiers.VOID_KNIGHT_2, NpcIdentifiers.VOID_KNIGHT_3, NpcIdentifiers.VOID_KNIGHT_4,
   NpcIdentifiers.VOID_KNIGHT_5, NpcIdentifiers.VOID_KNIGHT_6, NpcIdentifiers.VOID_KNIGHT_7, NpcIdentifiers.VOID_KNIGHT_8,
@@ -1141,6 +1142,13 @@ function createPestControl(api) {
   api.onNpcFirstClick(VOID_KNIGHT_IDS, (event) => {
     if (OUTPOST.inside(event.player.getLocation())) {
       ShopManager.open(event.player, VOID_KNIGHT_SHOP);
+      event.handled = true;
+    }
+  });
+
+  api.onNpcSecondClick(VOID_KNIGHT_IDS, (event) => {
+    if (OUTPOST.inside(event.player.getLocation())) {
+      ShopManager.open(event.player, VOID_KNIGHT_ARCHERY_SHOP);
       event.handled = true;
     }
   });

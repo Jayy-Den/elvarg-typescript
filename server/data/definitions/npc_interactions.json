@@ -1,10 +1,4 @@
 {
-  "221": {
-    "first_click": {
-      "method": "core.shops.open",
-      "args": { "shopId": 8 }
-    }
-  },
   "308": {
     "second_click": {
       "method": "core.shops.open",
@@ -16,12 +10,6 @@
       "method": "core.shops.open",
       "args": { "shopId": 2 }
     },
-    "second_click": {
-      "method": "core.shops.open",
-      "args": { "shopId": 2 }
-    }
-  },
-  "316": {
     "second_click": {
       "method": "core.shops.open",
       "args": { "shopId": 2 }
