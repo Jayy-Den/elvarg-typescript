@@ -33,8 +33,8 @@ const {
   STAT_ROW_START,
   STAT_MAX_ROW_START,
   uid,
-} = require("../plugins/interface/presetsWidget");
-const Presets = require("../plugins/interface/Presets.plugin");
+} = require("../plugins/modes/pvp/presetsWidget");
+const Presets = require("../plugins/modes/pvp/Presets");
 
 type Sent = { call: string; args: any[] };
 

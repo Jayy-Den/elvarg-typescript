@@ -8,7 +8,7 @@ const {
   commitPresetState,
   isPresetActive,
   initPresetsStateCoreAccess,
-} = require("../interface/PresetsState");
+} = require("../modes/pvp/PresetsState");
 
 const WILDERNESS_DITCH_OBJECT_ID = ObjectIds.WILDERNESS_DITCH;
 

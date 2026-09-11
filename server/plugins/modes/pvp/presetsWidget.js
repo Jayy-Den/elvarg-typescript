@@ -3,7 +3,7 @@ const {
   TYPE_TEXT,
   TYPE_GRAPHIC,
   createWidgetGroup,
-} = require("./widgetGroup");
+} = require("../../interface/widgetGroup");
 
 const GROUP_ID = 30003;
 

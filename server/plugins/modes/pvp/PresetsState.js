@@ -1,12 +1,12 @@
-const { PlayerSave } = require("../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
-const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
-const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
-const { Autocasting } = require("../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
-const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
+const { PlayerSave } = require("../../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
+const { GameConstants } = require("../../../src/main/typescript/elvarg/game/GameConstants");
+const { WeaponInterfaceManager } = require("../../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
+const { Autocasting } = require("../../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
+const { Flag } = require("../../../src/main/typescript/elvarg/game/model/Flag");
 const {
   PlayerFlags,
   PlayerFlagAttributes,
-} = require("../../src/main/typescript/elvarg/game/entity/flags/PlayerFlags");
+} = require("../../../src/main/typescript/elvarg/game/entity/flags/PlayerFlags");
 
 let BonusManager;
 

@@ -1,19 +1,19 @@
-const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
-const { CacheDefinitions } = require("../../src/main/typescript/elvarg/game/cache/CacheDefinitions");
-const { PrayerData } = require("../../src/main/typescript/elvarg/game/content/PrayerHandler");
-const { CombatSpecial } = require("../../src/main/typescript/elvarg/game/content/combat/CombatSpecial");
-const { CombatSpells } = require("../../src/main/typescript/elvarg/game/content/combat/magic/CombatSpells");
-const { Autocasting } = require("../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
-const { Presetable } = require("../../src/main/typescript/elvarg/game/content/presets/Presetable");
-const { PredefinedPresets } = require("../../src/main/typescript/elvarg/game/content/presets/PredefinedPresets");
-const { PlayerSave } = require("../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
-const { Wilderness } = require("../../src/main/typescript/elvarg/game/content/wilderness/Wilderness");
-const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
-const { Skill } = require("../../src/main/typescript/elvarg/game/model/Skill");
-const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
-const { Bank } = require("../../src/main/typescript/elvarg/game/model/container/impl/Bank");
-const { Task } = require("../../src/main/typescript/elvarg/game/task/Task");
-const { Misc } = require("../../src/main/typescript/elvarg/util/Misc");
+const { GameConstants } = require("../../../src/main/typescript/elvarg/game/GameConstants");
+const { CacheDefinitions } = require("../../../src/main/typescript/elvarg/game/cache/CacheDefinitions");
+const { PrayerData } = require("../../../src/main/typescript/elvarg/game/content/PrayerHandler");
+const { CombatSpecial } = require("../../../src/main/typescript/elvarg/game/content/combat/CombatSpecial");
+const { CombatSpells } = require("../../../src/main/typescript/elvarg/game/content/combat/magic/CombatSpells");
+const { Autocasting } = require("../../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
+const { Presetable } = require("../../../src/main/typescript/elvarg/game/content/presets/Presetable");
+const { PredefinedPresets } = require("../../../src/main/typescript/elvarg/game/content/presets/PredefinedPresets");
+const { PlayerSave } = require("../../../src/main/typescript/elvarg/game/entity/impl/player/persistence/PlayerSave");
+const { Wilderness } = require("../../../src/main/typescript/elvarg/game/content/wilderness/Wilderness");
+const { Item } = require("../../../src/main/typescript/elvarg/game/model/Item");
+const { Skill } = require("../../../src/main/typescript/elvarg/game/model/Skill");
+const { Flag } = require("../../../src/main/typescript/elvarg/game/model/Flag");
+const { Bank } = require("../../../src/main/typescript/elvarg/game/model/container/impl/Bank");
+const { Task } = require("../../../src/main/typescript/elvarg/game/task/Task");
+const { Misc } = require("../../../src/main/typescript/elvarg/util/Misc");
 const {
   GROUP_ID,
   COMPONENT,
@@ -232,7 +232,7 @@ function applyPresetAutocastIfDefined(player, preset) {
 
 function getSpellbookDisplayName(spellbook) {
   const MagicSpellbook =
-    require("../../src/main/typescript/elvarg/game/model/MagicSpellbook").MagicSpellbook;
+    require("../../../src/main/typescript/elvarg/game/model/MagicSpellbook").MagicSpellbook;
   if (spellbook === MagicSpellbook.ANCIENT) {
     return "Ancient";
   }
@@ -724,6 +724,7 @@ module.exports = {
   applyRandomGlobalPreset,
   getGlobalPresetByName,
   getGlobalPresetPool,
+  openPresetInterface,
   register(api) {
     PrayerHandler = api.getPrayerHandler();
     CombatFactory = api.getCombatFactory();
@@ -737,15 +738,6 @@ module.exports = {
     });
 
     api.registerCustomInterface(INTERFACE_DEFINITION);
-
-    // Presets are for everyone, not just staff.
-    api.registerCommand("presets", ({ player }) => {
-      if (player.busy?.()) {
-        player.getPacketSender().sendInterfaceRemoval();
-      }
-      openPresetInterface(player, player.getCurrentPreset?.() ?? null);
-      return true;
-    });
 
     api.onInterfaceActionButton(PRESET_BUTTON_UIDS, ({ player, buttonId }) =>
       handlePresetActionButton(player, buttonId)

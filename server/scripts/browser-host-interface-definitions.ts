@@ -1,4 +1,4 @@
-const { buildPresetsInterfaceDefinition } = require("../plugins/interface/presetsWidget");
+const { buildPresetsInterfaceDefinition } = require("../plugins/modes/pvp/presetsWidget");
 
 const plugins = [
   "ItemSpawner",

@@ -8,7 +8,7 @@ const {
   isPresetActive,
   restorePresetSnapshot,
   initPresetsStateCoreAccess,
-} = require("../../../interface/PresetsState");
+} = require("../../../modes/pvp/PresetsState");
 
 const HOME_TELEPORT_START_ANIMATION = new Animation(714);
 const HOME_TELEPORT_END_ANIMATION = new Animation(715);
