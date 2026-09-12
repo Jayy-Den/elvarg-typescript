@@ -29,6 +29,10 @@ export class TouchInputAdapter {
         this.recognizer.setConfig({ enableCameraOrbit: enabled });
     }
 
+    setScrollCheckCallback(cb: (x: number, y: number) => boolean): void {
+        (this.recognizer as any).isOverScrollableWidget = cb;
+    }
+
     onFingerDown(x: number, y: number, timeMs: number): void {
         this.clearLongPressTimer();
         this.applyIntents(this.recognizer.fingerDown(x, y, timeMs));
@@ -105,6 +109,7 @@ export class TouchInputAdapter {
                     break;
                 case "scrollSample":
                     this.input.applyTouchScrollSample(
+                        intent.x,
                         intent.y,
                         intent.deltaY,
                         intent.deltaTimeMs,

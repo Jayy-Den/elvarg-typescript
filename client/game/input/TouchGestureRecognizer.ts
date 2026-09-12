@@ -7,7 +7,7 @@ export type TouchGestureIntent =
     | { type: "orbitStart"; x: number; y: number }
     | { type: "orbitMove"; x: number; y: number; deltaX: number; deltaY: number }
     | { type: "orbitEnd" }
-    | { type: "scrollSample"; y: number; deltaY: number; deltaTimeMs: number }
+    | { type: "scrollSample"; x: number; y: number; deltaY: number; deltaTimeMs: number }
     | { type: "cancel" };
 
 type Phase = "idle" | "pending" | "longPressed" | "orbiting" | "dragging";
@@ -30,6 +30,8 @@ export class TouchGestureRecognizer {
     private lastY = 0;
     private lastTimeMs = 0;
     private config: TouchControlsConfig;
+    /** Callback to check if a position is over a scrollable widget. */
+    public isOverScrollableWidget: ((x: number, y: number) => boolean) | null = null;
 
     constructor(config: TouchControlsConfig = DEFAULT_TOUCH_CONTROLS) {
         this.config = { ...config };
@@ -61,6 +63,10 @@ export class TouchGestureRecognizer {
         this.lastX = x;
         this.lastY = y;
         this.lastTimeMs = timeMs;
+        // If starting over a scrollable widget, immediately begin dragging
+        if (this.config.scrollWidgetsBeforeOrbit && (this as any).isOverScrollableWidget?.(x, y)) {
+            this.phase = "dragging";
+        }
         return [{ type: "move", x, y }];
     }
 
@@ -92,7 +98,7 @@ export class TouchGestureRecognizer {
 
         if (this.phase === "dragging" || this.phase === "pending" || this.phase === "longPressed") {
             if (deltaTimeMs > 0 && Math.abs(deltaY) > 2) {
-                intents.push({ type: "scrollSample", y, deltaY, deltaTimeMs });
+                intents.push({ type: "scrollSample", x, y, deltaY, deltaTimeMs });
             }
         }
 
@@ -102,6 +108,17 @@ export class TouchGestureRecognizer {
                 if (this.phase === "longPressed") {
                     // Already fired right-click; moving after that cancels hold state.
                     intents.push({ type: "cancel" });
+                }
+                // Check if we're over a scrollable widget — if so, scroll instead of orbit
+                if (this.config.scrollWidgetsBeforeOrbit && (this as any).isOverScrollableWidget?.(x, y)) {
+                    this.phase = "dragging";
+                    if (deltaTimeMs > 0 && Math.abs(deltaY) > 2) {
+                        intents.push({ type: "scrollSample", x, y, deltaY, deltaTimeMs });
+                    }
+                    this.lastX = x;
+                    this.lastY = y;
+                    this.lastTimeMs = timeMs;
+                    return intents;
                 }
                 if (this.config.enableCameraOrbit) {
                     this.phase = "orbiting";

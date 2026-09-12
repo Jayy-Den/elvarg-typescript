@@ -9,6 +9,11 @@ RewriteRule ^ index.html [L]
 
 <IfModule mod_headers.c>
     Header set Cross-Origin-Opener-Policy "same-origin"
-    Header set Cross-Origin-Embedder-Policy "require-corp"
     Header set Cross-Origin-Resource-Policy "same-origin"
+    # Safari/WebKit blocks Worker() under COEP even with CORP, which breaks the
+    # client on iOS. Only enable COEP (for SharedArrayBuffer) on desktop
+    # Chromium-family browsers; mobile and Safari get COOP+CORP only.
+    SetEnvIf User-Agent ".*(Chrome|Chromium|Edg|OPR)/.*" DESKTOP_CHROMIUM_UA
+    SetEnvIf User-Agent ".*(CriOS|EdgiOS|FxiOS).*" MOBILE_ALT_BROWSER_UA
+    Header set Cross-Origin-Embedder-Policy "require-corp" env=DESKTOP_CHROMIUM_UA env=!MOBILE_ALT_BROWSER_UA
 </IfModule>

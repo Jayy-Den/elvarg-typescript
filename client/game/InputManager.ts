@@ -208,6 +208,8 @@ export class InputManager {
     // === Pinch-to-zoom state ===
     /** Whether a pinch gesture is active (2 fingers on screen) */
     private isPinching: boolean = false;
+    /** Timestamp (ms) when the last pinch gesture ended. Used to suppress accidental taps. */
+    private lastPinchEndTime: number = 0;
     /** Initial distance between two touch points when pinch started */
     private pinchStartDistance: number = 0;
     /** Last known distance between two touch points */
@@ -373,6 +375,21 @@ export class InputManager {
      * When false, one-finger drag scrolls / cancels tap but does not orbit the camera.
      * Typically disabled on the login screen so world-select lists remain scrollable.
      */
+    private _scrollCheckCallback: ((x: number, y: number) => boolean) | null = null;
+
+    setScrollCheckCallback(cb: (x: number, y: number) => boolean): void {
+        this._scrollCheckCallback = cb;
+        this.touchAdapter.setScrollCheckCallback(cb);
+    }
+
+    isOverScrollableWidget(x: number, y: number): boolean {
+        return this._scrollCheckCallback?.(x, y) ?? false;
+    }
+
+    setCameraOrbitEnabled(enabled: boolean): void {
+        this.touchAdapter.setCameraOrbitEnabled(enabled);
+    }
+
     setTouchCameraOrbitEnabled(enabled: boolean): void {
         this.touchAdapter.setCameraOrbitEnabled(enabled);
     }
@@ -385,6 +402,12 @@ export class InputManager {
     }
 
     applyTouchTap(x: number, y: number): void {
+        // Suppress taps that occur immediately after a pinch gesture ends
+        // to prevent accidental walk-to-position when lifting fingers after zoom.
+        const nowMs = Date.now();
+        if (nowMs - this.lastPinchEndTime < 200) {
+            return;
+        }
         this.clickX = x;
         this.clickY = y;
         this.clickTime = Date.now();
@@ -435,13 +458,17 @@ export class InputManager {
         this._dragStartY = -1;
     }
 
-    applyTouchScrollSample(y: number, deltaY: number, deltaTimeMs: number): void {
+    applyTouchScrollSample(x: number, y: number, deltaY: number, deltaTimeMs: number): void {
         if (deltaTimeMs <= 0) return;
         this.isTouchScrolling = true;
         this.touchScrollVelocityY = (deltaY / deltaTimeMs) * 16;
         this.prevTouchY = y;
         this.prevTouchTime =
             typeof performance !== "undefined" ? performance.now() : Date.now();
+        // Keep LEFT click held for scrollbar dragging
+        this.clickMode2 = ClickMode.LEFT;
+        this.mouseX = x;
+        this.mouseY = y;
     }
 
     cancelTouchGesture(): void {
@@ -970,15 +997,11 @@ export class InputManager {
             this.isPinching = false;
             this.pinchStartDistance = 0;
             this.lastPinchDistance = 0;
-            // If one finger remains, start a fresh one-finger gesture.
-            if (event.touches.length === 1 && this.element) {
-                const [x, y] = getMousePos(this.element, event.touches[0]);
-                this.prevTouchY = y;
-                this.prevTouchTime = performance.now();
-                this.touchScrollVelocityY = 0;
-                this.isTouchScrolling = false;
-                this.touchAdapter.onFingerDown(x, y, this.lastInputTimeMs);
-            }
+            // Cancel the gesture to prevent accidental tap when the last finger lifts.
+            // Starting a new gesture here would cause a tap to fire on finger-up.
+            this.touchAdapter.onCancel();
+            // Record pinch end time to suppress accidental tap from remaining finger
+            this.lastPinchEndTime = Date.now();
             event.preventDefault();
             return;
         }

@@ -193,7 +193,7 @@ import { WidgetSessionManager } from "../widgets/WidgetSessionManager";
 import { applyQuestListWidgetGroups } from "../widgets/custom/questList";
 import { cleanupInterfaceClickTargets } from "../widgets/gl/widgets-gl";
 import { layoutWidgets } from "../widgets/layout/WidgetLayout";
-import { sanitizeText } from "../widgets/menu/utils";
+import { sanitizeText, collectWidgetsAtPointAcrossRoots } from "../widgets/menu/utils";
 import { Js5RangeClient } from "../rs/cache/js5/Js5RangeClient";
 import { isJs5CoordinatorMessage } from "../rs/cache/js5/Js5Coordinator";
 import { PresenceBitset } from "../rs/cache/js5/PresenceBitset";
@@ -232,6 +232,7 @@ import { MusicSystem } from "./audio/MusicSystem";
 import { type SequenceSoundContext, SoundEffectSystem } from "./audio/SoundEffectSystem";
 import { ChatTextMetrics } from "./chat/ChatTextMetrics";
 import { MobileChatKeyboard } from "./chat/MobileChatKeyboard";
+import { EnterToTypeChat } from "./chat/EnterToTypeChat";
 import { CombatOptionsController } from "./combat/CombatOptionsController";
 import { HitsplatFlushController } from "./combat/HitsplatFlushController";
 import { ClientScriptLoader } from "./cs2/ClientScriptLoader";
@@ -731,6 +732,8 @@ export class OsrsClient {
     }
     // Mobile soft-keyboard bridge.
     private mobileChatKeyboard!: MobileChatKeyboard;
+    // RuneLite-style press-enter-to-type (desktop) + mobile soft-keyboard typing contract.
+    private enterToTypeChat!: EnterToTypeChat;
     private playerDesign!: PlayerDesignController;
     private customInterfaces!: CustomInterfaceRuntime;
     private combatOptions!: CombatOptionsController;
@@ -1142,6 +1145,14 @@ export class OsrsClient {
      */
 
     private initChatControllers(): void {
+        this.enterToTypeChat = new EnterToTypeChat({
+            cs2Vm: this.cs2Vm,
+            varManager: this.varManager,
+            widgetManager: this.widgetManager,
+            isLoggedIn: () => this.isLoggedIn(),
+            // No dedicated search UI in this build; never steal WASD from typing.
+            isItemSpawnerSearchFocused: () => false,
+        });
         this.mobileChatKeyboard = new MobileChatKeyboard({
             inputManager: this.inputManager,
             varManager: this.varManager,
@@ -1272,6 +1283,8 @@ export class OsrsClient {
             getVarManager: () => this.varManager,
             getWorldMap: () => this.worldMap,
             getCustomInterfaces: () => this.customInterfaces,
+            getEnterToTypeChat: () => this.enterToTypeChat,
+            getMobileChatKeyboardOpen: () => this.mobileChatKeyboard?.isOpen ?? false,
             getPlayerDesign: () => this.playerDesign,
             getObjTypeLoader: () => this.objTypeLoader,
             getInventory: () => this.inventory,
@@ -2034,6 +2047,31 @@ export class OsrsClient {
             this.mobileChatKeyboard.show(hint, keyboardType);
         };
         this.cs2Vm.context.hideMobileKeyboard = () => this.mobileChatKeyboard.hide();
+
+        // Wire up touch scroll detection for mobile: a one-finger drag over a
+        // scrollable widget scrolls that widget instead of orbiting the camera.
+        this.inputManager.setScrollCheckCallback((x: number, y: number) => {
+            if (!this.widgetManager) return false;
+            const wm = this.widgetManager;
+            // Check ALL groups reachable from the root interface tree, matching the renderer:
+            // mounted groups are hit inside their mount containers via getInterfaceParentRoots
+            // below, NOT as standalone roots (standalone copies tested at (0,0) overlapped
+            // unrelated chrome and mis-attributed scroll/click positions on mobile).
+            const allRoots: any[] = [];
+            const roots = wm.getAllGroupRoots(wm.rootInterface);
+            if (roots && roots.length) {
+                allRoots.push(...roots);
+            }
+            const getInterfaceParentRoots = (containerUid: number): any[] => {
+                const group = wm.interfaceParents.get(containerUid)?.group;
+                return typeof group === "number" ? wm.getAllGroupRoots(group) : [];
+            };
+            const hits = collectWidgetsAtPointAcrossRoots(allRoots, x, y, undefined, undefined, getInterfaceParentRoots) ?? [];
+            for (const w of hits) {
+                if (w && (w.scrollHeight ?? 0) > 0) return true;
+            }
+            return false;
+        });
 
         // Wire up the deferred callbacks - triggers queued var changes after script execution
         this.cs2Vm.onVarpChange = (varpId) => {
@@ -3784,6 +3822,9 @@ export class OsrsClient {
             }
         }
 
+        // Keep the "Press Enter to Chat" placeholder on the chat input line while
+        // chat typing is locked (re-applied whenever chat_promptinput rewrites it).
+        this.enterToTypeChat?.applyLockPlaceholder();
     }
 
     /**

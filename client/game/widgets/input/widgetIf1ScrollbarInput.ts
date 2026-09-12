@@ -17,7 +17,26 @@ export function processWidgetIf1ScrollbarInput(
 
         const isLeftHeld = input.clickMode2 === ClickMode.LEFT;
         const if1WheelDelta = input.wheelDeltaY;
-        if (isLeftHeld || if1WheelDelta !== 0) {
+        
+        // Touch scroll: if left is held, scroll the widget under the pointer
+        if (isLeftHeld) {
+            for (let i = allRoots.length - 1; i >= 0; i--) {
+                const scrollResult = scrollWidgetAtPoint(
+                    allRoots[i],
+                    mx,
+                    my,
+                    state,
+                    widgetManager,
+                    input.mouseX - (state.lastTouchScrollX ?? mx),
+                    input.mouseY - (state.lastTouchScrollY ?? my),
+                );
+                if (scrollResult) {
+                    state.lastTouchScrollX = mx;
+                    state.lastTouchScrollY = my;
+                    break;
+                }
+            }
+        } else if (isLeftHeld || if1WheelDelta !== 0) {
             const SCROLLBAR_WIDTH = 16;
             const ARROW_HEIGHT = 16;
             let handledWheel = false;
@@ -142,4 +161,68 @@ export function processWidgetIf1ScrollbarInput(
             }
         }
     }
+}
+
+/**
+ * Find a scrollable widget at the given point and scroll it by the delta.
+ * Returns true if a widget was scrolled.
+ */
+function scrollWidgetAtPoint(
+    root: any,
+    px: number,
+    py: number,
+    state: any,
+    widgetManager: any,
+    deltaX: number,
+    deltaY: number,
+): boolean {
+    if (!root) return false;
+
+    const scrollable = findScrollableWidget(root, px, py, widgetManager);
+    if (scrollable) {
+        const maxScrollY = Math.max(0, (scrollable.scrollHeight ?? 0) - (scrollable.height ?? 0));
+        const newScrollY = Math.min(Math.max(0, (scrollable.scrollY ?? 0) + deltaY), maxScrollY);
+        if (newScrollY !== scrollable.scrollY) {
+            scrollable.scrollY = newScrollY;
+            widgetManager.invalidateScroll(scrollable);
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Recursively find a scrollable widget at the given point.
+ */
+function findScrollableWidget(widget: any, px: number, py: number, widgetManager: any): any {
+    if (!widget) return null;
+
+    const uid = (widget.uid ?? 0) | 0;
+    if (uid !== 0 && widgetManager.isEffectivelyHidden(uid)) return null;
+    if (widget.hidden || widget.hide) return null;
+
+    const absX = (widget._absX ?? widget.x ?? 0) | 0;
+    const absY = (widget._absY ?? widget.y ?? 0) | 0;
+    const width = Math.max(1, (widget.width ?? 0) | 0);
+    const height = Math.max(1, (widget.height ?? 0) | 0);
+
+    // Check children first (top-most first)
+    if (Array.isArray(widget.children)) {
+        for (let i = widget.children.length - 1; i >= 0; i--) {
+            const child = widget.children[i];
+            if (child) {
+                const result = findScrollableWidget(child, px, py, widgetManager);
+                if (result) return result;
+            }
+        }
+    }
+
+    // Check if this widget is scrollable and contains the point
+    if ((widget.scrollHeight ?? 0) > height) {
+        if (px >= absX && px < absX + width && py >= absY && py < absY + height) {
+            return widget;
+        }
+    }
+
+    return null;
 }

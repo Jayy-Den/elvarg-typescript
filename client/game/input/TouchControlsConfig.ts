@@ -13,6 +13,8 @@ export type TouchControlsConfig = {
      * When false (e.g. login world list), drag scrolls / cancels tap without orbiting.
      */
     enableCameraOrbit: boolean;
+    /** When true, touch over a scrollable widget routes to scroll instead of camera orbit. */
+    scrollWidgetsBeforeOrbit: boolean;
 };
 
 export const DEFAULT_TOUCH_CONTROLS: TouchControlsConfig = {
@@ -20,4 +22,6 @@ export const DEFAULT_TOUCH_CONTROLS: TouchControlsConfig = {
     dragThresholdPx: 12,
     orbitSensitivity: 1,
     enableCameraOrbit: true,
+    /** When true, touch over a scrollable widget routes to scroll instead of camera orbit. */
+    scrollWidgetsBeforeOrbit: true,
 };

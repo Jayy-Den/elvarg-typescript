@@ -706,7 +706,7 @@ export function collectWidgetsAtPointAcrossRoots(
     roots: any[],
     px: number,
     py: number,
-    visible: Map<number, boolean>,
+    visible?: Map<number, boolean>,
     getStaticChildren?: (uid: number) => any[],
     getInterfaceParentRoots?: (containerUid: number) => any[],
     isInputCaptureWidget?: (uid: number, widget?: any) => boolean,
@@ -721,7 +721,8 @@ export function collectWidgetsAtPointAcrossRoots(
             root,
             logicalPoint.x,
             logicalPoint.y,
-            visible,
+            // Absent map = treat every widget as visible (get(uid) !== false).
+            visible ?? new Map<number, boolean>(),
             getStaticChildren,
             getInterfaceParentRoots,
             isInputCaptureWidget,

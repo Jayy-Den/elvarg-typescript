@@ -93,6 +93,21 @@ also download the cache on first run if needed.
 > port and will probe and force-kill anything else listening on it every few
 > minutes, which looks like a mystery dev-server crash.
 
+## Mobile
+
+The client supports phones/tablets out of the box: touch tap-to-walk, long-press
+for the right-click menu, drag-to-orbit camera, pinch-to-zoom, one-finger drag
+scrolls scrollable interfaces, and the chat bar opens the soft keyboard (the
+engine owns plain-chatbox typing so Enter submits correctly).
+
+- Open on a phone: `http://<your-host>:3005/play/` (real touch devices are
+  detected automatically; append `?mobile=1` to force the mobile layout).
+- Preview the phone layout on a desktop browser:
+  `http://localhost:3005/phone.html` wraps the game in a scaled phone frame
+  (rotate/reload buttons; `?orient=portrait` for 412x811).
+- iOS Safari note: COEP headers are only sent to desktop Chromium (see
+  `client/public/.htaccess`) because WebKit blocks Workers under COEP.
+
 ## You're In
 
 Log in with a username and a password of 8 to 20 characters. The first successful login registers that username; later logins must use the same password.

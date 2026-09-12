@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Elvarg — phone frame</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; height: 100%; background: #0b0e14;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* outer box gets the SCALED size; inner iframe keeps true 412x811 layout px */
+  #phoneBox { position: relative; flex: none; }
+  #frame {
+    border: 0; display: block;
+    background: #000;
+    transform-origin: top left;
+    border-radius: 0;
+    box-shadow: 0 0 0 2px #232a36, 0 8px 40px rgba(0,0,0,.6);
+  }
+  #hud {
+    position: fixed; top: 6px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; align-items: center;
+    color: #8fa3bf; font-size: 12px; user-select: none; z-index: 10;
+    background: rgba(11,14,20,.85); padding: 3px 10px; border-radius: 6px;
+    border: 1px solid #232a36;
+  }
+  #hud button {
+    background: #1a2230; color: #cfe0f5; border: 1px solid #2c3648;
+    border-radius: 4px; font-size: 12px; padding: 2px 8px; cursor: pointer;
+  }
+  #hud button:hover { background: #24304a; }
+  #hud .dim { color: #5d7292; }
+</style>
+</head>
+<body>
+  <div id="hud">
+    <span id="label" class="dim">…</span>
+    <button id="reload" title="Reload the game iframe">⟳ Reload</button>
+    <button id="rotate" title="Swap width/height">⤢ Rotate</button>
+  </div>
+  <div id="stage">
+    <div id="phoneBox"><iframe id="frame" title="Elvarg mobile"></iframe></div>
+  </div>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  // Landscape phone by default (811×412); pass ?orient=portrait for 412×811
+  var orient = (qs.get("orient") || "landscape").toLowerCase() === "portrait" ? "portrait" : "landscape";
+  var DEFAULT_W = orient === "portrait" ? 412 : 811;
+  var DEFAULT_H = orient === "portrait" ? 811 : 412;
+
+  var W = parseInt(qs.get("pw"), 10) || DEFAULT_W;
+  var H = parseInt(qs.get("ph"), 10) || DEFAULT_H;
+
+  var frame = document.getElementById("frame");
+  var box = document.getElementById("phoneBox");
+  var label = document.getElementById("label");
+
+  // Build the game URL: always force mobile=1, pass everything else through
+  // (username/password auto-login, etc). Strip our own wrapper params.
+  var gameParams = new URLSearchParams(qs);
+  ["pw", "ph", "orient"].forEach(function (k) { gameParams.delete(k); });
+  if (!gameParams.has("mobile")) gameParams.set("mobile", "1");
+  // The app is served under the /play base path (homepage in package.json).
+  var basePath = location.pathname.replace(/phone\.html$/, "");
+  var gameUrl = location.origin + basePath + "?" + gameParams.toString();
+
+  function layout() {
+    var pad = 28; // room for the hud strip + breathing room
+    var availW = window.innerWidth - pad * 2;
+    var availH = window.innerHeight - pad * 2;
+    var s = Math.min(availW / W, availH / H);
+    s = Math.max(0.2, Math.min(s, 4));
+    frame.style.width = W + "px";
+    frame.style.height = H + "px";
+    frame.style.transform = "scale(" + s + ")";
+    box.style.width = Math.round(W * s) + "px";
+    box.style.height = Math.round(H * s) + "px";
+    label.textContent = W + "×" + H + " · ×" + s.toFixed(2);
+  }
+
+  function setOrientation() {
+    // landscape phone = swap dims
+    if (W < H) { var t = W; W = H; H = t; } else { var t2 = W; W = H; H = t2; }
+    layout();
+  }
+
+  document.getElementById("reload").addEventListener("click", function () {
+    frame.src = gameUrl; // full reload of the game
+  });
+  document.getElementById("rotate").addEventListener("click", setOrientation);
+  window.addEventListener("resize", layout);
+
+  frame.src = gameUrl;
+  layout();
+})();
+</script>
+</body>
+</html>
