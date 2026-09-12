@@ -16,7 +16,7 @@ function showWelcomeScreen(player) {
 }
 
 function showGameframe(player) {
-  for (const packet of encodeGameframeBootstrap(player.getUsername())) {
+  for (const packet of encodeGameframeBootstrap(player.getUsername(), player.getDisplayMode?.() ?? "desktop")) {
     player.getSession().sendClientPacket(packet);
   }
 }

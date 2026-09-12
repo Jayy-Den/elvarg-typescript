@@ -33,6 +33,7 @@ import {
   encodeWelcome,
   PlayerAppearance,
 } from "./protocol/ClientProtocol";
+import { fromDisplayUid } from "./protocol/ViewportMode";
 import {
   WORLD_MAP_CLOSE_WIDGET_ID,
   WORLD_MAP_ORB_WIDGET_IDS,
@@ -100,7 +101,6 @@ type PendingLogin = {
   passwordHash: string;
   save: any | null;
 };
-
 export function isConfiguredDeveloperUsername(username: string): boolean {
   const developerUsername = process.env.DEV_USERNAME?.trim();
   return !!developerUsername && developerUsername.toLowerCase() === username.toLowerCase();
@@ -180,6 +180,8 @@ class ClientConnection {
   private player?: Player;
   private closed = false;
   private input = Promise.resolve();
+  /** Set by the handshake when the client asked for the mobile layout (clientType 1). */
+  private pendingMobileDisplay = false;
 
   constructor(private readonly channel: BinaryChannel) {
     channel.onData((frame) => {
@@ -414,7 +416,16 @@ class ClientConnection {
         }
         case "widget_action":
           if (this.player) {
-            const actionPacket = { ...packet, buttonNum: packet.buttonNum ?? 0 };
+            // Mobile clients address toplevel_osm (601) components; translate back to
+            // the desktop 161 coordinates every handler is written against.
+            const translatedWidgetId = fromDisplayUid(this.player, packet.widgetId);
+            const actionPacket = {
+              ...packet,
+              widgetId: translatedWidgetId,
+              groupId: translatedWidgetId >>> 16,
+              childId: translatedWidgetId & 0xffff,
+              buttonNum: packet.buttonNum ?? 0,
+            };
             const equipmentSlot = EquipPacketListener.resolveEquipmentSlot(actionPacket.groupId, actionPacket.childId);
             if (WORLD_MAP_ORB_WIDGET_IDS.includes(actionPacket.widgetId) && actionPacket.buttonNum === 2) {
               this.player.getPacketSender().toggleWorldMap();
@@ -553,6 +564,10 @@ class ClientConnection {
           if (this.player && packet.action === "close") this.player.getPacketSender().closeInterface(packet.groupId);
           continue;
         case "widget_target":
+          if (this.player) {
+            packet.targetWidgetId = fromDisplayUid(this.player, packet.targetWidgetId);
+            packet.sourceWidgetId = fromDisplayUid(this.player, packet.sourceWidgetId);
+          }
           if (this.player && !LunarSpells.handleItemTarget(
             this.player,
             packet.targetItemId,
@@ -607,8 +622,9 @@ class ClientConnection {
           continue;
         case "local_trigger":
           if (this.player && packet.opcodeParam >= 1 && packet.opcodeParam <= 10) {
-            InterfaceActionClickOpcode.handle(this.player, packet.widgetId, packet.opcodeParam, {
-              groupId: packet.widgetId >>> 16,
+            const triggerWidgetId = fromDisplayUid(this.player, packet.widgetId);
+            InterfaceActionClickOpcode.handle(this.player, triggerWidgetId, packet.opcodeParam, {
+              groupId: triggerWidgetId >>> 16,
               childId: packet.childIndex,
               itemId: packet.itemId >= 0 ? packet.itemId : undefined,
               slot: packet.childIndex >= 0 ? packet.childIndex : undefined,
@@ -688,6 +704,9 @@ class ClientConnection {
           await this.login(packet.username, packet.password, packet.revision);
           continue;
         case "handshake":
+          // clientType 1 = mobile layout: the gameframe bootstrap below must mount
+          // toplevel_osm (601) instead of the resizable desktop frame.
+          if (packet.clientType === 1) this.pendingMobileDisplay = true;
           this.enterWorld();
           continue;
         case "logout":
@@ -807,6 +826,8 @@ class ClientConnection {
       this.channel.close(1013, "world full");
       return;
     }
+    player.setDisplayMode(this.pendingMobileDisplay ? "mobile" : "desktop");
+    this.pendingMobileDisplay = false;
     this.player = player;
     this.releasePendingName();
     World.refreshActiveRegions();
@@ -825,7 +846,7 @@ class ClientConnection {
       )
     );
     this.send(encodeDefaultAnimations());
-    for (const packet of encodeGameframeBootstrap(player.getUsername())) this.send(packet);
+    for (const packet of encodeGameframeBootstrap(player.getUsername(), player.getDisplayMode())) this.send(packet);
     player.getPacketSender()
       // The bootstrap mounts the magic tab (161:82 -> 218) directly, which does not send
       // varbit 4070, so the cache scripts would draw the standard book for everyone.

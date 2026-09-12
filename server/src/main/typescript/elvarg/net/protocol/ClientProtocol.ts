@@ -3,6 +3,7 @@ import { CLIENT_PACKET_LENGTHS as CLIENT_PACKET_LENGTHS, ClientPacketId as HighC
 import { CLIENT_PACKET_LENGTHS as NATIVE_CLIENT_PACKET_LENGTHS, ClientPacketId as NativeClientPacket } from "./NativeClientPackets";
 import { SERVER_PACKET_LENGTHS, ServerPacketId } from "./ServerPackets";
 import { deflateSync } from "zlib";
+import { DESKTOP_ROOT_GROUP, MOBILE_ROOT_GROUP } from "./ViewportMode";
 
 export const enum ClientPacket {
   NPC_OPTION_2 = 12,
@@ -237,7 +238,7 @@ export type ClientMessage =
   | { type: "ping" }
   | { type: "logout" }
   | { type: "login"; username: string; password: string; revision: number }
-  | { type: "handshake"; name: string };
+  | { type: "handshake"; name: string; clientType?: number };
 
 class Reader {
   private offset = 0;
@@ -812,8 +813,10 @@ export function decodeClientPacket(frame: Buffer): ClientMessage {
         for (let i = reader.byte(); i > 0; i--) reader.short();
         for (let i = reader.byte(); i > 0; i--) reader.short();
       }
-      if (reader.remaining > 0) reader.byte();
-      return { type: "handshake", name };
+      // Trailing clientType byte (1 = mobile layout, 0/absent = desktop). The client
+      // always appends it via encodeHandshake; tolerate its absence for old clients.
+      const clientType = reader.remaining > 0 ? reader.byte() : 0;
+      return { type: "handshake", name, clientType };
     }
     default:
       return { type: "raw", opcode, payload: frame.subarray(frame.length - length) };
@@ -1447,24 +1450,62 @@ const ACCOUNT_SUMMARY_COMBAT_TASKS_ROW = 5; // op1-4 Overview/Bosses/Tasks/Rewar
 const ACCOUNT_SUMMARY_COLLECTION_LOG_ROW = 6; // op1 "Collection Log", op2 "Collection Overview"
 const ACCOUNT_SUMMARY_PLAYTIME_ROW = 7; // op1 "Reveal"
 
-export function encodeGameframeBootstrap(playerName: string): Buffer[] {
-  const root = 161;
-  const mounts = [
-    [96, 162], [9, 163], [22, 160], [7, 122], [6, 651, 5929],
-    [76, 593], [77, 320], [78, 629], [79, MAIN_INVENTORY_GROUP_ID], [80, 387], [81, 541],
-    [82, 218], [83, 7], [84, 109], [85, 429], [86, 182], [87, 116],
-    [88, 216], [89, 239],
-  ];
+export function encodeGameframeBootstrap(playerName: string, mode: "desktop" | "mobile" = "desktop"): Buffer[] {
+  const mobile = mode === "mobile";
+  const root = mobile ? MOBILE_ROOT_GROUP : DESKTOP_ROOT_GROUP;
+  // [child, group, postScript?] pairs. Desktop children are the resizable-frame
+  // slots (161:x); mobile children are the toplevel_osm slots (601:x) from cache
+  // enum 1745. Tab slots 76-89 map 1:1 onto mobile 116-129.
+  const mounts: Array<[number, number, number?]> = mobile
+    ? [
+        [49, 162], [21, 163], [22, 160], [116, 593], [117, 320],
+        [118, 629], [119, MAIN_INVENTORY_GROUP_ID], [120, 387], [121, 541],
+        [122, 218], [123, 7], [124, 109], [125, 429], [126, 182],
+        [127, 116], [128, 216], [129, 239],
+        // Mobile-only: buff bar, hotkey strip, popout (share panel)
+        [12, 651, 5929], [40, 892], [134, 728],
+      ]
+    : [
+        [96, 162], [9, 163], [22, 160], [7, 122], [6, 651, 5929],
+        [76, 593], [77, 320], [78, 629], [79, MAIN_INVENTORY_GROUP_ID], [80, 387], [81, 541],
+        [82, 218], [83, 7], [84, 109], [85, 429], [86, 182], [87, 116],
+        [88, 216], [89, 239],
+      ];
   const cameraScript = Buffer.concat([Buffer.alloc(2), scriptArgs([])]);
   cameraScript.writeUInt16BE(626, 0);
   const rootPayload = Buffer.alloc(2);
   rootPayload.writeUInt16BE(root);
   const loginScript = Buffer.concat([Buffer.alloc(4), scriptArgs([0, 0, playerName, playerName]), Buffer.alloc(4)]);
   loginScript.writeInt32BE(876, 0);
-  return [
+  // Mobile-only varbits: flip the client's mobile simulation on so cache interfaces
+  // render their toplevel_osm skins, and assign the hotkey-strip tabs (inventory,
+  // prayer, magic, combat, equipment) like OSRS mobile's defaults.
+  const mobileVarbits = mobile
+    ? {
+        6352: 1, // osm_simulate ON
+        11534: 3, // hotkey 0 -> inventory tab
+        11535: 5, // hotkey 1 -> prayer tab
+        11536: 6, // hotkey 2 -> magic tab
+        11537: 0, // hotkey 3 -> combat tab
+        11538: 4, // hotkey 4 -> equipment tab
+        11557: 0, // show hotkeys
+        11559: 1, // show empty slots
+        6254: 0, // minimap visible
+      }
+    : undefined;
+  const packets: Buffer[] = [
     packet(ServerPacket.RUN_CLIENT_SCRIPT, cameraScript, 2),
     packet(ServerPacket.WIDGET_SET_ROOT, rootPayload, 0),
-    ...mounts.map(([child, group, postScript]) => encodeOpenSub(root, child, group, postScript)),
+    ...mounts.map(([child, group, postScript]) => {
+      const options: Parameters<typeof encodeWidgetOpenSub>[3] = {};
+      if (postScript !== undefined) {
+        options.postScripts = [{ scriptId: postScript, args: [] }];
+      }
+      if (mobile && mobileVarbits) {
+        options.varbits = mobileVarbits;
+      }
+      return encodeWidgetOpenSub((root << 16) | child, group, 1, options);
+    }),
     encodeWidgetSetFlagsRange(MAIN_INVENTORY_WIDGET_UID, 0, 27, MAIN_INVENTORY_SLOT_FLAGS),
     encodeOpenSub(SIDE_JOURNAL_GROUP_ID, SIDE_JOURNAL_TAB_CONTAINER_CHILD_ID, INTERFACE_CHARACTER_SUMMARY_ID),
     encodeWidgetSetFlags((root << 16) | QUEST_TAB_ICON_CHILD_ID, QUEST_TAB_ICON_FLAGS),
@@ -1474,6 +1515,7 @@ export function encodeGameframeBootstrap(playerName: string): Buffer[] {
     encodeWidgetSetFlagsRange(ACCOUNT_SUMMARY_ENTRY_LIST_UID, ACCOUNT_SUMMARY_PLAYTIME_ROW, ACCOUNT_SUMMARY_PLAYTIME_ROW, 1 << 1),
     packet(ServerPacket.WIDGET_RUN_SCRIPT, loginScript, 2),
   ];
+  return packets;
 }
 
 export function encodeWelcome(tickMs: number, serverTime: number): Buffer {

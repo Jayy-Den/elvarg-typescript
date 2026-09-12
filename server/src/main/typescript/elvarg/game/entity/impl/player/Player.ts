@@ -217,6 +217,8 @@ export class Player extends Mobile {
     // Rights
     public rights = PlayerRights.NONE;
     private chatIcons: number[] = [];
+  /** Root gameframe the client rendered for this session: "mobile" (toplevel_osm 601) or "desktop" (resizable 161). Set from the handshake clientType at login. */
+  private displayMode: "desktop" | "mobile" = "desktop";
     public donatorRights = DonatorRights.NONE;
     /**
      * The cached player update block for updating.
@@ -781,7 +783,16 @@ export class Player extends Mobile {
         return this;
     }
 
-    public getChatIcons(): readonly number[] {
+    public getDisplayMode(): "desktop" | "mobile" {
+    return this.displayMode;
+  }
+
+  public setDisplayMode(mode: "desktop" | "mobile"): this {
+    this.displayMode = mode;
+    return this;
+  }
+
+  public getChatIcons(): readonly number[] {
         return this.chatIcons;
     }
 

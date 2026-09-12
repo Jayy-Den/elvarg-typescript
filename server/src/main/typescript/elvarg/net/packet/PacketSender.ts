@@ -60,6 +60,7 @@ import {
   WORLD_MAP_TARGET_UID,
 } from "../protocol/WorldMapProtocol";
 import { CacheDefinitions } from "../../game/cache/CacheDefinitions";
+import { toDisplayUid } from "../protocol/ViewportMode";
 const CHATBOX_MODAL_TARGET_UID = (162 << 16) | 567;
 const VARBIT_MULTICOMBAT_AREA = 4605;
 // Quest completion states consulted by spellbook CS2 scripts. Keep these client
@@ -281,7 +282,7 @@ export class PacketSender {
   }
 
   sendInterfaceDisplayState(interfaceId: number, hide: boolean): this {
-    if (this.player.getSession().sendClientPacket(encodeWidgetSetHidden(interfaceId, hide))) return this;
+    if (this.player.getSession().sendClientPacket(encodeWidgetSetHidden(toDisplayUid(this.player, interfaceId), hide))) return this;
   }
 
   public sendPlayerHeadOnInterface(id: number): PacketSender {
@@ -333,7 +334,7 @@ export class PacketSender {
 
   public sendTabInterface(tabId: number, interfaceId: number) {
     if (tabId === 0) {
-      const targetUid = (161 << 16) | 76;
+      const targetUid = toDisplayUid(this.player, (161 << 16) | 76);
       return this
         .closeSubInterface(targetUid)
         .sendSubInterface(targetUid, 593)
@@ -342,7 +343,7 @@ export class PacketSender {
     }
     if (tabId === 5) {
       this.player.getSession().sendClientPacket(encodeWidgetOpenSub(
-        (161 << 16) | 81,
+        toDisplayUid(this.player, (161 << 16) | 81),
         interfaceId === 17200 ? 77 : 541
       ));
       return this;
@@ -358,10 +359,10 @@ export class PacketSender {
         this.sendConfig(id, value);
       }
       this.sendVarbit(4070, spellbook);
-      this.player.getSession().sendClientPacket(encodeWidgetOpenSub((161 << 16) | 82, 218));
+      this.player.getSession().sendClientPacket(encodeWidgetOpenSub(toDisplayUid(this.player, (161 << 16) | 82), 218));
       return this;
     }
-    this.player.getSession().sendClientPacket(encodeWidgetOpenSub((161 << 16) | tabId, interfaceId));
+    this.player.getSession().sendClientPacket(encodeWidgetOpenSub(toDisplayUid(this.player, (161 << 16) | tabId), interfaceId));
     return this;
   }
 
@@ -1029,8 +1030,8 @@ export class PacketSender {
         this.subInterfaceTargets.delete(mountedGroupId);
       }
     }
-    this.subInterfaceTargets.set(groupId, { targetUid, type });
-    this.player.getSession().sendClientPacket(encodeWidgetOpenSub(targetUid, groupId, type, options));
+    this.subInterfaceTargets.set(groupId, { targetUid: toDisplayUid(this.player, targetUid), type });
+    this.player.getSession().sendClientPacket(encodeWidgetOpenSub(toDisplayUid(this.player, targetUid), groupId, type, options));
     if (groupId === MAIN_INVENTORY_GROUP_ID) {
       this.player.getSession().sendClientPacket(
         encodeWidgetSetFlagsRange(MAIN_INVENTORY_WIDGET_UID, 0, 27, MAIN_INVENTORY_SLOT_FLAGS)
@@ -1061,20 +1062,21 @@ export class PacketSender {
   }
 
   closeSubInterface(targetUid: number): this {
+    const displayUid = toDisplayUid(this.player, targetUid);
     for (const [groupId, entry] of this.subInterfaceTargets) {
-      if (entry.targetUid === targetUid) this.subInterfaceTargets.delete(groupId);
+      if (entry.targetUid === displayUid) this.subInterfaceTargets.delete(groupId);
     }
-    this.player.getSession().sendClientPacket(encodeWidgetCloseSub(targetUid));
+    this.player.getSession().sendClientPacket(encodeWidgetCloseSub(displayUid));
     return this;
   }
 
   sendInterfaceFlags(uid: number, flags: number): this {
-    this.player.getSession().sendClientPacket(encodeWidgetSetFlags(uid, flags));
+    this.player.getSession().sendClientPacket(encodeWidgetSetFlags(toDisplayUid(this.player, uid), flags));
     return this;
   }
 
   sendInterfaceFlagsRange(uid: number, fromSlot: number, toSlot: number, flags: number): this {
-    this.player.getSession().sendClientPacket(encodeWidgetSetFlagsRange(uid, fromSlot, toSlot, flags));
+    this.player.getSession().sendClientPacket(encodeWidgetSetFlagsRange(toDisplayUid(this.player, uid), fromSlot, toSlot, flags));
     return this;
   }
 
