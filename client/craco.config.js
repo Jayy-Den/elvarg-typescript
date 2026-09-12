@@ -1,12 +1,18 @@
 const fs = require("fs");
 const path = require("path");
 
+// Single source of truth for the client dev-server port.
 // Port 3000 is off-limits: the Freebuff desktop app reserves it (it reads PORT
 // from the environment it was launched from, default 8787) and periodically
-// probes then force-kills whatever else is listening there. The dev server
-// must never bind it, regardless of how PORT leaks in from the environment.
+// probes then force-kills whatever else is listening there. This config loads
+// inside the dev-server process before CRA reads the environment, so it is the
+// one place that can both define the port and enforce that 3000 (or an unset
+// PORT, which CRA maps to 3000) never wins. Do not set PORT elsewhere - any
+// value that is unset, 0, 3000, or unparseable is overridden here on every
+// boot; other explicit values are kept.
+const DEV_SERVER_PORT = 3005;
 if (Number(process.env.PORT) === 3000 || !Number(process.env.PORT)) {
-    process.env.PORT = "3005";
+    process.env.PORT = String(DEV_SERVER_PORT);
 }
 
 const JsonMinimizerPlugin = require("json-minimizer-webpack-plugin");
@@ -140,7 +146,7 @@ module.exports = {
     },
     devServer: (devServerConfig) => {
         if (Number(devServerConfig.port) === 3000 || !devServerConfig.port) {
-            devServerConfig.port = 3005;
+            devServerConfig.port = DEV_SERVER_PORT;
         }
 
         delete devServerConfig.onBeforeSetupMiddleware;

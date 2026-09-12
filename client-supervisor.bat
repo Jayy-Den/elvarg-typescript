@@ -5,10 +5,6 @@ cd /d C:\Users\Jayde\Documents\Elvarg-typescript\elvarg-typescript\client
 REM --trace-exit prints a stack trace to stderr at any process.exit() call site,
 REM so the next mystery code-1 exit leaves the caller in this log.
 set NODE_OPTIONS=--trace-exit
-REM The desktop app (Freebuff) reserves port 3000 and force-kills anything else
-REM listening on it; ensure the dev server never binds it. PORT=0 would make CRA
-REM fall back to 3000, so pin 3005 in the launcher environment too.
-set PORT=3005
 set LOG=C:\Users\Jayde\Documents\Elvarg-typescript\elvarg-typescript\logs\client-supervisor.log
 :loop
 echo [%date% %time%] starting client dev server >> "%LOG%"
