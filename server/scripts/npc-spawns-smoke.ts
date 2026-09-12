@@ -19,8 +19,8 @@ async function main() {
     });
 
     assert(new NpcSpawnDefinitionLoader().load());
-    assert.equal(NpcSpawnDefinition.all().length, 24_145);
-    assert.equal(World.getNpcs().sizeReturn(), 24_145);
+    assert.equal(NpcSpawnDefinition.all().length, 24_153);
+    assert.equal(World.getNpcs().sizeReturn(), 24_153);
 
     const banker = NpcSpawnDefinition.all().find(
         (spawn) => spawn.getId() === 8589 && spawn.getPosition().getX() === 1248,
