@@ -31,7 +31,6 @@ import { flushPackets } from "../../network/packet";
 import { createTextureArray } from "../../picogl/PicoTexture";
 import { RS_TO_RADIANS } from "../../rs/MathConstants";
 import { CollisionFlag } from "../../common/CollisionFlag";
-import { isInWilderness } from "../../common/world/Wilderness";
 import {
     getWorldLocChanges,
     getWorldLocSpawns,
@@ -189,6 +188,7 @@ import {
 import { KNOWN_WATER_TEXTURE_IDS } from "../water/WaterTextureIds";
 import type { WebGLOsrsRendererHost } from "./hostInterface";
 import { RENDER_CONSTANTS, StreamMapBatch } from "./constants";
+import { logMapApplied } from "./mapLoadProfile";
 
 export function getPendingStreamMapCount(host: WebGLOsrsRendererHost, ): number {
 
@@ -342,6 +342,7 @@ export function applyReadyStreamGenerationBatch(host: WebGLOsrsRendererHost, tim
             if (!host.isValidMapData(mapData)) continue;
             pending.delete(mapId);
             applied++;
+            const applyStartedAt = performance.now();
             host.loadMap(
                 mainProgram,
                 mainAlphaProgram,
@@ -353,6 +354,7 @@ export function applyReadyStreamGenerationBatch(host: WebGLOsrsRendererHost, tim
                 mapData,
                 time,
             );
+            logMapApplied(mapData, applyStartedAt);
         }
         if (allReady || pending.size === 0) {
             host.pendingStreamMapsByGeneration.delete(generation);

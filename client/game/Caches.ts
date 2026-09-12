@@ -84,6 +84,8 @@ export async function fetchCacheList(): Promise<CacheList | undefined> {
 export type SparseCacheState = {
     presenceBits: Uint8Array;
     dat2Url: string;
+    /** Per-client channel used to centralise worker group misses in the main thread. */
+    fetchChannel?: string;
 };
 
 export type LoadedCache = {
@@ -97,9 +99,19 @@ export type LoadedCache = {
 
 /** Main-thread-only companions of a sparse LoadedCache (not clonable to workers). */
 const sparsePersistenceByCache = new WeakMap<LoadedCache, Js5Persistence>();
+const sparsePrefetchByCache = new WeakMap<LoadedCache, () => void>();
 
 export function getSparsePersistence(cache: LoadedCache): Js5Persistence | undefined {
     return sparsePersistenceByCache.get(cache);
+}
+
+/** Start deferred bulk warming only after the first playable scene is visible. */
+export function startSparsePrefetch(cache: LoadedCache | undefined): void {
+    if (!cache) return;
+    const start = sparsePrefetchByCache.get(cache);
+    if (!start) return;
+    sparsePrefetchByCache.delete(cache);
+    start();
 }
 
 export async function loadCacheFiles(
@@ -215,7 +227,11 @@ function getRequiredIndexIds(info: CacheInfo): number[] {
  * Indices whose group payloads are fetched on demand during gameplay instead
  * of downloaded upfront. Their reference tables (idx255 meta region) are still
  * loaded eagerly, so ids/names/CRCs resolve immediately — only payloads
- * stream in when first used. Together these are ~180MB of the ~204MB cache.
+ * stream in when first used. Together these are ~170MB of the ~204MB cache.
+ *
+ * idx5 (maps) is deliberately NOT here: it is only ~11MB and packed
+ * contiguously, so bulk-loading it costs ~3s once, while deferring it cost two
+ * blocking round trips *and* a full scene rebuild per map square.
  */
 function getDeferredIndexIds(info: CacheInfo): number[] {
     if (info.game !== "oldschool") {
@@ -224,7 +240,6 @@ function getDeferredIndexIds(info: CacheInfo): number[] {
     return [
         IndexType.DAT2.animations,
         IndexType.DAT2.soundEffects,
-        IndexType.DAT2.maps,
         IndexType.DAT2.musicTracks,
         IndexType.DAT2.models,
         IndexType.DAT2.musicSamples,
@@ -234,6 +249,30 @@ function getDeferredIndexIds(info: CacheInfo): number[] {
         IndexType.OSRS.worldMapGround,
         IndexType.OSRS.animKeyFrames,
     ];
+}
+
+/**
+ * Deferred indices worth bulk-downloading in the background once the login
+ * screen is up. Their groups are tiny and scattered (idx7 averages ~1KB across
+ * 60k groups spread over 77MB), so fetching them on demand costs one full
+ * round trip each — hundreds per map square, which is what makes a cold login
+ * spend ~30s in a black world. Streaming them at bulk throughput instead
+ * removes those round trips entirely, and Js5Persistence keeps them.
+ */
+function getPrefetchIndexIds(info: CacheInfo): number[] {
+    return info.game === "oldschool"
+        ? [IndexType.DAT2.models, IndexType.DAT2.animations]
+        : [];
+}
+
+/** `?noPrefetch=1` disables the background bulk prefetch (on-demand only). */
+function isPrefetchDisabled(): boolean {
+    try {
+        const loc = (globalThis as { location?: Location }).location;
+        return !!loc && new URLSearchParams(loc.search).get("noPrefetch") === "1";
+    } catch {
+        return false;
+    }
 }
 
 /** `?fullCache=1` forces the legacy full-download path. */
@@ -353,11 +392,88 @@ async function fetchRangeStreaming(
 }
 
 /**
+ * Keep background chunks short: foreground map/model misses must get a chance
+ * to use the connection between them.
+ */
+const PREFETCH_CHUNK_SECTORS = Math.ceil((512 * 1024) / Sector.SIZE);
+// Don't compete with the first scene's foreground JS5 reads.
+/**
+ * Stream whole deferred index regions into the sparse buffer in the background.
+ * Writes land in the shared buffer and presence bitset, so render workers pick
+ * them up with no message passing and simply stop missing.
+ *
+ * Best-effort: on any failure the on-demand Js5RangeClient still services reads.
+ */
+export async function prefetchIndexRegions(
+    dat2Path: string,
+    buffer: ArrayBuffer,
+    totalSize: number,
+    presence: PresenceBitset,
+    persistence: Pick<Js5Persistence, "queue">,
+    idxDatas: Map<number, ArrayBuffer>,
+    indexIds: number[],
+    signal?: AbortSignal,
+): Promise<void> {
+    const totalSectors = Math.ceil(totalSize / Sector.SIZE);
+    const regions: SectorRun[] = [];
+    for (const id of indexIds) {
+        const data = idxDatas.get(id);
+        if (!data) {
+            continue;
+        }
+        const region = computeIndexRegion(data);
+        if (!region || region.endSector > totalSectors) {
+            continue;
+        }
+        regions.push({ start: region.startSector, end: region.endSector });
+    }
+
+    const started = performance.now();
+    let fetchedBytes = 0;
+    for (const run of mergeSectorRuns(regions)) {
+        for (let start = run.start; start < run.end; start += PREFETCH_CHUNK_SECTORS) {
+            if (signal?.aborted) {
+                return;
+            }
+            const end = Math.min(start + PREFETCH_CHUNK_SECTORS, run.end);
+            // Already covered by a previous session or an on-demand fetch.
+            if (presence.hasSectors(start, end - start)) {
+                continue;
+            }
+            const startByte = start * Sector.SIZE;
+            const endByte = Math.min(end * Sector.SIZE, totalSize);
+            const delivered = await fetchRangeStreaming(
+                dat2Path,
+                startByte,
+                endByte,
+                buffer,
+                signal,
+                () => {},
+            );
+            // Mark only whole sectors actually delivered, as the eager path does.
+            const deliveredSectors =
+                startByte + delivered >= totalSize
+                    ? Math.ceil(delivered / Sector.SIZE)
+                    : Math.floor(delivered / Sector.SIZE);
+            presence.markSectors(start, deliveredSectors);
+            persistence.queue(startByte, deliveredSectors * Sector.SIZE);
+            fetchedBytes += delivered;
+        }
+    }
+    const seconds = (performance.now() - started) / 1000;
+    console.log(
+        `[js5] Background prefetch done: ${(fetchedBytes / 1048576).toFixed(1)}MB ` +
+            `in ${seconds.toFixed(1)}s (indices ${indexIds.join(",")})`,
+    );
+}
+
+/**
  * Sparse startup: download only the idx files, the reference tables and the
- * eager index regions (~25MB) via Range requests into a full-size sparse dat2
- * buffer. Deferred groups (models, maps, animations, audio, worldmap) are
- * fetched on demand by the Js5RangeClient and persisted so they are only ever
- * downloaded once.
+ * eager index regions (~33MB, maps included) via Range requests into a
+ * full-size sparse dat2 buffer. Deferred groups (models, animations, audio,
+ * worldmap) are fetched on demand by the Js5RangeClient and persisted so they
+ * are only ever downloaded once; the biggest of those are also pulled in bulk
+ * in the background by prefetchIndexRegions.
  */
 async function loadCacheFilesSparse(
     info: CacheInfo,
@@ -553,9 +669,43 @@ async function loadCacheFilesSparse(
         type: "dat2",
         files: cacheFiles,
         xteas: await xteasPromise,
-        sparse: { presenceBits: presence.bits, dat2Url: dat2Path },
+        sparse: {
+            presenceBits: presence.bits,
+            dat2Url: dat2Path,
+            fetchChannel: `rsps-js5-${Math.random().toString(36).slice(2)}`,
+        },
     };
     sparsePersistenceByCache.set(loaded, persistence);
+
+    // Warm deferred groups only after the first scene is visible. A timer is
+    // wrong here: users can remain at the login screen long enough for it to
+    // compete with their initial map requests.
+    // ponytail: only helps the current session when the buffer is SAB-backed
+    // (crossOriginIsolated); without it workers hold private copies and only
+    // benefit from session 2 via Js5Persistence. Fix by routing worker misses
+    // through the main thread's Js5RangeClient if Safari startup matters.
+    const prefetchIds = isPrefetchDisabled() ? [] : getPrefetchIndexIds(info);
+    if (prefetchIds.length > 0) {
+        const startPrefetch = () => {
+            if (signal?.aborted) return;
+            void prefetchIndexRegions(
+                dat2Path,
+                buffer,
+                totalSize,
+                presence,
+                persistence,
+                idxDatas,
+                prefetchIds,
+                signal,
+            ).catch((e) => {
+                if (!signal?.aborted) {
+                    console.warn("[js5] Background prefetch failed:", e);
+                }
+            });
+        };
+        sparsePrefetchByCache.set(loaded, startPrefetch);
+    }
+
     console.log(
         `[js5] Sparse cache ready: downloaded ${(fetchedBytes / 1048576).toFixed(1)}MB eager, ` +
             `restored ${(restored / 1048576).toFixed(1)}MB persisted, ` +

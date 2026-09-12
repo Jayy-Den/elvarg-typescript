@@ -1,3 +1,4 @@
+import { BIT_MASKS } from "../../game/cache/codec/rs/MathConstants";
 import { PacketBuilder } from "./PacketBuilder";
 import { ValueType } from "./ValueType";
 import { ByteOrder } from "./ByteOrder";
@@ -111,6 +112,7 @@ const CREATION_MENU_OP_FLAGS = (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 <<
 
 export class PacketSender {
   private groundItemSerial = 0;
+  private readonly varps = new Map<number, number>();
   private subInterfaceTargets = new Map<number, { targetUid: number; type: number }>();
   private chatboxGroupId = -1;
   private player: any;
@@ -133,7 +135,7 @@ export class PacketSender {
   }
 
   sendSpecialAttackState(active: boolean): this {
-    if (this.player.getSession().sendClientPacket(encodeVarp(301, active ? 1 : 0))) return this;
+    return this.sendConfig(301, active ? 1 : 0);
   }
 
   sendSoundEffect(
@@ -202,12 +204,23 @@ export class PacketSender {
     return this;
   }
 
+  getVarp(id: number): number {
+    return this.varps.get(id) ?? 0;
+  }
+
+  getVarbit(id: number): number {
+    const { baseVar, startBit, endBit } = CacheDefinitions.getVarbit(id);
+    return (this.getVarp(baseVar) >> startBit) & BIT_MASKS[endBit - startBit];
+  }
+
   sendConfig(id: number, state: number): this {
-    if (this.player.getSession().sendClientPacket(encodeVarp(id, state))) return this;
+    this.varps.set(id, state | 0);
+    this.player.getSession().sendClientPacket(encodeVarp(id, state));
+    return this;
   }
 
   sendToggle(id: number, state: number): this {
-    if (this.player.getSession().sendClientPacket(encodeVarp(id, state))) return this;
+    return this.sendConfig(id, state);
   }
 
   sendChatOptions(
@@ -228,11 +241,11 @@ export class PacketSender {
   }
 
   sendQuickPrayersState(activated: boolean): this {
-    if (this.player.getSession().sendClientPacket(encodeVarbit(4103, activated ? 1 : 0))) return this;
+    return this.sendVarbit(4103, activated ? 1 : 0);
   }
 
   updateSpecialAttackOrb(): this {
-    if (this.player.getSession().sendClientPacket(encodeVarp(300, this.player.getSpecialPercentage() * 10))) return this;
+    return this.sendConfig(300, this.player.getSpecialPercentage() * 10);
   }
 
   sendShowClanChatOptions(show: boolean): this {
@@ -339,12 +352,12 @@ export class PacketSender {
       // A varbit can share storage with a quest varp. Send all varbits first,
       // then the canonical quest varps so their exact completion stages win.
       for (const [id, value] of SPELL_UNLOCK_VARBITS) {
-        this.player.getSession().sendClientPacket(encodeVarbit(id, value));
+        this.sendVarbit(id, value);
       }
       for (const [id, value] of SPELL_UNLOCK_VARPS) {
-        this.player.getSession().sendClientPacket(encodeVarp(id, value));
+        this.sendConfig(id, value);
       }
-      this.player.getSession().sendClientPacket(encodeVarbit(4070, spellbook));
+      this.sendVarbit(4070, spellbook);
       this.player.getSession().sendClientPacket(encodeWidgetOpenSub((161 << 16) | 82, 218));
       return this;
     }
@@ -445,7 +458,7 @@ export class PacketSender {
 
   public clearInterfaceText(start: number, end: number): PacketSender {
     for (let i = start; i <= end; i++) {
-      this.player.getFrameUpdater().interfaceTextMap.remove(i);
+      this.player.getFrameUpdater().interfaceTextMap.delete(i);
     }
     const out = new PacketBuilder(105);
     out.putInt(start);
@@ -985,6 +998,12 @@ export class PacketSender {
   }
 
   sendVarbit(id: number, value: number): this {
+    const { baseVar, startBit, endBit } = CacheDefinitions.getVarbit(id);
+    let mask = BIT_MASKS[endBit - startBit];
+    // Match the client's varbit range handling and shared backing varp.
+    const stored = value < 0 || (mask !== -1 && value > mask) ? 0 : value;
+    mask <<= startBit;
+    this.varps.set(baseVar, (this.getVarp(baseVar) & ~mask) | ((stored << startBit) & mask));
     this.player.getSession().sendClientPacket(encodeVarbit(id, value));
     return this;
   }

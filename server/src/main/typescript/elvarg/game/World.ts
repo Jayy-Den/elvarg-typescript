@@ -13,7 +13,6 @@ import { Location } from './model/Location';
 import { TaskManager } from './task/TaskManager';
 import { GameConstants } from '../game/GameConstants'
 import { Misc } from '../util/Misc';
-import { List } from 'list'
 import { TreeMap } from 'treemap'
 import { PluginManager } from '../plugins/PluginManager';
 import { ServerPerf } from '../util/ServerPerf';

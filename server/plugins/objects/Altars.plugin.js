@@ -13,10 +13,10 @@ const ANCIENT_ALTAR_SOUND =
 // first "Venerate" option therefore selects the spellbook omitted by the
 // named options on that variant.
 const OCCULT_ALTAR_SPELLBOOKS = new Map([
-  [ObjectIds.ALTAR_OF_THE_OCCULT, [MagicSpellbook.NORMAL, MagicSpellbook.ANCIENT, MagicSpellbook.LUNAR, MagicSpellbook.ARCEUUS]],
-  [ObjectIds.ALTAR_OF_THE_OCCULT_2, [MagicSpellbook.ANCIENT, MagicSpellbook.NORMAL, MagicSpellbook.LUNAR, MagicSpellbook.ARCEUUS]],
-  [ObjectIds.ALTAR_OF_THE_OCCULT_3, [MagicSpellbook.LUNAR, MagicSpellbook.NORMAL, MagicSpellbook.ANCIENT, MagicSpellbook.ARCEUUS]],
-  [ObjectIds.ALTAR_OF_THE_OCCULT_4, [MagicSpellbook.ARCEUUS, MagicSpellbook.NORMAL, MagicSpellbook.ANCIENT, MagicSpellbook.LUNAR]],
+  [ObjectIds.ALTAR_OF_THE_OCCULT, MagicSpellbook.NORMAL],
+  [ObjectIds.ALTAR_OF_THE_OCCULT_2, MagicSpellbook.ANCIENT],
+  [ObjectIds.ALTAR_OF_THE_OCCULT_3, MagicSpellbook.LUNAR],
+  [ObjectIds.ALTAR_OF_THE_OCCULT_4, MagicSpellbook.ARCEUUS],
 ]);
 
 function handleAncientAltar(player) {
@@ -55,6 +55,35 @@ function handleOccultAltar(player, spellbook) {
   return true;
 }
 
+function ancientAltar({ player }) {
+  return handleAncientAltar(player);
+}
+
+function prayerAltar({ player }) {
+  return handlePrayerAltar(player);
+}
+
+function venerateOccultAltar({ player, objectId }) {
+  const spellbook = OCCULT_ALTAR_SPELLBOOKS.get(objectId);
+  return spellbook ? handleOccultAltar(player, spellbook) : false;
+}
+
+function standardSpellbook({ player }) {
+  return handleOccultAltar(player, MagicSpellbook.NORMAL);
+}
+
+function ancientSpellbook({ player }) {
+  return handleOccultAltar(player, MagicSpellbook.ANCIENT);
+}
+
+function lunarSpellbook({ player }) {
+  return handleOccultAltar(player, MagicSpellbook.LUNAR);
+}
+
+function arceuusSpellbook({ player }) {
+  return handleOccultAltar(player, MagicSpellbook.ARCEUUS);
+}
+
 module.exports = {
   name: "Altars",
   register: (api) => {
@@ -74,5 +103,18 @@ module.exports = {
         return spellbook ? handleOccultAltar(player, spellbook) : false;
       });
     }
+
+    // Name-keyed handlers catch the same altars if the cache renames them or
+    // the ObjectIds enum shifts; every hook guards on event.handled, so at
+    // most one handler runs per interaction.
+    api.onObjectInteraction("Ancient Altar", { Venerate: ancientAltar });
+    api.onObjectInteraction("Altar", { "Pray-at": prayerAltar, Pray: prayerAltar });
+    api.onObjectInteraction("Altar of the Occult", {
+      Venerate: venerateOccultAltar,
+      Standard: standardSpellbook,
+      Ancient: ancientSpellbook,
+      Lunar: lunarSpellbook,
+      Arceuus: arceuusSpellbook,
+    });
   },
 };

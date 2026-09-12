@@ -31,7 +31,6 @@ import { flushPackets } from "../../../network/packet";
 import { createTextureArray } from "../../../picogl/PicoTexture";
 import { RS_TO_RADIANS } from "../../../rs/MathConstants";
 import { CollisionFlag } from "../../../common/CollisionFlag";
-import { isInWilderness } from "../../../common/world/Wilderness";
 import {
     getWorldLocChanges,
     getWorldLocSpawns,
@@ -224,6 +223,7 @@ export function render(host: WebGLOsrsRendererHost, time: number, deltaTime: num
 
         const onLoginScreen = host.osrsClient.isOnLoginScreen();
         const loggedIn = host.osrsClient.isLoggedIn();
+        if (!loggedIn) host.osrsClient.clientPlugins.updateInteractionPointer(host.osrsClient.camera);
         const loginLikeState = !loggedIn;
         // When transitioning from login→gameplay, re-sync overlay scales. The first-frame sync
         // runs during login state (renderScaleX≈1) but gameplay uses a different scale formula.

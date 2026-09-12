@@ -502,7 +502,7 @@ export class Cs2Vm {
     // Current input string being typed by user
     inputDialogString: string = "";
     // Callback to send dialog result to server
-    onInputDialogComplete?: (type: "count" | "name" | "string", value: string | number) => void;
+    onInputDialogComplete?: (type: "count" | "name" | "string" | "obj", value: string | number) => void;
 
     // Handler map for opcode dispatch
     private handlers: HandlerMap;

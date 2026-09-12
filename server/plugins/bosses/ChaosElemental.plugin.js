@@ -7,7 +7,7 @@ const { Projectile } = require("../../src/main/typescript/elvarg/game/model/Proj
 const { Misc } = require("../../src/main/typescript/elvarg/util/Misc");
 const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
 const { Equipment } = require("../../src/main/typescript/elvarg/game/model/container/impl/Equipment");
-const { WeaponInterfaces } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces");
+const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
 const { Flag } = require("../../src/main/typescript/elvarg/game/model/Flag");
 const { Task } = require("../../src/main/typescript/elvarg/game/task/Task");
 const { NpcIdentifiers } = require("../../src/main/typescript/elvarg/util/NpcIdentifiers");
@@ -168,7 +168,7 @@ function disarmChaosElemental(player) {
 
   equipment.refreshItems();
   inventory.refreshItems();
-  WeaponInterfaces.assign(player);
+  WeaponInterfaceManager.assign(player);
   BonusManager.update(player);
   player.getUpdateFlag().flag(Flag.APPEARANCE);
   player.getPacketSender().sendMessage("The Chaos elemental disarms you.");

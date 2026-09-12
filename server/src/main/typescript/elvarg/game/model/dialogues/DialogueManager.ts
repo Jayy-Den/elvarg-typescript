@@ -3,13 +3,8 @@ import { DynamicDialogueBuilder } from "./builders/DynamicDialogueBuilder";
 import { DialogueBuilder } from "./builders/DialogueBuilder";
 import { Dialogue } from "./entries/Dialogue";
 import { TestStaticDialogue } from '../../model/dialogues/builders/impl/TestStaticDialogue'
-import { BankerDialogue } from "./builders/impl/BankedDialogue";
-import { NieveDialogue } from "./builders/impl/NieveDialogue";
-import { ParduDialogue } from "./builders/impl/ParduDialogue";
 import { DialogueOption } from "./DialogueOption";
-import { OptionsDialogue } from "./entries/impl/OptionsDialogue";
 import { OptionDialogue } from "./entries/impl/OptionDialogue";
-import { DialogueExpression } from "./DialogueExpression";
 import { DialogueIdentifiers } from "../../../util/DialogueIdentifiers";
 
 interface StaticDialogueDefinition {
@@ -20,10 +15,6 @@ interface StaticDialogueDefinition {
 export class DialogueManager {
     public static readonly STATIC_DIALOGUES: Map<number, StaticDialogueDefinition> = new Map([
         [DialogueIdentifiers.TEST, { create: () => new TestStaticDialogue(), startIndex: 0 }],
-        [DialogueIdentifiers.BANKER, { create: () => new BankerDialogue(), startIndex: 0 }],
-        [DialogueIdentifiers.PERDU, { create: () => new ParduDialogue(), startIndex: 0 }],
-        [DialogueIdentifiers.NIEVE, { create: () => new NieveDialogue(), startIndex: 0 }],
-        [DialogueIdentifiers.NIEVE_ASSIGNMENT, { create: () => new NieveDialogue(), startIndex: 2 }]
     ]);
 
     private readonly player: Player;
@@ -74,14 +65,6 @@ export class DialogueManager {
             return;
         }
 
-        let continueAction = current.getContinueAction();
-        if (continueAction != null) {
-            // This dialogue has a custom continue action
-            continueAction.execute(this.player);
-            this.reset();
-            return;
-        }
-
         this.startDialogue(this.index + 1);
     }
 
@@ -103,18 +86,15 @@ export class DialogueManager {
         this.startDialog(builder, 0);
     }
 
-    public startDialog(builder: DialogueBuilder, index: number): DialogueExpression {
+    public startDialog(builder: DialogueBuilder, index: number): void {
         if (builder instanceof DynamicDialogueBuilder) {
-            (builder as DynamicDialogueBuilder).build(this.player);
+            builder.build(this.player);
         }
         this.startDialogueMap(builder.getDialogues(), index);
-
-        return new DialogueExpression(index);
     }
 
     private startDialogueMap(entries: Map<number, Dialogue>, index: number) {
         this.reset();
-        this.dialogues.clear();
         entries.forEach((value, key) => {
             this.dialogues.set(key, value);
         });
@@ -133,15 +113,11 @@ export class DialogueManager {
 
     public handleOption(option: DialogueOption): void {
         const dialogue = this.dialogues.get(this.index);
-        if (dialogue instanceof OptionsDialogue) {
-            (dialogue as OptionsDialogue).execute(option, this.player);
-            return;
-        }
         if (!(dialogue instanceof OptionDialogue)) {
             this.player.getPacketSender().sendInterfaceRemoval();
             return;
         }
-        (dialogue as OptionDialogue).execute(option);
+        dialogue.execute(option);
     }
 
 }

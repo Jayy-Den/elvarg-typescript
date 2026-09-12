@@ -1,6 +1,6 @@
 "use strict";
 
-const { applyPreset } = require("../../../interface/Presets.plugin");
+const { applyPreset } = require("../../../modes/pvp/Presets");
 const { Presetable } = require("../../../../src/main/typescript/elvarg/game/content/presets/Presetable");
 const { PredefinedPresets } = require("../../../../src/main/typescript/elvarg/game/content/presets/PredefinedPresets");
 const { CombatSpells } = require("../../../../src/main/typescript/elvarg/game/content/combat/magic/CombatSpells");

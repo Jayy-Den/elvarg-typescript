@@ -1785,8 +1785,8 @@ export function registerClientOps(handlers: HandlerMap): void {
         ctx.cs2Vm.inputDialogString = "";
     });
 
-    handlers.set(Opcodes.RESUME_OBJDIALOG, () => {
-        // No-op
+    handlers.set(Opcodes.RESUME_OBJDIALOG, (ctx) => {
+        ctx.cs2Vm.onInputDialogComplete?.("obj", ctx.popInt());
     });
 
     handlers.set(Opcodes.OPPLAYER, (ctx) => {

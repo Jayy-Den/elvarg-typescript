@@ -1,4 +1,4 @@
-import { ungzip } from "gzip-js";
+import { gunzipSync } from "zlib";
 import * as Bzip2 from 'bzip2';
 
 export class CompressionUtil {
@@ -7,7 +7,8 @@ export class CompressionUtil {
     }
 
     static gunzip(data: Uint8Array): Uint8Array {
-        return Uint8Array.from(ungzip(data));
+        const buffer = gunzipSync(data);
+        return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.length);
     }
 
     static unbzip2Headerless(data: Uint8Array, offset: number, length: number): Uint8Array | null {

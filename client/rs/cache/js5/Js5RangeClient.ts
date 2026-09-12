@@ -13,6 +13,8 @@ type PendingGroup = {
     promise: Promise<void>;
 };
 
+type FetchBatch = { groups: PendingGroup[]; start: number; end: number };
+
 function groupKey(span: GroupSpan): string {
     return span.indexId + ":" + span.archiveId;
 }
@@ -26,14 +28,22 @@ function groupKey(span: GroupSpan): string {
  */
 export class Js5RangeClient {
     /** Merge queued groups whose spans are within this many bytes of each other. */
-    private static readonly MERGE_GAP_BYTES = 32 * Sector.SIZE;
+    private static readonly MERGE_GAP_BYTES = 256 * Sector.SIZE;
     private static readonly MAX_BATCH_BYTES = 2 * 1024 * 1024;
+    /** One miss warms a 260KiB sector-aligned block to avoid RTT-bound tiny reads. */
+    private static readonly BLOCK_SECTORS = 512;
     /** Delay before dispatching, letting one frame's misses batch together. */
     private static readonly BATCH_DELAY_MS = 10;
 
     private readonly pending = new Map<string, PendingGroup>();
     private readonly fetchedListeners: RangeFetchedListener[] = [];
     private activeFetches = 0;
+    private downloadedBytes = 0;
+
+    getProgress(): { pending: number; active: number; downloadedBytes: number } {
+        return { pending: this.pending.size, active: this.activeFetches, downloadedBytes: this.downloadedBytes };
+    }
+    private readonly inFlightRanges: Array<{ start: number; end: number }> = [];
     private scheduled = false;
 
     rangeUnsupported = false;
@@ -135,10 +145,15 @@ export class Js5RangeClient {
         }
     }
 
-    private takeNextBatch(): PendingGroup[] | undefined {
+    private takeNextBatch(): FetchBatch | undefined {
         const waiting: PendingGroup[] = [];
         for (const group of this.pending.values()) {
             if (!group.inFlight) {
+                // A neighbouring batch may already have downloaded this group.
+                if (this.store.isGroupPresent(group.span.indexId, group.span.archiveId)) {
+                    this.finishGroup(group);
+                    continue;
+                }
                 waiting.push(group);
             }
         }
@@ -147,63 +162,64 @@ export class Js5RangeClient {
         }
         waiting.sort((a, b) => a.span.startByte - b.span.startByte);
 
-        let seedIndex = waiting.findIndex((g) => g.urgent);
-        if (seedIndex < 0) {
-            seedIndex = 0;
-        }
-
-        const batch = [waiting[seedIndex]];
-        let start = waiting[seedIndex].span.startByte;
-        let end = waiting[seedIndex].span.startByte + waiting[seedIndex].span.byteLength;
-
-        // Grow right, then left, absorbing nearby groups into one Range request.
-        for (let i = seedIndex + 1; i < waiting.length; i++) {
-            const span = waiting[i].span;
-            if (span.startByte - end > Js5RangeClient.MERGE_GAP_BYTES) {
-                break;
+        const seedIndices = [
+            ...waiting.map((group, index) => group.urgent ? index : -1).filter((index) => index >= 0),
+            ...waiting.map((group, index) => group.urgent ? -1 : index).filter((index) => index >= 0),
+        ];
+        for (const seedIndex of seedIndices) {
+            const groups = [waiting[seedIndex]];
+            let start = waiting[seedIndex].span.startByte;
+            let end = start + waiting[seedIndex].span.byteLength;
+            for (let i = seedIndex + 1; i < waiting.length; i++) {
+                const span = waiting[i].span;
+                if (span.startByte - end > Js5RangeClient.MERGE_GAP_BYTES) break;
+                const nextEnd = Math.max(end, span.startByte + span.byteLength);
+                if (nextEnd - start > Js5RangeClient.MAX_BATCH_BYTES) break;
+                end = nextEnd;
+                groups.push(waiting[i]);
             }
-            const newEnd = Math.max(end, span.startByte + span.byteLength);
-            if (newEnd - start > Js5RangeClient.MAX_BATCH_BYTES) {
-                break;
+            for (let i = seedIndex - 1; i >= 0; i--) {
+                const span = waiting[i].span;
+                if (start - (span.startByte + span.byteLength) > Js5RangeClient.MERGE_GAP_BYTES) break;
+                if (end - span.startByte > Js5RangeClient.MAX_BATCH_BYTES) break;
+                start = Math.min(start, span.startByte);
+                groups.push(waiting[i]);
             }
-            end = newEnd;
-            batch.push(waiting[i]);
-        }
-        for (let i = seedIndex - 1; i >= 0; i--) {
-            const span = waiting[i].span;
-            if (start - (span.startByte + span.byteLength) > Js5RangeClient.MERGE_GAP_BYTES) {
-                break;
+            const range = this.expandToBlock(start, end);
+            if (this.inFlightRanges.some((active) => range.start < active.end && active.start < range.end)) {
+                continue;
             }
-            if (end - span.startByte > Js5RangeClient.MAX_BATCH_BYTES) {
-                break;
-            }
-            start = Math.min(start, span.startByte);
-            batch.push(waiting[i]);
+            for (const group of groups) group.inFlight = true;
+            this.inFlightRanges.push(range);
+            return { groups, ...range };
         }
-
-        for (const group of batch) {
-            group.inFlight = true;
-        }
-        return batch;
+        return undefined;
     }
 
-    private async fetchBatch(batch: PendingGroup[]): Promise<void> {
+    private expandToBlock(start: number, end: number): { start: number; end: number } {
+        const blockBytes = Js5RangeClient.BLOCK_SECTORS * Sector.SIZE;
+        return {
+            start: Math.floor(start / blockBytes) * blockBytes,
+            end: Math.min(Math.ceil(end / blockBytes) * blockBytes, this.store.dataFile.byteLength),
+        };
+    }
+
+    private async fetchBatch(batch: FetchBatch): Promise<void> {
         this.activeFetches++;
+        const startedAt = performance.now();
+        const params = new URLSearchParams(globalThis.location?.search);
+        const profile = params.get("map-profile") === "1";
         try {
-            let start = Number.MAX_SAFE_INTEGER;
-            let end = 0;
-            for (const group of batch) {
-                start = Math.min(start, group.span.startByte);
-                end = Math.max(end, group.span.startByte + group.span.byteLength);
-            }
-            const bytes = await this.fetchRange(start, end - start);
-            this.store.applyRange(start, bytes);
-            this.notifyFetched(start, bytes);
-            for (const group of batch) {
+            const bytes = await this.fetchRange(batch.start, batch.end - batch.start);
+            this.downloadedBytes += bytes.byteLength;
+            this.store.applyRange(batch.start, bytes);
+            this.notifyFetched(batch.start, bytes);
+            if (profile) console.info(`[js5-profile] range groups=${batch.groups.length} bytes=${bytes.byteLength} elapsed=${Math.round(performance.now() - startedAt)}ms pending=${this.pending.size} active=${this.activeFetches}`);
+            for (const group of batch.groups) {
                 this.finishGroup(group);
             }
         } catch (e) {
-            for (const group of batch) {
+            for (const group of batch.groups) {
                 this.pending.delete(groupKey(group.span));
                 group.reject(e);
             }
@@ -212,6 +228,8 @@ export class Js5RangeClient {
             }
         } finally {
             this.activeFetches--;
+            const rangeIndex = this.inFlightRanges.findIndex((range) => range.start === batch.start && range.end === batch.end);
+            if (rangeIndex >= 0) this.inFlightRanges.splice(rangeIndex, 1);
             for (const group of this.pending.values()) {
                 if (!group.inFlight) {
                     this.schedule();

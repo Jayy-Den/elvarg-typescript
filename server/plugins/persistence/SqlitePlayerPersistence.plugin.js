@@ -14,10 +14,6 @@ const { SkullType } = require("../../src/main/typescript/elvarg/game/model/Skull
 const { DonatorRights } = require("../../src/main/typescript/elvarg/game/model/rights/DonatorRights");
 const { PlayerRights } = require("../../src/main/typescript/elvarg/game/model/rights/PlayerRights");
 const { Misc } = require("../../src/main/typescript/elvarg/util/Misc");
-const {
-  PlayerFlags,
-  PlayerFlagAttributes,
-} = require("../../src/main/typescript/elvarg/game/entity/flags/PlayerFlags");
 
 function legacyJsonImportEnabled() {
   const value = String(process.env.PLAYER_SAVE_IMPORT_LEGACY_JSON ?? "1")
@@ -88,31 +84,6 @@ class SqlitePlayerPersistence extends PlayerPersistence {
     }
 
     const save = PlayerSave.fromPlayer(player);
-    const persistedFlags = Array.isArray(save.getFlags?.())
-      ? save.getFlags().filter((flag) => flag !== PlayerFlags.PRESET_ACTIVE)
-      : [];
-    save.setFlags?.(persistedFlags);
-
-    const presetSnapshot = player.getAttribute?.(PlayerFlagAttributes.PRESET_SNAPSHOT);
-    const presetActiveByFlag = player.hasFlag?.(PlayerFlags.PRESET_ACTIVE) === true;
-    const presetActiveBySnapshot =
-      presetSnapshot != null && typeof presetSnapshot === "object";
-    const presetActive = presetActiveByFlag || presetActiveBySnapshot;
-
-    if (presetActive) {
-      const baselineSave = this.resolvePresetBaselineSave(player);
-      if (baselineSave) {
-        this.preservePresetSensitiveState(save, baselineSave);
-        console.info(
-          `[persistence] preset-active save for ${player.getUsername()} preserving inventory/equipment/skills/banks from baseline`
-        );
-      } else {
-        console.warn(
-          `[persistence] preset-active save for ${player.getUsername()} had no baseline snapshot; current state was persisted`
-        );
-      }
-    }
-
     const serialized = JSON.stringify(save, this.replacer.bind(this), 2);
     this.validateSerializedSave(serialized, player.getUsername());
     this.savePlayer.run(
@@ -204,75 +175,6 @@ class SqlitePlayerPersistence extends PlayerPersistence {
     }
   }
 
-  resolvePresetBaselineSave(player) {
-    const snapshot = player.getAttribute?.(PlayerFlagAttributes.PRESET_SNAPSHOT);
-    if (snapshot && typeof snapshot === "object") {
-      return snapshot;
-    }
-
-    try {
-      if (this.exists(player.getUsername())) {
-        return this.load(player.getUsername());
-      }
-    } catch (error) {
-      console.warn(
-        `[persistence] failed loading baseline save for ${player.getUsername()} during preset-active merge`,
-        error
-      );
-    }
-    return null;
-  }
-
-  preservePresetSensitiveState(targetSave, baselineSave) {
-    if (!targetSave || !baselineSave) {
-      return;
-    }
-
-    const baselineInventory = this.resolveSaveField(
-      baselineSave,
-      "inventory",
-      "getInventory"
-    );
-    const baselineEquipment = this.resolveSaveField(
-      baselineSave,
-      "equipment",
-      "getEquipment"
-    );
-    const baselineSkills = this.resolveSaveField(
-      baselineSave,
-      "skills",
-      "getSkills"
-    );
-    const baselineBanks = this.resolveSaveField(
-      baselineSave,
-      "banks",
-      "getBanks"
-    );
-
-    targetSave.inventory = this.hydrateItems(baselineInventory, 28);
-    targetSave.equipment = this.hydrateItems(baselineEquipment, 14);
-    targetSave.skills = this.hydrateSkills(baselineSkills);
-    targetSave.banks = this.hydrateBanks(baselineBanks);
-  }
-
-  resolveSaveField(save, key, getterName) {
-    if (!save || typeof save !== "object") {
-      return null;
-    }
-    if (save[key] != null) {
-      return save[key];
-    }
-    const getter = save[getterName];
-    if (typeof getter === "function") {
-      try {
-        return getter.call(save);
-      } catch (_error) {
-        return null;
-      }
-    }
-    return null;
-  }
-
   replacer(_key, value) {
     if (value instanceof Map) {
       return {
@@ -343,7 +245,6 @@ class SqlitePlayerPersistence extends PlayerPersistence {
         friends: [],
         ignores: [],
         presets: [],
-        questPoints: 0,
         flags: [],
       },
       parsed
@@ -364,7 +265,6 @@ class SqlitePlayerPersistence extends PlayerPersistence {
     save.recentKills = this.hydrateStringArray(parsed.recentKills);
     save.flags = this.hydrateFlags(parsed.flags);
     save.banks = this.hydrateBanks(parsed.banks);
-    save.questProgress = this.hydrateQuestProgress(parsed.questProgress);
     return save;
   }
 
@@ -517,18 +417,6 @@ class SqlitePlayerPersistence extends PlayerPersistence {
       banks.set(index, this.hydrateItems(value));
     }
     return banks;
-  }
-
-  hydrateQuestProgress(raw) {
-    const questProgress = new Map();
-    for (const [key, value] of this.entriesFrom(raw)) {
-      const questId = this.toNumber(key, -1);
-      if (questId < 0) {
-        continue;
-      }
-      questProgress.set(questId, this.toNumber(value, 0));
-    }
-    return questProgress;
   }
 
   entriesFrom(raw) {

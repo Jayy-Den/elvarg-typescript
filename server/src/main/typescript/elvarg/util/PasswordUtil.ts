@@ -1,30 +1,24 @@
-import bcrypt = require("bcrypt");
+import { randomBytes, scrypt, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+const KEY_LENGTH = 64;
 
 export class PasswordUtil {
-    private static pbkdf2 = 10;
-
     public static async generatePasswordHashWithSalt(password: string): Promise<string> {
-        const saltRounds = this.pbkdf2;
-        const salt = await bcrypt.genSalt(saltRounds);
-        const hash = await bcrypt.hash(password, salt);
+        const salt = randomBytes(16).toString("hex");
+        const hash = (await scryptAsync(password, salt, KEY_LENGTH)) as Buffer;
 
-        return salt + ":" + hash;
+        return `${salt}:${hash.toString("hex")}`;
     }
 
     public static async passwordsMatch(plainTextPassword: string, passwordHashWithSalt: string): Promise<boolean> {
-        const parts = passwordHashWithSalt.split(":");
-        const salt = parts[0];
-        const hash = parts[1];
+        const [salt, hashHex] = passwordHashWithSalt.split(":");
+        if (!salt || !hashHex) return false;
 
-        return await bcrypt.compare(plainTextPassword, hash);
-    }
+        const hash = Buffer.from(hashHex, "hex");
+        const candidate = (await scryptAsync(plainTextPassword, salt, hash.length)) as Buffer;
 
-    private static toBase64(s: string): string {
-        return Buffer.from(s).toString('base64');
-    }
-
-    private static fromBase64(s: string): string {
-        return Buffer.from(s, 'base64').toString();
-
+        return candidate.length === hash.length && timingSafeEqual(candidate, hash);
     }
 }

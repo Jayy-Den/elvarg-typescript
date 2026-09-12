@@ -15,6 +15,12 @@
       "args": { "shopId": 2 }
     }
   },
+  "316": {
+    "second_click": {
+      "method": "core.shops.open",
+      "args": { "shopId": 2 }
+    }
+  },
   "394": {
     "first_click": {
       "method": "core.dialogues.start",

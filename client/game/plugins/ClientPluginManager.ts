@@ -17,8 +17,10 @@ export type CameraFollowContext = {
 export interface ClientPlugin {
     handleCameraKeys?(context: CameraInputContext): boolean;
     handleCameraMouse?(context: CameraInputContext): boolean;
+    handleCameraScroll?(context: CameraInputContext): boolean;
     updateInteractionPointer?(camera: Camera): void;
     handleCameraFollow?(context: CameraFollowContext): boolean;
+    shouldKeepWorldMenuOpen?(): boolean;
 }
 
 export class ClientPluginManager {
@@ -36,6 +38,10 @@ export class ClientPluginManager {
         return this.plugins.some((plugin) => plugin.handleCameraMouse?.(context) === true);
     }
 
+    handleCameraScroll(context: CameraInputContext): boolean {
+        return this.plugins.some((plugin) => plugin.handleCameraScroll?.(context) === true);
+    }
+
     updateInteractionPointer(camera: Camera): void {
         for (const plugin of this.plugins) plugin.updateInteractionPointer?.(camera);
     }
@@ -43,4 +49,9 @@ export class ClientPluginManager {
     handleCameraFollow(context: CameraFollowContext): boolean {
         return this.plugins.some((plugin) => plugin.handleCameraFollow?.(context) === true);
     }
+
+    shouldKeepWorldMenuOpen(): boolean {
+        return this.plugins.some((plugin) => plugin.shouldKeepWorldMenuOpen?.() === true);
+    }
+
 }

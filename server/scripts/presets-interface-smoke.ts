@@ -33,8 +33,8 @@ const {
   STAT_ROW_START,
   STAT_MAX_ROW_START,
   uid,
-} = require("../plugins/interface/presetsWidget");
-const Presets = require("../plugins/interface/Presets.plugin");
+} = require("../plugins/modes/pvp/presetsWidget");
+const Presets = require("../plugins/modes/pvp/Presets");
 
 type Sent = { call: string; args: any[] };
 
@@ -57,7 +57,7 @@ function stubPlayer(sent: Sent[]) {
   let currentPreset: any = null;
   let presets: any[] = [];
   let interfaceId = -1;
-  let openOnDeath = false;
+  const attributes = new Map<string, unknown>();
   return {
     getPacketSender: () => sender,
     getCurrentPreset: () => currentPreset,
@@ -72,10 +72,8 @@ function stubPlayer(sent: Sent[]) {
     setInterfaceId: (id: number) => {
       interfaceId = id;
     },
-    isOpenPresetsOnDeath: () => openOnDeath,
-    setOpenPresetsOnDeath: (value: boolean) => {
-      openOnDeath = value;
-    },
+    getAttribute: (key: string) => attributes.get(key),
+    setAttribute: (key: string, value: unknown) => attributes.set(key, value),
     isPlayerBot: () => false,
     busy: () => false,
     getLocation: () => null,

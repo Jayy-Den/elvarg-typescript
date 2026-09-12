@@ -32,6 +32,7 @@ export class Camera {
     private targetYaw: number;
     private scenePitchOverride: number | undefined;
     private viewPitchOverride: number | undefined;
+    private viewZoomScale: number = 1;
 
     private readonly positionMaxSpeedPerSec = 12; // tiles per second toward target
     private readonly positionSpringPerSec = 6; // proportional easing factor
@@ -165,6 +166,15 @@ export class Camera {
     setViewPitchOverride(pitch: number | undefined): void {
         this.viewPitchOverride =
             pitch === undefined ? undefined : clamp(Math.trunc(pitch), -256, 256);
+        this.updated = true;
+    }
+
+    getViewZoomScale(): number {
+        return this.viewZoomScale;
+    }
+
+    setViewZoomScale(scale: number): void {
+        this.viewZoomScale = clamp(scale, 0.5, 2);
         this.updated = true;
     }
 
@@ -360,7 +370,8 @@ export class Camera {
         // Projection
         mat4.identity(this.projectionMatrix);
         if (this.projectionType === ProjectionType.PERSPECTIVE) {
-            const fovY = 2 * Math.atan(this.viewportHeight / (2 * this.viewportZoom));
+            const fovY =
+                2 * Math.atan(this.viewportHeight / (2 * this.viewportZoom * this.viewZoomScale));
             const aspect = this.viewportWidth / this.viewportHeight;
             mat4.perspective(this.projectionMatrix, fovY, aspect, 0.1, 1024.0 * 4);
         } else {

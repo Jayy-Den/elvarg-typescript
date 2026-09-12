@@ -10,6 +10,7 @@ const { Skill } = require("../../src/main/typescript/elvarg/game/model/Skill");
 const { Sound } = require("../../src/main/typescript/elvarg/game/Sound");
 const { Sounds } = require("../../src/main/typescript/elvarg/game/Sounds");
 const { WeaponInterfaces } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces");
+const { WeaponInterfaceManager } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager");
 const { Item } = require("../../src/main/typescript/elvarg/game/model/Item");
 const { ItemIdentifiers } = require("../../src/main/typescript/elvarg/util/ItemIdentifiers");
 const { Misc } = require("../../src/main/typescript/elvarg/util/Misc");
@@ -176,7 +177,7 @@ function refreshBlowpipeState(player, item, preferredSlot = -1) {
     player.getWeapon?.() === WeaponInterfaces.BLOWPIPE ||
     player.getEquipment().get(Equipment.WEAPON_SLOT) === item
   ) {
-    WeaponInterfaces.assign(player);
+    WeaponInterfaceManager.assign(player);
   }
   BonusManager.update(player);
 }

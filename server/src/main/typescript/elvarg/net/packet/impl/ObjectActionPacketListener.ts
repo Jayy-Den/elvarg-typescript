@@ -25,18 +25,20 @@ export class ObjectActionPacketListener {
     if (!object) {
       return;
     }
+    const definition = object.getDefinition();
     if (clickType < 1 || clickType > 5) {
       const normalized = action?.trim().toLowerCase();
       clickType = normalized
-        ? (object.getDefinition()?.getInteractions()?.findIndex((option) => option?.toLowerCase() === normalized) ?? -1) + 1
+        ? (definition?.getInteractions()?.findIndex((option) => option?.toLowerCase() === normalized) ?? -1) + 1
         : 0;
     }
     if (clickType < 1 || clickType > 5) return;
 
-    const option = object.getDefinition()?.getInteractions()?.[clickType - 1]?.toLowerCase();
+    const option = definition?.getInteractions()?.[clickType - 1]?.toLowerCase();
     const routeEvent = {
       player,
       object,
+      definition,
       objectId: object.getId(),
       clickType,
       sourceLocation: {
@@ -52,14 +54,10 @@ export class ObjectActionPacketListener {
       player.getMovementQueue().walkToReset();
       player.setPositionToFace(object.getLocation());
 
-      if (option === "bank") {
-        player.getBank(player.getCurrentBankTab()).open();
-        return;
-      }
-
       const pluginHandled = PluginManager.emitObjectInteraction({
         player,
         object,
+        definition,
         objectId: object.getId(),
         clickType,
         location: {
@@ -78,10 +76,15 @@ export class ObjectActionPacketListener {
         return;
       }
 
+      if (option === "bank") {
+        player.getBank(player.getCurrentBankTab()).open();
+        return;
+      }
+
       console.warn(
-        `[object-click-debug] unhandled id=${object.getId()} name="${object.getDefinition()?.getName() ?? "?"}" ` +
+        `[object-click-debug] unhandled id=${object.getId()} name="${definition?.getName() ?? "?"}" ` +
         `type=${object.getType()} face=${object.getFace()} loc=${object.getLocation().getX()},${object.getLocation().getY()},${object.getLocation().getZ()} ` +
-        `action="${object.getDefinition()?.getInteractions()?.[clickType - 1] ?? "?"}"`
+        `action="${definition?.getInteractions()?.[clickType - 1] ?? "?"}"`
       );
     };
 

@@ -12,7 +12,7 @@ import { PluginManager } from "../plugins/PluginManager";
 import { Misc } from "../util/Misc";
 import { PlayerPunishment } from "../util/PlayerPunishment";
 import { BinaryChannel, MAX_GAME_MESSAGE_BYTES, WebSocketBinaryChannel } from "./BinaryChannel";
-import { WebRtcGameConnector } from "./webrtc/WebRtcGameConnector";
+import { BrowserHostHttpBridge, BROWSER_HOST_BRIDGE_HTML } from "./BrowserHostHttpBridge";
 import { PlayerSession } from "./PlayerSession";
 import { CachePipeline } from "../game/cache/CachePipeline";
 import { ContentApi } from "./http/ContentApi";
@@ -62,7 +62,7 @@ import { Emotes } from "../game/content/Emotes";
 import { BonusManager } from "../game/model/equipment/BonusManager";
 import { ShopManager } from "../game/model/container/shop/ShopManager";
 import { CombatSpecial } from "../game/content/combat/CombatSpecial";
-import { WeaponInterfaces } from "../game/content/combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../game/content/combat/WeaponInterfaceManager";
 import { PrayerHandler } from "../game/content/PrayerHandler";
 import { Autocasting } from "../game/content/combat/magic/Autocasting";
 import { EffectSpells } from "../game/content/combat/magic/EffectSpells";
@@ -108,8 +108,20 @@ export function isConfiguredDeveloperUsername(username: string): boolean {
 
 export class NetworkBuilder {
   public initialize(port: number): WebSocketServer {
+    const browserHost = process.env.BROWSER_HOST === "1";
+    const browserHostBridge = browserHost
+      ? new BrowserHostHttpBridge((channel) => new ClientConnection(channel))
+      : undefined;
     const http = createServer((request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
+      if (browserHostBridge) {
+        if (request.method === "GET" && request.url === "/") {
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.end(BROWSER_HOST_BRIDGE_HTML);
+          return;
+        }
+        if (browserHostBridge.handle(request, response)) return;
+      }
       const content = ContentApi.resolve(
         request.method ?? "GET",
         request.url ?? "",
@@ -148,10 +160,15 @@ export class NetworkBuilder {
     server.on("listening", () => console.info(`[network] client websocket listening on ${port}`));
     server.on("error", (error) => console.error("[network] websocket error", error));
     http.listen(port);
-    WebRtcGameConnector.startFromEnv(
-      (channel) => new ClientConnection(channel),
-      World.getNetworkPlayerCount
-    );
+    if (!browserHost) {
+      // node-datachannel is a native addon; only require it outside the
+      // WebContainer sandbox, which cannot load native modules.
+      const { WebRtcGameConnector } = require("./webrtc/WebRtcGameConnector") as typeof import("./webrtc/WebRtcGameConnector");
+      WebRtcGameConnector.startFromEnv(
+        (channel) => new ClientConnection(channel),
+        World.getNetworkPlayerCount
+      );
+    }
     return server;
   }
 }
@@ -497,7 +514,9 @@ class ClientConnection {
                 slot: actionPacket.slot,
                 option: actionPacket.option,
               });
-              if (!handled && actionPacket.simple) {
+              // A prompt callback may start a new dialogue; do not send this same click to it.
+              if (handled) continue;
+              if (actionPacket.simple) {
                 PluginManager.emitButtonClick({
                   player: this.player,
                   buttonId: actionPacket.childId,
@@ -513,7 +532,7 @@ class ClientConnection {
         case "varp_transmit":
           if (this.player) {
             if (packet.varpId === 43) {
-              WeaponInterfaces.changeCombatStyle(this.player, packet.value);
+              WeaponInterfaceManager.changeCombatStyle(this.player, packet.value);
               BonusManager.update(this.player);
             } else if (packet.varpId === 172) {
               this.player.setAutoRetaliate(packet.value === 0);
@@ -673,6 +692,7 @@ class ClientConnection {
           continue;
         case "logout":
           this.send(encodeLogoutResponse());
+          this.player?.getSession().flushPackets();
           this.cleanup("logout");
           this.channel.close(1000, "logout");
           return;
@@ -940,7 +960,11 @@ class ClientConnection {
   }
 
   private send(packet: Buffer): void {
-    if (this.channel.isOpen()) this.channel.send(packet);
+    if (this.player) {
+      this.player.getSession().sendClientPacket(packet);
+    } else if (this.channel.isOpen()) {
+      this.channel.send(packet);
+    }
   }
 
   private releasePendingName(): void {

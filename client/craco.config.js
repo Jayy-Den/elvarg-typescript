@@ -1,5 +1,18 @@
+// `homepage: "/play"` in package.json is where the LIVE site is mounted, and
+// CRA applies it in development too — which redirects localhost:3000 to
+// /play/ and moves the cache to /play/caches/, while the dev server only
+// serves it at /caches/ (see devServer.setupMiddlewares below). Serve dev from
+// the root instead. PUBLIC_URL wins over homepage in CRA's
+// getPublicUrlOrPath, and this must run before react-scripts/config/paths is
+// required below, since that resolves the public path once at import time.
+// Not an .env file: .env* is gitignored, so it would not reach a deploy build.
+if (process.env.NODE_ENV === "development" && !process.env.PUBLIC_URL) {
+    process.env.PUBLIC_URL = "/";
+}
+
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 // Single source of truth for the client dev-server port.
 // Port 3000 is off-limits: the Freebuff desktop app reserves it (it reads PORT
@@ -34,11 +47,19 @@ paths.appTsConfig = path.resolve(appRoot, "tsconfig.json");
 paths.appBuild = path.resolve(appRoot, "build");
 
 // WebRTC clients cannot fetch custom interfaces from the signalling relay.
-const { buildPresetsInterfaceDefinition } = require("../server/plugins/interface/presetsWidget");
-const presetsInterface = buildPresetsInterfaceDefinition();
+// Export the same definitions that the server plugins register, rather than maintaining
+// a second list in the browser build.
 const interfaceOutput = path.join(paths.appPublic, "browser-host/interfaces");
 fs.mkdirSync(interfaceOutput, { recursive: true });
-fs.writeFileSync(path.join(interfaceOutput, `${presetsInterface.groupId}.json`), JSON.stringify(presetsInterface));
+const browserHostInterfaces = JSON.parse(
+    execFileSync(process.execPath, [path.join(appRoot, "node_modules/tsx/dist/cli.mjs"), "scripts/browser-host-interface-definitions.ts"], {
+        cwd: path.resolve(appRoot, "../server"),
+        encoding: "utf8",
+    }),
+);
+for (const definition of browserHostInterfaces) {
+    fs.writeFileSync(path.join(interfaceOutput, `${definition.groupId}.json`), JSON.stringify(definition));
+}
 
 module.exports = {
     paths: (existingPaths) => {

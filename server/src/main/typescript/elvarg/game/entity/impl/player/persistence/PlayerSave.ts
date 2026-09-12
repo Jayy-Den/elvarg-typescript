@@ -16,6 +16,27 @@ import { StackType } from "../../../../model/container/StackType";
 import { Appearance } from "../../../../model/Appearance";
 
 export class PlayerSave {
+    private static readonly persistentAttributeKeys = new Set<string>();
+
+    public static persistAttribute(key: string): void {
+        if (typeof key !== "string" || !key.trim() || key !== key.trim()) {
+            throw new Error("Persistent attribute keys must be non-empty strings without surrounding whitespace");
+        }
+        PlayerSave.persistentAttributeKeys.add(key);
+    }
+
+    public attributes: Record<string, unknown> = {};
+    private static cloneAttribute(key: string, value: unknown): unknown {
+        return JSON.parse(JSON.stringify(value, (_name, entry) => {
+            if (entry === null || typeof entry === "string" || typeof entry === "boolean"
+                || (typeof entry === "number" && Number.isFinite(entry))
+                || Array.isArray(entry)
+                || (typeof entry === "object" && (Object.getPrototypeOf(entry) === Object.prototype
+                    || Object.getPrototypeOf(entry) === null))) return entry;
+            throw new Error(`Persistent attribute ${key} must contain only JSON-compatible values`);
+        }));
+    }
+
     private static readonly MAX_FRIENDS = 200;
     private static readonly MAX_IGNORES = 100;
     private static readonly DEFAULT_MALE_APPEARANCE = [0, 3, 18, 26, 34, 38, 42, 14, 2, 14, 5, 4, 0];
@@ -103,8 +124,6 @@ export class PlayerSave {
     private friendsChatKickRank: number;
     private banks: Map<number, Item[]>;
     private presets: Presetable[];
-    private questPoints: number;
-    private questProgress: Map<number, number>;
     private flags: string[];
 
     public getPasswordHashWithSalt(): string {
@@ -504,22 +523,6 @@ export class PlayerSave {
         this.cachedDiscordAccessToken = cachedDiscordAccessToken;
     }
 
-    getQuestPoints(): number {
-        return this.questPoints;
-    }
-
-    setQuestPoints(questPoints: number) {
-        this.questPoints = questPoints;
-    }
-
-    getQuestProgress(): Map<number, number> {
-        return this.questProgress;
-    }
-
-    setQuestProgress(questProgress: Map<number, number>) {
-        this.questProgress = questProgress;
-    }
-
     getFlags(): string[] {
         return this.flags;
     }
@@ -710,9 +713,12 @@ export class PlayerSave {
         this.appearance = sanitizedAppearance;
         player.getSkillManager().setSkills(this.skills);
         player.getQuickPrayers().setPrayers(this.quickPrayers);
-        player.setQuestPoints(this.questPoints);
-        player.setQuestProgress(this.questProgress);
         player.setFlags(PlayerSave.normalizeFlags(this.flags));
+        for (const key of PlayerSave.persistentAttributeKeys) {
+            if (Object.prototype.hasOwnProperty.call(this.attributes ?? {}, key)) {
+                player.setAttribute(key, PlayerSave.cloneAttribute(key, this.attributes[key]));
+            }
+        }
 
         if (this.presets != null) {
             player.setPresets(this.presets);
@@ -825,9 +831,12 @@ export class PlayerSave {
         clonedSkills.experience = [...(liveSkills?.experience ?? clonedSkills.experience)];
         playerSave.skills = clonedSkills;
         playerSave.quickPrayers = [...(player.getQuickPrayers().getPrayers() ?? [])];
-        playerSave.questPoints = player.getQuestPoints();
-        playerSave.questProgress = new Map(player.getQuestProgress()?.entries?.() ?? []);
         playerSave.flags = PlayerSave.normalizeFlags(player.getFlags());
+        playerSave.attributes = Object.fromEntries(
+            [...PlayerSave.persistentAttributeKeys]
+                .filter((key) => player.getAttribute(key) !== undefined)
+                .map((key) => [key, PlayerSave.cloneAttribute(key, player.getAttribute(key))])
+        );
 
         playerSave.friends = PlayerSave.normalizeRelationListToStrings(
             player.getRelations().getFriendList(),

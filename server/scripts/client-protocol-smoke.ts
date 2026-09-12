@@ -59,6 +59,7 @@ import { PrayerHandler } from "../src/main/typescript/elvarg/game/content/Prayer
 import { Autocasting } from "../src/main/typescript/elvarg/game/content/combat/magic/Autocasting";
 import { CombatSpells } from "../src/main/typescript/elvarg/game/content/combat/magic/CombatSpells";
 import { WeaponInterfaces } from "../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../src/main/typescript/elvarg/game/content/combat/WeaponInterfaceManager";
 import { PacketSender } from "../src/main/typescript/elvarg/net/packet/PacketSender";
 import { packWorldMapCoord } from "../src/main/typescript/elvarg/net/protocol/WorldMapProtocol";
 import { CombatFactory } from "../src/main/typescript/elvarg/game/content/combat/CombatFactory";
@@ -88,7 +89,7 @@ assert.strictEqual(Autocasting.autocastSpell(17), CombatSpells.CRUMBLE_UNDEAD);
 assert.strictEqual(Autocasting.autocastSpell(46), CombatSpells.ICE_BARRAGE);
 assert.strictEqual(Autocasting.autocastSpell(59), null);
 
-const originalAssignWeapon = WeaponInterfaces.assign;
+const originalAssignWeapon = WeaponInterfaceManager.assign;
 const originalSetAutocast = Autocasting.setAutocast;
 let equippedStaff = false;
 let selectedAutocast: any = CombatSpells.WIND_STRIKE;

@@ -31,7 +31,6 @@ import { flushPackets } from "../network/packet";
 import { createTextureArray } from "../picogl/PicoTexture";
 import { RS_TO_RADIANS } from "../rs/MathConstants";
 import { CollisionFlag } from "../common/CollisionFlag";
-import { isInWilderness } from "../common/world/Wilderness";
 import {
     getWorldLocChanges,
     getWorldLocSpawns,
@@ -306,6 +305,9 @@ export class WebGLOsrsRenderer extends GameRenderer<WebGLMapSquare> {
     // in its map square.
     public pendingDoorLocUpdates: Set<number> = new Set();
     public pendingLocReloadMaps: Map<number, { mapX: number; mapY: number }> = new Map();
+    // Incremented for every dynamic loc update so an in-flight initial map load
+    // can cheaply detect that its input became stale.
+    public locReloadVersions: Map<number, number> = new Map();
     public pendingLocReloadFlushTimer?: ReturnType<typeof setTimeout>;
     public nextLocReloadBatchId: number = 1;
     public pendingLocReloadBatches: Map<number, LocReloadBatchState> = new Map();

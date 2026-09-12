@@ -1,116 +1,6 @@
 const { Bank } = require("../../src/main/typescript/elvarg/game/model/container/impl/Bank");
 const { PlayerStatus } = require("../../src/main/typescript/elvarg/game/model/PlayerStatus");
-const { ObjectIds } = require("../../src/main/typescript/elvarg/util/IdEnums");
-const { NpcIdentifiers } = require("../../src/main/typescript/elvarg/util/NpcIdentifiers");
 
-const BANK_BOOTH_IDS = Object.freeze([
-  ObjectIds.BANK_BOOTH,
-  ObjectIds.BANK_BOOTH_2,
-  ObjectIds.BANK_BOOTH_3,
-  ObjectIds.BANK_BOOTH_4,
-  ObjectIds.BANK_BOOTH_5,
-  ObjectIds.BANK_BOOTH_6,
-  ObjectIds.BANK_BOOTH_7,
-  ObjectIds.BANK_BOOTH_8,
-  ObjectIds.BANK_BOOTH_9,
-  ObjectIds.BANK_BOOTH_10,
-  ObjectIds.BANK_BOOTH_11,
-  ObjectIds.BANK_BOOTH_12,
-  ObjectIds.BANK_BOOTH_13,
-  ObjectIds.BANK_BOOTH_14,
-  ObjectIds.BANK_BOOTH_15,
-  ObjectIds.BANK_BOOTH_16,
-  ObjectIds.BANK_BOOTH_17,
-  ObjectIds.BANK_BOOTH_18,
-  ObjectIds.BANK_BOOTH_19,
-  ObjectIds.BANK_BOOTH_20,
-  ObjectIds.BANK_BOOTH_21,
-  ObjectIds.BANK_BOOTH_22,
-  ObjectIds.BANK_BOOTH_23,
-  ObjectIds.BANK_BOOTH_24,
-  ObjectIds.BANK_BOOTH_25,
-  ObjectIds.BANK_BOOTH_26,
-  ObjectIds.BANK_BOOTH_27,
-  ObjectIds.BANK_BOOTH_28,
-  ObjectIds.BANK_BOOTH_29,
-  ObjectIds.BANK_BOOTH_30,
-  ObjectIds.BANK_BOOTH_31,
-  ObjectIds.BANK_BOOTH_32,
-  ObjectIds.BANK_BOOTH_33,
-  ObjectIds.BANK_BOOTH_34,
-  ObjectIds.BANK_BOOTH_35,
-  ObjectIds.BANK_BOOTH_36,
-  ObjectIds.BANK_BOOTH_37,
-  ObjectIds.BANK_BOOTH_38,
-  ObjectIds.BANK_BOOTH_39,
-  ObjectIds.BANK_BOOTH_40,
-  ObjectIds.BANK_BOOTH_41,
-  ObjectIds.BANK_BOOTH_42,
-  ObjectIds.BANK_BOOTH_43,
-  ObjectIds.BANK_BOOTH_44,
-  ObjectIds.BANK_BOOTH_45,
-].filter(Number.isInteger));
-
-const BANK_BOOTH_ID_SET = new Set(BANK_BOOTH_IDS);
-const BANKER_NPC_IDS = Object.freeze([
-  NpcIdentifiers.BANKER,
-  NpcIdentifiers.BANKER_2,
-  NpcIdentifiers.BANKER_3,
-  NpcIdentifiers.BANKER_4,
-  NpcIdentifiers.BANKER_5,
-  NpcIdentifiers.BANKER_6,
-  NpcIdentifiers.BANKER_7,
-  NpcIdentifiers.BANKER_8,
-  NpcIdentifiers.BANKER_9,
-  NpcIdentifiers.BANKER_10,
-  NpcIdentifiers.BANKER_11,
-  NpcIdentifiers.BANKER_12,
-  NpcIdentifiers.BANKER_13,
-  NpcIdentifiers.BANKER_14,
-  NpcIdentifiers.BANKER_15,
-  NpcIdentifiers.BANKER_16,
-  NpcIdentifiers.BANKER_17,
-  NpcIdentifiers.BANKER_18,
-  NpcIdentifiers.BANKER_19,
-  NpcIdentifiers.BANKER_20,
-  NpcIdentifiers.GHOST_BANKER,
-  NpcIdentifiers.BANKER_TUTOR,
-  NpcIdentifiers.BANKER_21,
-  NpcIdentifiers.SIRSAL_BANKER,
-  NpcIdentifiers.BANKER_22,
-  NpcIdentifiers.BANKER_23,
-  NpcIdentifiers.BANKER_24,
-  NpcIdentifiers.BANKER_25,
-  NpcIdentifiers.NARDAH_BANKER,
-  NpcIdentifiers.BANKER_26,
-  NpcIdentifiers.BANKER_27,
-  NpcIdentifiers.BANKER_28,
-  NpcIdentifiers.BANKER_29,
-  NpcIdentifiers.GNOME_BANKER,
-  NpcIdentifiers.BANKER_30,
-  NpcIdentifiers.BANKER_31,
-  NpcIdentifiers.BANKER_32,
-  NpcIdentifiers.BANKER_33,
-  NpcIdentifiers.BANKER_34,
-  NpcIdentifiers.BANKER_35,
-  NpcIdentifiers.BANKER_36,
-  NpcIdentifiers.BANKER_37,
-  NpcIdentifiers.BANKER_38,
-  NpcIdentifiers.BANKER_39,
-  NpcIdentifiers.BANKER_40,
-  NpcIdentifiers.BANKER_41,
-  NpcIdentifiers.BANKER_42,
-  NpcIdentifiers.BANKER_43,
-  NpcIdentifiers.BANKER_44,
-  NpcIdentifiers.BANKER_45,
-  NpcIdentifiers.BANKER_46,
-  NpcIdentifiers.BANKER_47,
-  NpcIdentifiers.BANKER_48,
-  NpcIdentifiers.BANKER_49,
-  NpcIdentifiers.BANKER_50,
-  NpcIdentifiers.BANKER_51,
-].filter(Number.isInteger));
-const BANKER_NPC_ID_SET = new Set(BANKER_NPC_IDS);
 const BANK_SETTINGS_BUTTON_IDS = new Set([32503, 32512, 32513]);
 const BANK_MAIN_BUTTON_IDS = new Set([
   50013,
@@ -212,31 +102,26 @@ function handleBankInterfaceAction(player, buttonId, action) {
   return Bank.handleButton(player, buttonId, action) === true;
 }
 
+function openBankFromNpc({ player }) {
+  return openBank(player);
+}
+
 module.exports = {
   name: "BankBooths",
   handleBankButton,
   handleBankInterfaceAction,
   register(api) {
-    const onBankBoothClick = (event) => {
-      if (!BANK_BOOTH_ID_SET.has(event.objectId)) {
-        return;
-      }
-      if (openBank(event.player)) {
-        event.handled = true;
-      }
-    };
-    api.onObjectFirstClick(BANK_BOOTH_IDS, onBankBoothClick);
-    api.onObjectSecondClick(BANK_BOOTH_IDS, onBankBoothClick);
+    api.onObjectInteraction("Bank booth", {
+      "Bank": ({ player }) => openBank(player),
+    });
+    api.onObjectInteraction("Bank chest", {
+      "Use": ({ player }) => openBank(player),
+    });
 
-    function openBankFromNpc(event) {
-      if (openBank(event.player)) {
-        event.handled = true;
-        return true;
-      }
-      return false;
-    }
-    api.onNpcFirstClick(BANKER_NPC_IDS, openBankFromNpc);
-    api.onNpcSecondClick(BANKER_NPC_IDS, openBankFromNpc);
+    api.onNpcInteraction("Banker", {
+      "Talk-to": openBankFromNpc,
+      "Bank": openBankFromNpc,
+    });
 
     api.onButtonClick((event) => {
       if (handleBankButton(event.player, event.buttonId)) {

@@ -20,7 +20,7 @@ const contentApiTest = (async () => {
         }) as typeof fetch;
         assert.equal(getContentApiBase(), undefined, "the signalling relay is not a content server");
         assert.equal((await fetchInterfaceDefinition(30003))?.groupId, 30003);
-        assert.deepEqual(requested, ["/browser-host/interfaces/30003.json"]);
+        assert.match(requested[0], /^\/browser-host\/interfaces\/30003\.json\?v=\d+$/);
     } finally {
         globalThis.fetch = originalFetch;
         state.lastUrl = originalUrl;

@@ -1,10 +1,11 @@
+import { ItemDefinition } from "../game/definition/ItemDefinition";
+import { PlayerSave } from "../game/entity/impl/player/persistence/PlayerSave";
 import { ContentApi } from "../net/http/ContentApi";
 import { CustomInterfaceRegistry } from "../game/interfaces/CustomInterfaceRegistry";
 import * as fs from "fs";
 import * as path from "path";
 import { GameConstants } from "../game/GameConstants";
 import { MapRegionReplacementManager } from "../game/collision/MapRegionReplacementManager";
-import { ServerDataRegistry } from "../game/data/ServerDataRegistry";
 import { DefinitionLoader } from "../game/definition/loader/DefinitionLoader";
 import { ShopManager } from "../game/model/container/shop/ShopManager";
 import { WeaponProfiles } from "../game/content/combat/WeaponProfile";
@@ -24,6 +25,7 @@ import {
   PluginModule,
   PluginItemOnGroundItemEvent,
   PluginItemOnItemEvent,
+  PluginItemUseFilter,
   PluginItemOnNpcEvent,
   PluginItemOnPlayerEvent,
   PluginItemOnObjectEvent,
@@ -594,6 +596,10 @@ export class PluginManager {
       return false;
     }
 
+    if (!("definition" in event)) {
+      event.definition = event.object.getDefinition();
+    }
+
     for (const hook of PluginManager.objectInteractionHooks) {
       if (event.handled) {
         break;
@@ -627,6 +633,8 @@ export class PluginManager {
     if (!event || !event.player || !event.npc) {
       return false;
     }
+
+    event.definition ??= event.npc.getCurrentDefinition?.(event.player);
 
     for (const hook of PluginManager.npcInteractionHooks) {
       if (event.handled) {
@@ -1742,6 +1750,20 @@ export class PluginManager {
       });
     };
 
+    const registerNpcActions = (
+      name: string | null,
+      actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+    ): void => {
+      const handlers = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
+      PluginManager.npcInteractionHooks.push({ pluginName, handler: (event) => {
+        if (event.handled || !Number.isInteger(event.clickType) || event.clickType < 1 || event.clickType > 5) return;
+        const definition = event.definition;
+        if (!definition || (name !== null && definition.getName() !== name)) return;
+        const action = handlers.get(definition.getActions()?.[event.clickType - 1]);
+        if (action && action(event) !== false) event.handled = true;
+      } });
+    };
+
     return {
       onPlayerLogin: (handler) => {
         if (typeof handler !== "function") {
@@ -1934,17 +1956,29 @@ export class PluginManager {
           },
         });
       },
-      onObjectInteraction: (handler) => {
-        if (typeof handler !== "function") {
+      onObjectInteraction: (
+        handler: string | ((event: PluginObjectInteractionEvent) => void),
+        actions?: Record<string, (event: PluginObjectInteractionEvent) => void | boolean>
+      ) => {
+        if (typeof handler !== "function" && (typeof handler !== "string" || !actions)) {
           return;
         }
+        const namedActions = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
         PluginManager.objectInteractionHooks.push({
           pluginName,
           handler: (event) => {
             if (!event || event.handled || !event.player || !event.object) {
               return;
             }
-            handler(event);
+            if (typeof handler === "function") {
+              handler(event);
+              return;
+            }
+            if (!Number.isInteger(event.clickType) || event.clickType < 1 || event.clickType > 5) return;
+            const definition = event.definition;
+            if (definition?.getName() !== handler) return;
+            const action = namedActions.get(definition.getInteractions()?.[event.clickType - 1]);
+            if (action && action(event) !== false) event.handled = true;
           },
         });
       },
@@ -1954,20 +1988,17 @@ export class PluginManager {
         }
         PluginManager.objectRouteHooks.push({ pluginName, handler });
       },
-      onNpcInteraction: (handler) => {
-        if (typeof handler !== "function") {
-          return;
+      onNpcInteraction: (
+        handler: string | ((event: PluginNpcInteractionEvent) => void),
+        actions?: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+      ) => {
+        if (typeof handler === "function") {
+          PluginManager.npcInteractionHooks.push({ pluginName, handler });
+        } else if (typeof handler === "string" && actions) {
+          registerNpcActions(handler, actions);
         }
-        PluginManager.npcInteractionHooks.push({
-          pluginName,
-          handler: (event) => {
-            if (!event || event.handled || !event.player || !event.npc) {
-              return;
-            }
-            handler(event);
-          },
-        });
       },
+      onAnyNpcInteraction: (actions) => registerNpcActions(null, actions),
       registerNpcInteraction: registerNpcInteractionDefinition,
       onNpcDeath: (handler) => {
         if (typeof handler !== "function") {
@@ -2379,7 +2410,7 @@ export class PluginManager {
       onGroundItemSecondClick: (itemIds, handler) => {
         registerGroundItemClickHook(2, itemIds, handler, "ground-item-second");
       },
-      onItemOnObject: (handler) => {
+      onItemOnObject: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2389,11 +2420,22 @@ export class PluginManager {
             if (!event || event.handled || !event.player || !event.object) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.itemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
       },
-      onItemOnItem: (handler) => {
+      onItemOnItem: (
+        itemNameOrHandler: string | ((event: PluginItemOnItemEvent) => void),
+        otherItemNameOrFilter?: string | PluginItemUseFilter,
+        namedHandler?: (event: PluginItemOnItemEvent) => void | boolean,
+        namedFilter?: PluginItemUseFilter
+      ) => {
+        const named = typeof itemNameOrHandler === "string";
+        const handler: ((event: PluginItemOnItemEvent) => void | boolean) | undefined =
+          named ? namedHandler : itemNameOrHandler;
+        const filter = named ? namedFilter : otherItemNameOrFilter as PluginItemUseFilter | undefined;
+        if (named && typeof otherItemNameOrFilter !== "string") return;
         if (typeof handler !== "function") {
           return;
         }
@@ -2409,11 +2451,20 @@ export class PluginManager {
             ) {
               return;
             }
-            handler(event);
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.usedItemId).isNoted() !== filter.noted || ItemDefinition.forId(event.usedWithItemId).isNoted() !== filter.noted)) return;
+            if (named) {
+              const usedName = event.usedItem.getDefinition().getName();
+              const targetName = event.usedWithItem.getDefinition().getName();
+              if (!((usedName === itemNameOrHandler && targetName === otherItemNameOrFilter)
+                || (usedName === otherItemNameOrFilter && targetName === itemNameOrHandler))) return;
+              if (handler(event) !== false) event.handled = true;
+            } else {
+              handler(event);
+            }
           },
         });
       },
-      onItemOnNpc: (handler) => {
+      onItemOnNpc: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2423,11 +2474,12 @@ export class PluginManager {
             if (!event || event.handled || !event.player || !event.target || !event.item) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.itemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
       },
-      onItemOnPlayer: (handler) => {
+      onItemOnPlayer: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2447,11 +2499,12 @@ export class PluginManager {
             ) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.itemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
       },
-      onItemOnGroundItem: (handler) => {
+      onItemOnGroundItem: (handler, filter) => {
         if (typeof handler !== "function") {
           return;
         }
@@ -2461,6 +2514,7 @@ export class PluginManager {
             if (!event || event.handled || !event.player || !event.inventoryItem) {
               return;
             }
+            if (filter?.noted !== undefined && (ItemDefinition.forId(event.inventoryItemId).isNoted() !== filter.noted || ItemDefinition.forId(event.groundItemId).isNoted() !== filter.noted)) return;
             handler(event);
           },
         });
@@ -2775,19 +2829,6 @@ export class PluginManager {
           );
         }
       },
-      registerServerDataResource: (name, provider) => {
-        try {
-          ServerDataRegistry.register(name, `plugin:${pluginName}`, provider);
-        } catch (error) {
-          console.warn(
-            `[plugins] ${pluginName} failed to register server data resource ${String(
-              name
-            )}`,
-            error
-          );
-          throw error;
-        }
-      },
       registerDefinitionSource: (definitionType, source) => {
         try {
           DefinitionLoader.registerSource(definitionType, pluginName, source);
@@ -2804,6 +2845,7 @@ export class PluginManager {
       registerShopCurrency: (name, handler) => {
         ShopManager.registerCurrency(name, handler);
       },
+      persistAttribute: (key) => PlayerSave.persistAttribute(key),
       setPlayerPersistence: (persistence) => {
         if (
           !persistence ||

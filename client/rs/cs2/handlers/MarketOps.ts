@@ -2,58 +2,62 @@
  * Stock market and trading post operations
  */
 import { Opcodes } from "../Opcodes";
-import type { HandlerMap } from "./HandlerTypes";
+import type { HandlerContext, HandlerMap } from "./HandlerTypes";
 
 export function registerMarketOps(handlers: HandlerMap): void {
+    const state = (ctx: HandlerContext, slot: number, field: number) =>
+        ctx.varManager.getVarp(7900 + slot * 7 + field);
+    const slot = (ctx: HandlerContext) => ctx.popInt();
+
     // === Stock Market ===
     handlers.set(Opcodes.STOCKMARKET_GETOFFERTYPE, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 4));
     });
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERITEM, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 6));
     });
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERPRICE, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 0));
     });
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERCOUNT, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 1));
     });
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERCOMPLETEDCOUNT, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 2));
     });
 
     handlers.set(Opcodes.STOCKMARKET_GETOFFERCOMPLETEDGOLD, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 3));
     });
 
     handlers.set(Opcodes.STOCKMARKET_ISOFFEREMPTY, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(1);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 5) === 0 ? 1 : 0);
     });
 
     handlers.set(Opcodes.STOCKMARKET_ISOFFERSTABLE, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(1);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 5) === 2 ? 1 : 0);
     });
 
     handlers.set(Opcodes.STOCKMARKET_ISOFFERFINISHED, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(1);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 5) === 5 ? 1 : 0);
     });
 
     handlers.set(Opcodes.STOCKMARKET_ISOFFERADDING, (ctx) => {
-        ctx.intStackSize--; // pop slot
-        ctx.pushInt(0);
+        const index = slot(ctx);
+        ctx.pushInt(state(ctx, index, 5) === 1 ? 1 : 0);
     });
 
     // === Trading Post ===

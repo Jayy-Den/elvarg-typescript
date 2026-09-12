@@ -66,6 +66,9 @@ export type SdMapData = {
     mapX: number;
     mapY: number;
 
+    /** Main-thread-only timing data enabled by `?map-profile=1`. */
+    mapProfile?: { queuedAt: number; workerReadyAt: number };
+
     cacheName: string;
 
     maxLevel: number;

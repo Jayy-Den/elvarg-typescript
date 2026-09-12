@@ -32,7 +32,6 @@ import { createTextureArray } from "../../../picogl/PicoTexture";
 import { RS_TO_RADIANS } from "../../../rs/MathConstants";
 import { CollisionFlag } from "../../../common/CollisionFlag";
 import { isSafari } from "../../../common/utils/DeviceUtil";
-import { isInWilderness } from "../../../common/world/Wilderness";
 import {
     getWorldLocChanges,
     getWorldLocSpawns,

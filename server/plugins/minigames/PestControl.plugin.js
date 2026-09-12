@@ -1139,32 +1139,19 @@ function createPestControl(api) {
     if (match instanceof PestControlMatch && match.handleObject(event.player, event.object, event.clickType)) event.handled = true;
   });
 
-  api.onNpcFirstClick(VOID_KNIGHT_IDS, (event) => {
-    if (OUTPOST.inside(event.player.getLocation())) {
-      ShopManager.open(event.player, VOID_KNIGHT_SHOP);
-      event.handled = true;
-    }
-  });
-
-  api.onNpcSecondClick(VOID_KNIGHT_IDS, (event) => {
-    if (OUTPOST.inside(event.player.getLocation())) {
-      ShopManager.open(event.player, VOID_KNIGHT_ARCHERY_SHOP);
-      event.handled = true;
-    }
-  });
-
+  // Ported from the removed onNpcSecondClick API: second-clicking a Void
+  // Knight at the outpost opens the archery store. Slot-based (clickType), so
+  // it does not depend on the NPC's menu action names; registered before the
+  // name-keyed maps below so dispatch order stays deterministic.
   api.onNpcInteraction((event) => {
-    const match = event.player.getAttribute?.("pest-control:match");
-    if (!(match instanceof PestControlMatch) || event.npc !== match.squire) return;
-    if (event.clickType === 3) {
-      event.player.getPacketSender().sendMessage("You leave the island before the battle is over.");
-      match.area.leave(event.player, false);
-      event.player.moveTo(OUTPOST_RETURN.clone());
-    } else {
-      event.player.getPacketSender().sendMessage("Destroy the portals while keeping the Void Knight alive.");
-    }
+    if (event.clickType !== 2 || !VOID_KNIGHT_IDS.includes(event.npcId)) return false;
+    if (!OUTPOST.inside(event.player.getLocation())) return false;
+    ShopManager.open(event.player, VOID_KNIGHT_ARCHERY_SHOP);
     event.handled = true;
   });
+
+  api.onNpcInteraction("Void Knight", { Exchange: exchangeRewards });
+  api.onNpcInteraction("Squire", { "Talk-to": talkToMatchSquire, Leave: leaveMatch });
 
   api.onCanAttack((event) => {
     const player = event.attacker?.getAsPlayer?.();
@@ -1219,6 +1206,25 @@ function createPestControl(api) {
       event.disabled = true;
     }
   });
+}
+
+function exchangeRewards({ player }) {
+  if (!OUTPOST.inside(player.getLocation())) return false;
+  ShopManager.open(player, VOID_KNIGHT_SHOP);
+}
+
+function talkToMatchSquire({ player, npc }) {
+  const match = player.getAttribute?.("pest-control:match");
+  if (!(match instanceof PestControlMatch) || npc !== match.squire) return false;
+  player.getPacketSender().sendMessage("Destroy the portals while keeping the Void Knight alive.");
+}
+
+function leaveMatch({ player, npc }) {
+  const match = player.getAttribute?.("pest-control:match");
+  if (!(match instanceof PestControlMatch) || npc !== match.squire) return false;
+  player.getPacketSender().sendMessage("You leave the island before the battle is over.");
+  match.area.leave(player, false);
+  player.moveTo(OUTPOST_RETURN.clone());
 }
 
 module.exports = {

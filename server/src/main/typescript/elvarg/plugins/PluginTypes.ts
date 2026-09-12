@@ -1,7 +1,8 @@
+import type { NpcDefinition } from "../game/definition/NpcDefinition";
+import type { ObjectDefinition } from "../game/definition/ObjectDefinition";
 import type { WeaponCombatProfile } from "../game/content/combat/WeaponProfile";
 import type { PlayerPersistence } from "../game/entity/impl/player/persistence/PlayerPersistence";
 import type { ActiveRegionSnapshot } from "../game/ActiveRegionIndex";
-import type { ServerDataProvider } from "../game/data/ServerDataRegistry";
 import type { DefinitionSource } from "../game/definition/loader/DefinitionLoader";
 import type { FriendsChatAction } from "../net/protocol/ClientProtocol";
 
@@ -83,6 +84,7 @@ export interface PluginPlayerPathBlockedEvent extends PluginPathBlockedEvent {
 export interface PluginObjectInteractionEvent {
   player: any;
   object: any;
+  definition?: ObjectDefinition;
   objectId: number;
   clickType: number;
   location: { x: number; y: number; z: number };
@@ -93,6 +95,7 @@ export interface PluginObjectInteractionEvent {
 export interface PluginObjectRouteEvent {
   player: any;
   object: any;
+  definition?: ObjectDefinition;
   objectId: number;
   clickType: number;
   sourceLocation: { x: number; y: number; z: number };
@@ -102,6 +105,7 @@ export interface PluginObjectRouteEvent {
 export interface PluginNpcInteractionEvent {
   player: any;
   npc: any;
+  definition?: NpcDefinition;
   npcId: number;
   npcIndex: number;
   clickType: number;
@@ -297,6 +301,12 @@ export interface PluginNpcAggressionToleranceEvent {
 export interface PluginPlayerDefeatedEvent {
   killer: any;
   victim: any;
+}
+
+/** Applies to every item involved, including an item or ground-item target. */
+export interface PluginItemUseFilter {
+  /** Omit to accept both noted and unnoted items. */
+  noted?: boolean;
 }
 
 export interface PluginItemOnObjectEvent {
@@ -511,7 +521,21 @@ export interface PluginApi {
   onPlayerPathBlocked(handler: (event: PluginPlayerPathBlockedEvent) => void): void;
   onObjectRoute(handler: (event: PluginObjectRouteEvent) => void): void;
   onObjectInteraction(handler: (event: PluginObjectInteractionEvent) => void): void;
+  /** Exact, case-sensitive object name and option matching. Return false to fall through. */
+  onObjectInteraction(
+    objectName: string,
+    actions: Record<string, (event: PluginObjectInteractionEvent) => void | boolean>
+  ): void;
   onNpcInteraction(handler: (event: PluginNpcInteractionEvent) => void): void;
+  /** Exact, case-sensitive NPC name and option matching. Return false to fall through. */
+  onNpcInteraction(
+    npcName: string,
+    actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+  ): void;
+  /** Exact, case-sensitive option matching for any NPC name. Return false to fall through. */
+  onAnyNpcInteraction(
+    actions: Record<string, (event: PluginNpcInteractionEvent) => void | boolean>
+  ): void;
   registerNpcInteraction(
     npcIds: number | number[],
     definition: PluginNpcInteractionDefinition
@@ -585,11 +609,18 @@ export interface PluginApi {
     itemIds: number | number[],
     handler: (event: PluginGroundItemInteractionEvent) => void | boolean
   ): void;
-  onItemOnObject(handler: (event: PluginItemOnObjectEvent) => void): void;
-  onItemOnItem(handler: (event: PluginItemOnItemEvent) => void): void;
-  onItemOnPlayer(handler: (event: PluginItemOnPlayerEvent) => void): void;
-  onItemOnNpc(handler: (event: PluginItemOnNpcEvent) => void): void;
-  onItemOnGroundItem(handler: (event: PluginItemOnGroundItemEvent) => void): void;
+  onItemOnObject(handler: (event: PluginItemOnObjectEvent) => void, filter?: PluginItemUseFilter): void;
+  onItemOnItem(handler: (event: PluginItemOnItemEvent) => void, filter?: PluginItemUseFilter): void;
+  /** Matches exact item names in either order; event items retain their original order. */
+  onItemOnItem(
+    itemName: string,
+    otherItemName: string,
+    handler: (event: PluginItemOnItemEvent) => void | boolean,
+    filter?: PluginItemUseFilter
+  ): void;
+  onItemOnPlayer(handler: (event: PluginItemOnPlayerEvent) => void, filter?: PluginItemUseFilter): void;
+  onItemOnNpc(handler: (event: PluginItemOnNpcEvent) => void, filter?: PluginItemUseFilter): void;
+  onItemOnGroundItem(handler: (event: PluginItemOnGroundItemEvent) => void, filter?: PluginItemUseFilter): void;
   onSpellOnObject(handler: (event: PluginSpellOnObjectEvent) => void): void;
   onItemAction(handler: (event: PluginItemActionEvent) => void): void;
   onItemDropPolicy(handler: (event: PluginItemDropEvent) => void): void;
@@ -669,10 +700,6 @@ export interface PluginApi {
     regionId: number,
     source: string | [string, string]
   ): void;
-  registerServerDataResource(
-    name: string,
-    provider: ServerDataProvider
-  ): void;
   registerDefinitionSource(
     definitionType: string,
     source: DefinitionSource
@@ -681,6 +708,8 @@ export interface PluginApi {
     name: string,
     handler: { amount(player: any): number; add(player: any, amount: number): void; remove(player: any, amount: number): void; name: string }
   ): void;
+  /** Save and restore this player attribute; values must be JSON-compatible. */
+  persistAttribute(key: string): void;
   setPlayerPersistence(persistence: PlayerPersistence): void;
   setExperienceRate(rate: number): void;
   getActiveRegionSnapshot(): PluginActiveRegionsEvent;

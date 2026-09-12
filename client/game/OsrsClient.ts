@@ -195,9 +195,10 @@ import { cleanupInterfaceClickTargets } from "../widgets/gl/widgets-gl";
 import { layoutWidgets } from "../widgets/layout/WidgetLayout";
 import { sanitizeText } from "../widgets/menu/utils";
 import { Js5RangeClient } from "../rs/cache/js5/Js5RangeClient";
+import { isJs5CoordinatorMessage } from "../rs/cache/js5/Js5Coordinator";
 import { PresenceBitset } from "../rs/cache/js5/PresenceBitset";
 import { SparseMemoryStore } from "../rs/cache/store/SparseMemoryStore";
-import { CacheList, LoadedCache, getSparsePersistence } from "./Caches";
+import { CacheList, LoadedCache, getSparsePersistence, startSparsePrefetch } from "./Caches";
 import { Camera, CameraView, ProjectionType } from "./Camera";
 import {
     ClientState,
@@ -218,6 +219,7 @@ import {
     markClanTransmit,
     markFriendTransmit,
     markInvTransmit,
+    markStockTransmit,
     markMiscTransmit,
     markStatTransmit,
     markVarTransmit,
@@ -430,6 +432,7 @@ export class OsrsClient {
     cacheSystem!: CacheSystem;
     /** On-demand cache group fetcher; set when the cache was loaded sparsely. */
     js5?: Js5RangeClient;
+    private js5Coordinator?: BroadcastChannel;
     private js5SweepTimer?: ReturnType<typeof setInterval>;
     loaderFactory!: CacheLoaderFactory;
     widgetManager!: WidgetManager;
@@ -648,6 +651,7 @@ export class OsrsClient {
      * edit mode plugin; the render loop reads it every frame.
      */
     scenePreviewEnabled: boolean = false;
+    scenePreviewLoadingStartedAt?: number;
 
     // DevTools: show object id labels per tile
     showObjectTileIds: boolean = false;
@@ -2073,7 +2077,7 @@ export class OsrsClient {
                         console.warn("[InputDialog] Deferred widget action failed", err);
                     }
                 }
-            } else if (type === "name") {
+            } else if (type === "name" || type === "obj") {
                 const text = String(value ?? "");
                 sendResumeNameDialog(text);
                 console.log(`[InputDialog] Name dialog submitted: "${text}"`);
@@ -5088,10 +5092,23 @@ export class OsrsClient {
                 setTimeout(() => {
                     if (this.gameState === GameState.LOADING_GAME) {
                         this.updateGameState(GameState.LOGGED_IN);
+                        this.startSparsePrefetchWhenMapStreamingIdle();
                     }
                 }, remaining);
             });
         }
+    }
+
+    private startSparsePrefetchWhenMapStreamingIdle(): void {
+        const waitForIdle = () => {
+            if (this.gameState !== GameState.LOGGED_IN) return;
+            if (this.renderer.hasPendingMapStreamingWork()) {
+                setTimeout(waitForIdle, 100);
+                return;
+            }
+            startSparsePrefetch(this.loadedCache);
+        };
+        setTimeout(waitForIdle, 0);
     }
 
     private cancelPendingLoginMusicStart(): void {
@@ -5910,6 +5927,8 @@ export class OsrsClient {
         // On-demand group fetching over HTTP Range requests (js5-style):
         // reads of not-yet-downloaded groups queue a fetch and retry later.
         this.js5 = undefined;
+        this.js5Coordinator?.close();
+        this.js5Coordinator = undefined;
         if (this.js5SweepTimer !== undefined) {
             clearInterval(this.js5SweepTimer);
             this.js5SweepTimer = undefined;
@@ -5918,6 +5937,28 @@ export class OsrsClient {
             const store = this.cacheSystem.getStore();
             if (store instanceof SparseMemoryStore) {
                 const js5 = new Js5RangeClient(cache.sparse.dat2Url, store);
+                if (cache.sparse.fetchChannel && typeof BroadcastChannel !== "undefined") {
+                    const coordinator = new BroadcastChannel(cache.sparse.fetchChannel);
+                    coordinator.onmessage = ({ data }: MessageEvent<unknown>) => {
+                        if (!isJs5CoordinatorMessage(data) || data.type !== "request") return;
+                        // Local character/UI misses are urgent; map workers share the
+                        // same queue but must not starve those visible assets.
+                        void js5.requestGroup(data.indexId, data.archiveId, false).then(
+                            () => coordinator.postMessage({
+                                type: "complete",
+                                indexId: data.indexId,
+                                archiveId: data.archiveId,
+                            }),
+                            (error) => coordinator.postMessage({
+                                type: "failed",
+                                indexId: data.indexId,
+                                archiveId: data.archiveId,
+                                error: error instanceof Error ? error.message : String(error),
+                            }),
+                        );
+                    };
+                    this.js5Coordinator = coordinator;
+                }
                 const persistence = getSparsePersistence(cache);
                 if (persistence) {
                     js5.onFetched((byteOffset, bytes) =>
@@ -6103,6 +6144,8 @@ export class OsrsClient {
             this.combatOptions.initVarDefaults();
 
             this.varManager.onVarpChange = (varpId, _oldValue, newValue) => {
+                // Server-backed stockmarket fields are separate from cache pending-offer varps.
+                if (varpId >= 7900 && varpId < 7900 + 8 * 7) markStockTransmit();
                 if (this.cs2Vm?.isRunning()) {
                     this.cs2Vm.queueVarpChange(varpId);
                 } else {
@@ -7797,6 +7840,8 @@ export class OsrsClient {
             clearInterval(this.js5SweepTimer);
             this.js5SweepTimer = undefined;
         }
+        this.js5Coordinator?.close();
+        this.js5Coordinator = undefined;
         // Persist fetches from the last sweep window before tearing down.
         if (this.js5 && this.loadedCache) {
             const persistence = getSparsePersistence(this.loadedCache);

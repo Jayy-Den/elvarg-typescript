@@ -6,6 +6,7 @@ import { CombatSpecial } from "../../../content/combat/CombatSpecial";
 import { CombatType } from "../../../content/combat/CombatType";
 import { FightType } from "../../../content/combat/FightType";
 import { WeaponInterfaces } from "../../../content/combat/WeaponInterfaces";
+import { WeaponInterfaceManager } from "../../../content/combat/WeaponInterfaceManager";
 import { WeaponProfiles } from "../../../content/combat/WeaponProfile";
 import { PendingHit } from "../../../content/combat/hit/PendingHit";
 import { Autocasting } from "../../../content/combat/magic/Autocasting";
@@ -42,7 +43,6 @@ import { TaskManager } from "../../../task/TaskManager";
 import { CombatPoisonEffect } from "../../../task/impl/CombatPoisonEffect";
 import { PlayerDeathTask } from "../../../task/impl/PlayerDeath"
 import { PlayerSession } from "../../../../net/PlayerSession"
-import { ChannelEventHandler } from "../../../../net/channel/ChannelEventHandler";
 import { PacketSender } from "../../../../net/packet/PacketSender"
 import { FrameUpdater } from "../../../../util/FrameUpdater"
 import { Misc } from "../../../../util/Misc";
@@ -110,7 +110,6 @@ export class Player extends Mobile {
     // Presets
     private currentPreset: Presetable;
     public presets: Presetable[] = new Array(Player.MAX_PLAYER_PRESETS);
-    private openPresetsOnDeath = true;
 
     public username: string;
     private passwordHashWithSalt: string;
@@ -153,8 +152,6 @@ export class Player extends Mobile {
     private newPlayer: boolean;
     private packetsBlocked = false;
 
-    public questPoints: number;
-    public questProgress = new Map<number, number>();
     // Skilling
     private skill: any;
     private creationMenu: CreationMenu;
@@ -261,7 +258,7 @@ export class Player extends Mobile {
         this.setRecoilDamage(0);
         this.setSkullTimer(0);
         this.setSkullType(SkullType.WHITE_SKULL);
-        WeaponInterfaces.assign(this);
+        WeaponInterfaceManager.assign(this);
         BonusManager.update(this);
         PrayerHandler.deactivatePrayers(this);
         this.getEquipment().refreshItems();
@@ -570,8 +567,8 @@ export class Player extends Mobile {
     /**
      
     Requests a logout by sending the logout packet to the client. This leads to
-    the connection being closed. The {@link ChannelEventHandler} will then add
-    the player to the remove characters queue.
+    the connection being closed, which then adds the player to the remove
+    characters queue.
     */
     requestLogout() {
         if (!World.getRemovePlayerQueue().includes(this)) {
@@ -633,7 +630,7 @@ export class Player extends Mobile {
         // Equipment is restored from the save without going through the equip
         // packet path, so the weapon interface/fight-styles/attack animation
         // (all driven by player.weapon, set here) are never assigned on login.
-        WeaponInterfaces.assign(this);
+        WeaponInterfaceManager.assign(this);
         CombatSpecial.ensureRestoreTask(this);
         const autocastSpell = this.getCombat().getAutocastSpell();
         if (autocastSpell != null && autocastSpell.getSpellbook?.() !== this.getSpellbook()) {
@@ -1445,14 +1442,6 @@ export class Player extends Mobile {
         this.presets = sets;
     }
 
-    public isOpenPresetsOnDeath(): boolean {
-        return this.openPresetsOnDeath;
-    }
-
-    public setOpenPresetsOnDeath(openPresetsOnDeath: boolean): void {
-        this.openPresetsOnDeath = openPresetsOnDeath;
-    }
-
     public getCurrentPreset(): Presetable {
         return this.currentPreset;
     }
@@ -1610,25 +1599,6 @@ export class Player extends Mobile {
 
     public setCachedDiscordAccessToken(cachedDiscordAccessToken: string) {
         this.cachedDiscordAccessToken = cachedDiscordAccessToken;
-    }
-
-    public getQuestProgress(): Map<number, number> {
-        return this.questProgress;
-    }
-
-    public getQuestPoints(): number {
-        return this.questPoints;
-    }
-
-    public setQuestPoints(questPoints: number) {
-        this.questPoints = questPoints;
-    }
-
-    public setQuestProgress(questProgress: Map<number, number>) {
-        if (!questProgress) {
-            return;
-        }
-        this.questProgress = questProgress;
     }
 
     public climb(down: boolean, location: Location): void {

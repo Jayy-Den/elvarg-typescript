@@ -609,7 +609,7 @@ export class NpcType extends Type {
         };
     }
 
-    transform(varManager: VarManager, loader: NpcTypeLoader): NpcType | undefined {
+    transform(varManager: Pick<VarManager, "getVarp" | "getVarbit">, loader: NpcTypeLoader): NpcType | undefined {
         if (!this.transforms) {
             return undefined;
         }

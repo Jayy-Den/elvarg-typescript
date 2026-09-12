@@ -1,3 +1,4 @@
+import { WeaponInterfaceManager } from "../../../game/content/combat/WeaponInterfaceManager";
 import { Misc } from "../../../util/Misc";
 import { Server } from "../../../Server";
 import { PluginManager } from "../../../plugins/PluginManager";
@@ -5,9 +6,6 @@ import { Sound } from "../../../game/Sound";
 import { Sounds } from "../../../game/Sounds";
 import { Wilderness } from "../../../game/content/wilderness/Wilderness";
 
-const getWeaponInterfaces = () =>
-  require("../../../game/content/combat/WeaponInterfaces")
-    .WeaponInterfaces as typeof import("../../../game/content/combat/WeaponInterfaces").WeaponInterfaces;
 const getInventoryCtor = () =>
   require("../../../game/model/container/impl/Inventory")
     .Inventory as typeof import("../../../game/model/container/impl/Inventory").Inventory;
@@ -58,7 +56,7 @@ export class EquipPacketListener {
     if (autocastSpell != null && inWilderness) {
       getAutocasting().setAutocast(player, null);
     }
-    getWeaponInterfaces().assign(player);
+    WeaponInterfaceManager.assign(player);
     if (autocastSpell != null && !inWilderness && player.getEquipment().hasStaffEquipped()) {
       getAutocasting().setAutocast(player, autocastSpell);
     }

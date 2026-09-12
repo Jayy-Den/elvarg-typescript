@@ -8,6 +8,7 @@ import { ConfigType } from "../../rs/cache/ConfigType";
 import { IndexType } from "../../rs/cache/IndexType";
 import { isGroupMissingError } from "../../rs/cache/js5/GroupMissingError";
 import { Js5RangeClient } from "../../rs/cache/js5/Js5RangeClient";
+import { WorkerJs5Coordinator } from "../../rs/cache/js5/Js5Coordinator";
 import { PresenceBitset } from "../../rs/cache/js5/PresenceBitset";
 import { SparseMemoryStore } from "../../rs/cache/store/SparseMemoryStore";
 import {
@@ -51,7 +52,7 @@ export type WorkerState = {
     cacheSystem: CacheSystem;
     cacheLoaderFactory: CacheLoaderFactory;
     /** Set when the cache is sparse: fetches missing groups on demand. */
-    js5?: Js5RangeClient;
+    js5?: Pick<Js5RangeClient, "store" | "requestGroup" | "settled">;
 
     locTypeLoader: LocTypeLoader;
     objTypeLoader: ObjTypeLoader;
@@ -124,11 +125,16 @@ async function initWorker(cache: LoadedCache, npcInstances: NpcInstance[]): Prom
         presence,
     );
 
-    let js5: Js5RangeClient | undefined;
+    let js5: Pick<Js5RangeClient, "store" | "requestGroup" | "settled"> | undefined;
     if (cache.sparse) {
         const store = cacheSystem.getStore();
         if (store instanceof SparseMemoryStore) {
-            js5 = new Js5RangeClient(cache.sparse.dat2Url, store);
+            const sharedPresence =
+                typeof SharedArrayBuffer !== "undefined" &&
+                cache.sparse.presenceBits.buffer instanceof SharedArrayBuffer;
+            js5 = sharedPresence && cache.sparse.fetchChannel && typeof BroadcastChannel !== "undefined"
+                ? new WorkerJs5Coordinator(store, cache.sparse.fetchChannel)
+                : new Js5RangeClient(cache.sparse.dat2Url, store);
         }
     }
 
@@ -236,7 +242,7 @@ async function initWorker(cache: LoadedCache, npcInstances: NpcInstance[]): Prom
  * needed group, queueing all fetches, so waiting for the queue to settle and
  * rerunning converges in a few passes.
  */
-async function runWithSparseRetry<T>(workerState: WorkerState, task: () => Promise<T>): Promise<T> {
+async function runWithSparseRetry<T>(workerState: WorkerState, task: () => Promise<T>, profileLabel?: string): Promise<T> {
     const js5 = workerState.js5;
     if (!js5) {
         return task();
@@ -245,19 +251,25 @@ async function runWithSparseRetry<T>(workerState: WorkerState, task: () => Promi
     const maxAttempts = 8;
     for (let attempt = 0; attempt < maxAttempts - 1; attempt++) {
         const missesBefore = store.missCount;
+        const passStarted = performance.now();
         try {
             const result = await task();
+            if (profileLabel) console.info(`[map-profile] ${profileLabel} pass=${attempt + 1} build=${Math.round(performance.now() - passStarted)}ms misses=${store.missCount - missesBefore}`);
             if (store.missCount === missesBefore) {
                 return result;
             }
             // Groups were missing; their fetches are queued. Wait and rerun.
+            const waitStarted = performance.now();
             await js5.settled();
+            if (profileLabel) console.info(`[map-profile] ${profileLabel} pass=${attempt + 1} cacheWait=${Math.round(performance.now() - waitStarted)}ms`);
         } catch (e) {
             if (!isGroupMissingError(e)) {
                 throw e;
             }
             try {
+                const waitStarted = performance.now();
                 await js5.requestGroup(e.indexId, e.archiveId, true);
+                if (profileLabel) console.info(`[map-profile] ${profileLabel} pass=${attempt + 1} blockingGroup=${e.indexId}:${e.archiveId} cacheWait=${Math.round(performance.now() - waitStarted)}ms`);
             } catch (fetchError) {
                 // Transient fetch failure; back off and let the next attempt
                 // re-queue it rather than failing the whole task.
@@ -301,8 +313,10 @@ const worker = {
             throw new Error("Worker not initialized");
         }
 
+        const mapInput = input as { mapProfileEnabled?: boolean; mapX?: number; mapY?: number };
         const { data, transferables } = await runWithSparseRetry(workerState, () =>
             dataLoader.load(workerState, input),
+            mapInput?.mapProfileEnabled ? `${mapInput.mapX},${mapInput.mapY}` : undefined,
         );
 
         if (dataLoader.shouldClearWorkerCacheAfterLoad?.(input) ?? true) {

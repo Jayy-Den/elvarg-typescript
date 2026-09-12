@@ -31,7 +31,6 @@ import { flushPackets } from "../../network/packet";
 import { createTextureArray } from "../../picogl/PicoTexture";
 import { RS_TO_RADIANS } from "../../rs/MathConstants";
 import { CollisionFlag } from "../../common/CollisionFlag";
-import { isInWilderness } from "../../common/world/Wilderness";
 import {
     getWorldLocChanges,
     getWorldLocSpawns,
@@ -428,6 +427,7 @@ export function clearMaps(host: WebGLOsrsRendererHost, ): void {
         host.pendingLocGeometryUpdates.clear();
         host.pendingDoorLocUpdates.clear();
         host.pendingLocReloadMaps.clear();
+        host.locReloadVersions.clear();
         host.pendingLocReloadBatches.clear();
         host.queuedLocReloadBatchByMap.clear();
         host.nextLocReloadBatchId = 1;
