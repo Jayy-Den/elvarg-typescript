@@ -83,10 +83,11 @@ GAMEMODE=leagues-v yarn start
 
 ## Client Startup
 
-This launches the React dev server (usually on `http://localhost:3005`; the
-port is defined once as `DEV_SERVER_PORT` in `client/craco.config.js`). Your
-browser should open automatically. The client will also download the cache on
-first run if needed.
+This launches the React dev server (usually on `http://localhost:3005/play`; the
+port is defined once as `DEV_SERVER_PORT` in `client/craco.config.js`, and the
+app is served under the `/play` base path from `homepage` in
+`client/package.json`). Your browser should open automatically. The client will
+also download the cache on first run if needed.
 
 > Do not run the dev server on port 3000: the Freebuff desktop app reserves that
 > port and will probe and force-kill anything else listening on it every few

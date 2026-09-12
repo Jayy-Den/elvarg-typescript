@@ -41,9 +41,11 @@ yarn start
 
 `yarn setup` installs the root tools, Elvarg server, and browser client. It is
 safe to run again after pulling changes. `yarn start` launches both processes;
-the client is normally available at <http://localhost:3005> (the dev server
+the client is normally available at <http://localhost:3005/play> (the dev server
 must avoid port 3000, which the Freebuff desktop app reserves and evicts —
 the port is defined once as `DEV_SERVER_PORT` in `client/craco.config.js`).
+The app is served under the `/play` base path (`homepage` in
+`client/package.json`), so the bare `http://localhost:3005/` root has no UI.
 
 Game-server output is teed to a timestamped, git-ignored file under `logs/`
 (e.g. `logs/server-2026-09-09-17-57-42.log`) as well as the console, so past
