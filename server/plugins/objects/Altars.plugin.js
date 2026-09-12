@@ -97,16 +97,11 @@ module.exports = {
       handlePrayerAltar(player)
     );
 
-    for (let clickType = 1; clickType <= 4; clickType++) {
-      api.onObjectClick([...OCCULT_ALTAR_SPELLBOOKS.keys()], clickType, ({ player, objectId }) => {
-        const spellbook = OCCULT_ALTAR_SPELLBOOKS.get(objectId)?.[clickType - 1];
-        return spellbook ? handleOccultAltar(player, spellbook) : false;
-      });
-    }
-
-    // Name-keyed handlers catch the same altars if the cache renames them or
-    // the ObjectIds enum shifts; every hook guards on event.handled, so at
-    // most one handler runs per interaction.
+    // Name-keyed handlers cover the altars by cache object name (and remain
+    // correct even if the ObjectIds enum shifts); the ID-based first-click
+    // hooks above keep working when the cache names change instead. The old
+    // slot-indexed loop was dropped with the spellbook map's array values:
+    // slot dispatch now flows through each variant's menu action names.
     api.onObjectInteraction("Ancient Altar", { Venerate: ancientAltar });
     api.onObjectInteraction("Altar", { "Pray-at": prayerAltar, Pray: prayerAltar });
     api.onObjectInteraction("Altar of the Occult", {

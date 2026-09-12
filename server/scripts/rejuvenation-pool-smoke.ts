@@ -6,18 +6,18 @@ let now = 1_000;
 Date.now = () => now;
 
 let click: ((event: any) => void) | undefined;
-let poolIds: number[] = [];
+let poolName: string | undefined;
 let cancelledBleed: unknown;
 Pool.register({
   getTaskManager: () => ({ cancelTasks: (key: unknown) => (cancelledBleed = key) }),
-  onObjectFirstClick: (ids: number[], handler: (event: any) => void) => {
-    poolIds = ids;
-    click = handler;
+  onObjectInteraction: (name: string, actions: Record<string, (event: any) => void>) => {
+    poolName = name;
+    click = actions.Drink;
   },
 });
 
-assert.ok(poolIds.includes(29241), "the spawned ornate pool id must be handled");
-assert.ok(click, "the pool must handle first-click");
+assert.equal(poolName, "Ornate pool of Rejuvenation", "the ornate pool must be handled by name");
+assert.ok(click, "the pool must handle the Drink action");
 
 const messages: string[] = [];
 const currentLevels = new Map<number, number>([[0, 50], [3, 20], [5, 10]]);
