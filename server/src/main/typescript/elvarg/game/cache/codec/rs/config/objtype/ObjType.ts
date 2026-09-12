@@ -25,6 +25,10 @@ export class ObjType extends Type {
     offsetY2d: number;
 
     op9!: string;
+    /** Opcode 15 (cache 240+): bare flag with no payload; present on 13,988 of 34,603 item defs. */
+    op15!: boolean;
+    /** Opcode 160 (cache 240+): bare flag with no payload, seen on a handful of newer item defs. */
+    op160!: boolean;
 
     stackability: ObjStackability;
 
@@ -195,6 +199,12 @@ export class ObjType extends Type {
             this.wearPos = buffer.readUnsignedByte();
         } else if (opcode === 14) {
             this.wearPos2 = buffer.readUnsignedByte();
+        } else if (opcode === 15) {
+            // New in the 237 -> 240 window: a bare flag with no payload.
+            this.op15 = true;
+        } else if (opcode === 160) {
+            // Also new in the 237 -> 240 window: a bare flag with no payload.
+            this.op160 = true;
         } else if (opcode === 16) {
             this.isMembers = true;
         } else if (opcode === 23) {
