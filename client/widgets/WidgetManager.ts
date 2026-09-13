@@ -1401,16 +1401,32 @@ export class WidgetManager {
                 widgetsByFileId.set(node.fileId | 0, node);
             }
 
-            // Track special widgets by contentType (like OSRS client does in alignWidgetSize)
+            // Track special widgets by contentType (like OSRS client does in alignWidgetSize).
+            // PARITY: only adopt VIEWPORT/MINIMAP/COMPASS from the ACTIVE root group (or
+            // during the pre-root phase, rootInterface === -1). The native client keeps both
+            // toplevel frames resident in mobile sessions, and both frames contain these
+            // special content types - adoption must follow the active root, not "whoever
+            // loaded last". Without this, preloading the desktop frame (161) while the
+            // mobile root (601) is active silently hijacked viewportWidget to 161:87
+            // (zero-sized there) and black-screened the world.
             const contentType = typeof node.contentType === "number" ? node.contentType : 0;
-            if (contentType === ContentType.VIEWPORT) {
+            if (
+                contentType === ContentType.VIEWPORT &&
+                (this.rootInterface === -1 || groupId === this.rootInterface)
+            ) {
                 console.log(
                     `[WidgetManager] Found Viewport Widget: ${node.uid} (Group ${groupId})`,
                 );
                 this.viewportWidget = node;
-            } else if (contentType === ContentType.MINIMAP) {
+            } else if (
+                contentType === ContentType.MINIMAP &&
+                (this.rootInterface === -1 || groupId === this.rootInterface)
+            ) {
                 this.minimapWidget = node;
-            } else if (contentType === ContentType.COMPASS) {
+            } else if (
+                contentType === ContentType.COMPASS &&
+                (this.rootInterface === -1 || groupId === this.rootInterface)
+            ) {
                 this.compassWidget = node;
             }
 
@@ -1495,6 +1511,36 @@ export class WidgetManager {
         this.rootInterface = groupId;
         this.pendingRootOnLoad = -1;
 
+        // PARITY: special widgets (viewport/minimap/compass) in an ALREADY-RESIDENT
+        // group were skipped by buildIndex when the group loaded under a different
+        // or absent active root - e.g. 601 loads during the welcome screen, before
+        // rootInterface becomes 601. Re-discover them now that this root is active
+        // (the references were cleared above), so the world renders on the mobile
+        // frame even though 601 was loaded earlier.
+        {
+            const instance = this.groups.get(groupId);
+            if (instance) {
+                for (const node of instance.widgetsByUid.values()) {
+                    if (!node || typeof node !== "object") continue;
+                    const contentType =
+                        typeof node.contentType === "number" ? node.contentType : 0;
+                    if (contentType === ContentType.VIEWPORT && !this.viewportWidget) {
+                        this.viewportWidget = node;
+                    } else if (
+                        contentType === ContentType.MINIMAP &&
+                        !this.minimapWidget
+                    ) {
+                        this.minimapWidget = node;
+                    } else if (
+                        contentType === ContentType.COMPASS &&
+                        !this.compassWidget
+                    ) {
+                        this.compassWidget = node;
+                    }
+                }
+            }
+        }
+
         // Mobile toplevel: pin the tab-area container (601:111) as server-owned.
         // It ships hidden in the cache and the toplevel's modal controller (cs2
         // 919) hides it whenever a tab slot reports a mounted sub-interface -
@@ -1508,14 +1554,15 @@ export class WidgetManager {
         //
         // Also pin the chat cluster (601:21), minimap cluster (601:22) and
         // hotkey bar (601:40). The toplevel layout controller (cs2 907, fired on
-        // every varp-1021 change) reconciles DESKTOP-frame twins (161:x) and
-        // branches on device flags; in a mobile session group 161 is not
-        // resident, its cc_find lookups miss, and the "desktop present" guards
-        // misfire - 907 then hides the mobile chrome permanently (no script ever
-        // re-reveals it). Trace-verified hide sites: 907 pc=69/961/1227 targeting
-        // 601:21/22/40. Only these three containers are pinned; everything else
-        // (tab switching, hotkey expand/collapse, chat toggling, panel flips)
-        // stays fully script-driven.
+        // every varp-1021 change) reconciles the DESKTOP-frame twins (161:x) and,
+        // when the chat-expand varbit (10670) is set, hides the mobile chrome
+        // (trace-verified hide sites: pc=69/961/1227 targeting 601:21/22/40) to
+        // let the expanded chat take the screen - but no script ever re-reveals
+        // the chrome on collapse, so one tap killed the UI permanently. The pins
+        // were verified necessary even WITH desktop-frame residency (see below):
+        // with them disabled, expand still hides everything and collapse never
+        // restores. Everything not pinned (tab switching, panel flips, hotkey
+        // expand/collapse, chat toggling) stays fully script-driven.
         if (groupId === 601) {
             this.setServerOwnedWidget((601 << 16) | 111, true);
             this.setServerOwnedWidget((601 << 16) | 21, true);
@@ -1525,6 +1572,19 @@ export class WidgetManager {
             // columns). Its reveal runs in the same misfiring 907 guards, so pin
             // it too - the icons' click handlers remain script-driven.
             this.setServerOwnedWidget((601 << 16) | 50, true);
+
+            // PARITY: keep the desktop frame (161) resident, exactly as the
+            // native client does in mobile sessions. Cache script 907 (fired on
+            // every varp-1021 change) cc_finds desktop-frame twins (161:4/5
+            // etc.) to reconcile the two frames; with 161 absent those lookups
+            // miss. Loading 161 is render-inert: the renderer only draws mounted
+            // interface roots, and buildIndex now scopes special-widget adoption
+            // (viewport/minimap/compass) to the active root, so 161 cannot
+            // hijack them (that hijack black-screened the world when 161 was
+            // loaded ad hoc).
+            if (!this.loadedGroups[161]) {
+                this.getGroup(161);
+            }
         }
 
         const instance = this.getGroup(groupId);
