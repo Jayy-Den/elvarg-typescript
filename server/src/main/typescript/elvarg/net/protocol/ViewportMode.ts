@@ -26,43 +26,6 @@ export const POPOUT_PANEL_GROUP = 728;
  */
 export const POPOUT_PANEL_RAIL_CHILD = 10;
 
-/**
- * Mobile toplevel tab-area container (wraps the 116-129 tab content mounts).
- * It ships hidden in the cache and the engine's login script chain (cs2 876 ->
- * 9790) is meant to reveal it - but that chain aborts on our client at the
- * unimplemented RT7-family opcodes (3228/3229) before the reveal runs, leaving
- * every tab panel invisible while the tab rail itself still works. The server
- * shows it explicitly after the mobile bootstrap mounts.
- */
-export const MOBILE_TAB_AREA_CONTAINER_CHILD = 111;
-/** Mobile toplevel minimap + orb cluster (mount point for group 160). */
-export const MOBILE_MINIMAP_CLUSTER_CHILD = 22;
-/** Mobile toplevel secondary frame container (paired with the minimap cluster). */
-export const MOBILE_FRAME_CHILD = 24;
-/** Mobile toplevel buff-bar mount (group 651). */
-export const MOBILE_BUFF_BAR_CHILD = 12;
-/** Mobile toplevel hotkey-bar mount (group 892). */
-export const MOBILE_HOTKEY_BAR_CHILD = 40;
-
-/**
- * Mobile toplevel containers the server asserts visible at login, in priority
- * order. These ship hidden in the cache and the engine reveals them through
- * login/refresh script chains that misbehave on this client (aborts at RT7
- * opcodes, and the toplevel layout controller cs2 907 re-hides the minimap
- * cluster on every var change). Marking them server-owned on reveal pins the
- * official-mobile default layout: minimap + orbs up, buff bar and hotkey bar
- * up, tab area up. The chat cluster (601:21) is deliberately NOT listed -
- * collapsed chat is the authentic OSRS mobile default until the player taps
- * "Start chatting".
- */
-export const MOBILE_SERVER_OWNED_VISIBLE_CHILDREN = [
-  MOBILE_TAB_AREA_CONTAINER_CHILD,
-  MOBILE_MINIMAP_CLUSTER_CHILD,
-  MOBILE_FRAME_CHILD,
-  MOBILE_BUFF_BAR_CHILD,
-  MOBILE_HOTKEY_BAR_CHILD,
-] as const;
-
 export type DisplayMode = "desktop" | "mobile";
 
 /**

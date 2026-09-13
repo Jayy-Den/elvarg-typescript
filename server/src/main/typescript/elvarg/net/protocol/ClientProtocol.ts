@@ -3,13 +3,7 @@ import { CLIENT_PACKET_LENGTHS as CLIENT_PACKET_LENGTHS, ClientPacketId as HighC
 import { CLIENT_PACKET_LENGTHS as NATIVE_CLIENT_PACKET_LENGTHS, ClientPacketId as NativeClientPacket } from "./NativeClientPackets";
 import { SERVER_PACKET_LENGTHS, ServerPacketId } from "./ServerPackets";
 import { deflateSync } from "zlib";
-import {
-  DESKTOP_ROOT_GROUP,
-  MOBILE_ROOT_GROUP,
-  MOBILE_SERVER_OWNED_VISIBLE_CHILDREN,
-  POPOUT_PANEL_GROUP,
-  POPOUT_PANEL_RAIL_CHILD,
-} from "./ViewportMode";
+import { DESKTOP_ROOT_GROUP, MOBILE_ROOT_GROUP, POPOUT_PANEL_GROUP, POPOUT_PANEL_RAIL_CHILD } from "./ViewportMode";
 
 export const enum ClientPacket {
   NPC_OPTION_2 = 12,
@@ -1497,11 +1491,6 @@ export function encodeGameframeBootstrap(playerName: string, mode: "desktop" | "
   const mobileVarbits = mobile
     ? {
         6352: 1, // osm_simulate ON
-        542: 1, // device/mobile flag: the toplevel's var-transmit listeners gate the
-        // tab-area reveal (and popout state) on this; real engines set it natively.
-        // Without it they re-hide 601:111 on every varp sync, so no tab panel paints.
-        13981: 1, // mobile side-layout flag; the tab-rail gate reads (13981==1 && 542==1)
-        // (cs2 5357) - the pair mirrors what the engine reports on real mobile builds.
         11534: 3, // hotkey 0 -> inventory tab
         11535: 5, // hotkey 1 -> prayer tab
         11536: 6, // hotkey 2 -> magic tab
@@ -1522,11 +1511,6 @@ export function encodeGameframeBootstrap(playerName: string, mode: "desktop" | "
       }
       if (mobile && mobileVarbits) {
         options.varbits = mobileVarbits;
-        // A selected active tab (varc 171 = inventory) is what the toplevel's
-        // var-transmit listeners (cs2 919) require to keep the tab-area
-        // container visible; without it their else-branch hides 601:111 on
-        // every re-run. Real servers transmit the player's last tab at login.
-        options.varps = { 171: 1 };
       }
       return encodeWidgetOpenSub((root << 16) | child, group, 1, options);
     }),
@@ -1544,29 +1528,9 @@ export function encodeGameframeBootstrap(playerName: string, mode: "desktop" | "
     // same mechanism plugins use; the popout's compact button (728:36/24) stays visible
     // and its expand gate is answered client-side - see VarOps.ts in the client.
     ...(mobile
-      ? [
-          encodeWidgetSetHidden((POPOUT_PANEL_GROUP << 16) | POPOUT_PANEL_RAIL_CHILD, true),
-        ]
+      ? [encodeWidgetSetHidden((POPOUT_PANEL_GROUP << 16) | POPOUT_PANEL_RAIL_CHILD, true)]
       : []),
     packet(ServerPacket.WIDGET_RUN_SCRIPT, loginScript, 2),
-    // The tab-area container (and the other default-visible mobile chrome below)
-    // ship hidden in the cache and are revealed by the login script chain - but
-    // that chain aborts on our client (cs2 876 -> 9790 dies at the unimplemented
-    // RT7-family opcodes 3228/3229) before the reveal runs. These unhides are
-    // deliberately ordered AFTER the login script so they win: anything before
-    // the script batch is overridden by the batch's own (aborted) state. The
-    // client marks each revealed container server-owned (see OsrsClient.ts), so
-    // the deferred var-transmit listeners (cs2 919/907) can never fight back.
-    // Same server-ordered-visibility mechanism plugins use - see ViewportMode.ts
-    // for the full story.
-    ...(mobile
-      ? MOBILE_SERVER_OWNED_VISIBLE_CHILDREN.map((child) =>
-          encodeWidgetSetHidden(
-            (MOBILE_ROOT_GROUP << 16) | child,
-            false,
-          ),
-        )
-      : []),
   ];
   return packets;
 }

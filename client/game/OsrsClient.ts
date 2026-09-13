@@ -2485,25 +2485,6 @@ export class OsrsClient {
                 const uid = Number(payload.uid) | 0;
                 const hidden = !!payload.hidden;
                 const w = this.widgetManager?.getWidgetByUid(uid);
-                // The mobile toplevel's default-visible chrome (tab area 601:111,
-                // minimap cluster 601:22, frame 601:24, buff bar 601:12, hotkey bar
-                // 601:40) ships hidden in the cache and the login script chain that
-                // should reveal it aborts on our client at unimplemented RT7-family
-                // opcodes. When the server explicitly reveals one of them, also mark
-                // it server-owned so the deferred var-transmit listeners (cs2 919
-                // hides 111, cs2 907 hides 22/24/35) cannot re-hide it - their
-                // CC_SETHIDE/IF_SETHIDE handlers skip server-owned widgets. Same
-                // ownership pattern as the quest list (see widgets/custom/questList.ts).
-                const mobileOwnedChild = uid - (601 << 16);
-                if (
-                    !hidden &&
-                    (uid >>> 16) === 601 &&
-                    [111, 22, 24, 12, 40].includes(mobileOwnedChild) &&
-                    this.widgetManager &&
-                    !this.widgetManager.isServerOwnedWidget(uid)
-                ) {
-                    this.widgetManager.setServerOwnedWidget(uid, true);
-                }
                 if (w && this.widgetManager && (w.hidden !== hidden || w.isHidden !== hidden)) {
                     w.isHidden = hidden;
                     w.hidden = hidden;
