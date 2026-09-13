@@ -1495,6 +1495,20 @@ export class WidgetManager {
         this.rootInterface = groupId;
         this.pendingRootOnLoad = -1;
 
+        // Mobile toplevel: pin the tab-area container (601:111) as server-owned.
+        // It ships hidden in the cache and the toplevel's modal controller (cs2
+        // 919) hides it whenever a tab slot reports a mounted sub-interface -
+        // but this server pre-mounts ALL tab groups at login (unlike the native
+        // engine, which mounts a tab on demand and lets 919's reveal branch run).
+        // 919 therefore always takes its hide branch here. Earlier this was
+        // masked by the layout chain aborting at unimplemented RT7 opcodes
+        // before reaching the hide; with cc_create now failing soft (see
+        // WidgetOps.ts) the hide fires, so pin the container the same way the
+        // quest list pins its rows (see widgets/custom/questList.ts).
+        if (groupId === 601) {
+            this.setServerOwnedWidget((601 << 16) | 111, true);
+        }
+
         const instance = this.getGroup(groupId);
         if (!instance) {
             return undefined;
