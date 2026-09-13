@@ -54,6 +54,8 @@ export interface PluginPlayerLevelUpEvent {
   newLevel: number;
 }
 
+export type PluginCustomEventName = `${string}:${string}`;
+
 export interface PluginRegionLoadedEvent {
   regionId: number;
   absX: number;
@@ -203,6 +205,13 @@ export interface PluginCanBankEvent {
   allow: boolean | null;
 }
 
+/** Called immediately before one item is deposited into a bank. */
+export interface PluginCanBankItemEvent {
+  player: any;
+  item: any;
+  allow: boolean | null;
+}
+
 export interface PluginCanShopEvent {
   player: any;
   shopId: number | null;
@@ -227,6 +236,10 @@ export interface PluginPlayerDeathItemDropEvent {
   item: any;
   location: any;
   shouldDropItems: boolean;
+  /** Whether core would create a normal floor item for this item. */
+  dropEligible: boolean;
+  /** Prevent the normal floor-item spawn without stopping later death-drop hooks. */
+  suppressDefaultDrop: boolean;
   handled: boolean;
 }
 
@@ -515,6 +528,11 @@ export interface PluginApi {
   onFriendRemove(handler: (event: PluginFriendEvent) => void): void;
   onPlayerProcess(handler: (event: PluginPlayerProcessEvent) => void): void;
   onPlayerLevelUp(handler: (event: PluginPlayerLevelUpEvent) => void): void;
+  /** Subscribes to an exact namespaced plugin event, such as `mining:success`. */
+  onCustomEvent(
+    eventName: PluginCustomEventName,
+    handler: (payload: any) => void
+  ): void;
   onRegionLoaded(handler: (event: PluginRegionLoadedEvent) => void): void;
   onActiveRegionsUpdated(handler: (event: PluginActiveRegionsEvent) => void): void;
   onPathBlocked(handler: (event: PluginPathBlockedEvent) => void): void;
@@ -553,6 +571,7 @@ export interface PluginApi {
   onPlayerFollow(handler: (event: PluginPlayerFollowEvent) => void): void;
   onPlayerAttack(handler: (event: PluginPlayerAttackEvent) => void): void;
   onCanBank(handler: (event: PluginCanBankEvent) => void): void;
+  onCanBankItem(handler: (event: PluginCanBankItemEvent) => void): void;
   onCanShop(handler: (event: PluginCanShopEvent) => void): void;
   onShouldDropItemsOnDeath(
     handler: (event: PluginShouldDropItemsOnDeathEvent) => void
@@ -623,6 +642,8 @@ export interface PluginApi {
   onItemOnGroundItem(handler: (event: PluginItemOnGroundItemEvent) => void, filter?: PluginItemUseFilter): void;
   onSpellOnObject(handler: (event: PluginSpellOnObjectEvent) => void): void;
   onItemAction(handler: (event: PluginItemActionEvent) => void): void;
+  /** Exact item name and inventory option matching. Return false to fall through. */
+  onItemAction(itemName: string, actions: Record<string, (event: PluginItemActionEvent) => void | boolean>): void;
   onItemDropPolicy(handler: (event: PluginItemDropEvent) => void): void;
   onItemFirstAction(
     handler: (event: PluginItemActionEvent) => void | boolean
@@ -741,10 +762,16 @@ export interface PluginApi {
   emitCanEat(player: any, itemId: number): boolean | null;
   emitCanDrink(player: any, itemId: number): boolean | null;
   emitCanBank(player: any): boolean | null;
+  emitCanBankItem(player: any, item: any): boolean | null;
   emitShouldKeepItemOnDeath(player: any, item: any): boolean | null;
   emitFiremakingBlocked(event: PluginFiremakingBlockedEvent): boolean;
   emitObjectInteraction(event: PluginObjectInteractionEvent): boolean;
   emitPlayerLogin(event: PluginPlayerLoginEvent): void;
+  /** Dispatches synchronously; payloads are not queued or retained by the manager. */
+  emitCustomEvent(
+    eventName: PluginCustomEventName,
+    payload: any
+  ): void;
   getPluginPerformanceSnapshot(limit?: number): any[];
   resetPluginPerformanceStats(): void;
   setPluginPerformanceProfilingEnabled(enabled: boolean): void;

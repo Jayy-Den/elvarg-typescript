@@ -25,6 +25,7 @@ import {
 import { MapRegionReplacementManager } from "../game/collision/MapRegionReplacementManager";
 import {
   decodeClientPackets,
+  MAIN_INVENTORY_GROUP_ID,
   encodeDefaultAnimations,
   encodeGameframeBootstrap,
   encodeHandshake,
@@ -452,6 +453,13 @@ class ClientConnection {
               // Bank owns its cache-native widgets while the bank modal is open.
             } else if (ShopManager.handleWidgetAction(this.player, actionPacket)) {
               // Shop owns its stock and sell-inventory widgets while open.
+            } else if (this.player.getQuickPrayers().handleWidgetAction(
+              actionPacket.groupId,
+              actionPacket.childId,
+              actionPacket.buttonNum ?? actionPacket.opId ?? 1,
+              actionPacket.slot,
+            )) {
+              // Cache-native quick-prayer orb and setup controls.
             } else if (actionPacket.groupId === 541 && PrayerHandler.togglePrayer(this.player, actionPacket.childId)) {
               // Prayer widgets map directly onto the existing prayer engine.
             } else if (actionPacket.groupId === 593 && actionPacket.childId === 32) {
@@ -498,15 +506,20 @@ class ClientConnection {
               CacheDefinitions.getSpellName(actionPacket.widgetId, actionPacket.itemId ?? -1),
             )) {
               // Arceuus self-cast spells are identified by their cache spell name.
-            } else if (actionPacket.itemId != null && actionPacket.slot != null &&
+            } else if (actionPacket.groupId === MAIN_INVENTORY_GROUP_ID && actionPacket.itemId != null && actionPacket.slot != null &&
                 this.player.getInventory().getItems()[actionPacket.slot]?.getId() === actionPacket.itemId) {
+              const inventoryAction = actionPacket.groupId === MAIN_INVENTORY_GROUP_ID
+                ? ItemActionPacketListener.resolveInventoryWidgetAction(actionPacket.itemId, actionPacket.buttonNum)
+                : { optionIndex: actionPacket.buttonNum, option: actionPacket.option };
+              if (!inventoryAction) continue;
               if (actionPacket.subOpId && PluginManager.emitItemAction({
                 player: this.player,
                 interfaceId: actionPacket.widgetId,
                 item: this.player.getInventory().getItems()[actionPacket.slot],
                 itemId: actionPacket.itemId,
                 slot: actionPacket.slot,
-                clickType: actionPacket.buttonNum ?? 1,
+                clickType: inventoryAction.optionIndex,
+                option: inventoryAction.option,
                 subOpId: actionPacket.subOpId,
                 handled: false,
               })) {
@@ -514,7 +527,7 @@ class ClientConnection {
               }
               this.inventoryAction({
                 type: "inventory_action", widgetId: actionPacket.widgetId, slot: actionPacket.slot,
-                itemId: actionPacket.itemId, option: actionPacket.option, optionIndex: actionPacket.buttonNum,
+                itemId: actionPacket.itemId, ...inventoryAction,
               });
             } else {
               const handled = InterfaceActionClickOpcode.handle(this.player, actionPacket.widgetId, actionPacket.buttonNum, {
@@ -855,6 +868,7 @@ class ClientConnection {
       .sendItemContainer(player.getInventory(), 3214)
       .sendSkillsSnapshot()
       .sendRunEnergy();
+    player.getQuickPrayers().sync();
   }
 
   private walk(x: number, y: number, modifierFlags: number): void {

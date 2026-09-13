@@ -42,6 +42,7 @@ import {
   encodeWidgetSetFlagsRange,
   encodeWidgetSetHidden,
   encodeWidgetSetItem,
+  encodeWidgetSetModel,
   encodeWidgetSetNpcHead,
   encodeWidgetSetPlayerHead,
   encodeWidgetSetRoot,
@@ -326,6 +327,11 @@ export class PacketSender {
 
   public sendInterfaceAnimation(interfaceId: number, animationId: number) {
     if (this.player.getSession().sendClientPacket(encodeWidgetSetAnimation(interfaceId, animationId))) return this;
+  }
+
+  public sendInterfaceRawModel(interfaceId: number, modelId: number): this {
+    this.player.getSession().sendClientPacket(encodeWidgetSetModel(interfaceId, modelId));
+    return this;
   }
 
   public sendInterfaceModel(interfaceId: number, itemId: number, zoom: number) {

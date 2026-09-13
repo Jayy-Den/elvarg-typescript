@@ -1,3 +1,4 @@
+import { CacheDefinitions } from "../game/cache/CacheDefinitions";
 import { ItemDefinition } from "../game/definition/ItemDefinition";
 import { PlayerSave } from "../game/entity/impl/player/persistence/PlayerSave";
 import { ContentApi } from "../net/http/ContentApi";
@@ -40,6 +41,7 @@ import {
   PluginPathBlockedEvent,
   PluginPlayerProcessEvent,
   PluginPlayerLevelUpEvent,
+  PluginCustomEventName,
   PluginPlayerPathBlockedEvent,
   PluginCommandEvent,
   PluginActiveRegionsEvent,
@@ -55,6 +57,7 @@ import {
   PluginPlayerFollowEvent,
   PluginPlayerAttackEvent,
   PluginCanBankEvent,
+  PluginCanBankItemEvent,
   PluginCanShopEvent,
   PluginShouldDropItemsOnDeathEvent,
   PluginShouldKeepItemOnDeathEvent,
@@ -86,6 +89,18 @@ type PluginHook<T> = {
   pluginName: string;
   handler: (event: T) => void;
 };
+
+function normalizePluginName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function pluginNameFromFile(pluginPath: string): string {
+  return path.basename(pluginPath).replace(/\.plugin\.js$/i, "");
+}
+
+function isPluginCustomEventName(value: unknown): value is PluginCustomEventName {
+  return typeof value === "string" && /^[^:\s]+:[^:\s]+$/.test(value);
+}
 
 type PluginLoadCandidate = {
   pluginPath: string;
@@ -125,6 +140,10 @@ export class PluginManager {
   private static friendRemoveHooks: PluginHook<PluginFriendEvent>[] = [];
   private static playerProcessHooks: PluginHook<PluginPlayerProcessEvent>[] = [];
   private static playerLevelUpHooks: PluginHook<PluginPlayerLevelUpEvent>[] = [];
+  private static customEventHooks = new Map<
+    PluginCustomEventName,
+    PluginHook<any>[]
+  >();
   private static regionLoadedHooks: PluginHook<PluginRegionLoadedEvent>[] = [];
   private static activeRegionsHooks: PluginHook<PluginActiveRegionsEvent>[] = [];
   private static pathBlockedHooks: PluginHook<PluginPathBlockedEvent>[] = [];
@@ -142,6 +161,7 @@ export class PluginManager {
   private static playerFollowHooks: PluginHook<PluginPlayerFollowEvent>[] = [];
   private static playerAttackHooks: PluginHook<PluginPlayerAttackEvent>[] = [];
   private static canBankHooks: PluginHook<PluginCanBankEvent>[] = [];
+  private static canBankItemHooks: PluginHook<PluginCanBankItemEvent>[] = [];
   private static canShopHooks: PluginHook<PluginCanShopEvent>[] = [];
   private static shouldDropItemsOnDeathHooks: PluginHook<PluginShouldDropItemsOnDeathEvent>[] = [];
   private static shouldKeepItemOnDeathHooks: PluginHook<PluginShouldKeepItemOnDeathEvent>[] = [];
@@ -427,12 +447,23 @@ export class PluginManager {
       return true;
     });
 
-    const candidates =
-      PluginManager.collectPluginLoadCandidates(filteredPluginFiles);
+    // The exported name is only known after evaluation; filter by filename first.
     const disabledPluginNames = PluginManager.loadDisabledPluginNames();
+    const enabledPluginFiles = filteredPluginFiles.filter((pluginPath) => {
+      const fileName = pluginNameFromFile(pluginPath);
+      if (!disabledPluginNames.has(normalizePluginName(fileName))) {
+        return true;
+      }
+      console.info(`[plugins] skipped ${fileName}: disabled in world.json`);
+      return false;
+    });
+    const candidates = PluginManager.collectPluginLoadCandidates(
+      enabledPluginFiles
+    );
     PluginManager.loadPluginCandidatesWithDependencies(
       candidates.filter((candidate) => {
-        if (!disabledPluginNames.has(candidate.pluginName)) {
+        // Keep exported-name configuration working when it differs from the filename.
+        if (!disabledPluginNames.has(normalizePluginName(candidate.pluginName))) {
           return true;
         }
         console.info(`[plugins] skipped ${candidate.pluginName}: disabled in world.json`);
@@ -440,7 +471,7 @@ export class PluginManager {
       })
     );
 
-    if (filteredPluginFiles.length > 0 && candidates.length === 0) {
+    if (enabledPluginFiles.length > 0 && candidates.length === 0) {
       console.warn(
         `[plugins] no valid plugins loaded from ${pluginDirectory}`
       );
@@ -551,6 +582,27 @@ export class PluginManager {
     }
     for (const hook of PluginManager.playerLevelUpHooks) {
       PluginManager.executeHook(hook, event, "player_level_up", "player_level_up");
+    }
+  }
+
+  public static emitCustomEvent(
+    eventName: PluginCustomEventName,
+    payload: any
+  ): void {
+    if (!isPluginCustomEventName(eventName)) {
+      return;
+    }
+    const hooks = PluginManager.customEventHooks.get(eventName);
+    if (!hooks?.length) {
+      return;
+    }
+    for (const hook of hooks) {
+      PluginManager.executeHook(
+        hook,
+        payload,
+        `custom_event:${eventName}`,
+        `custom_event:${eventName}`
+      );
     }
   }
 
@@ -791,6 +843,16 @@ export class PluginManager {
       if (event.allow !== null) {
         return event.allow;
       }
+    }
+    return null;
+  }
+
+  public static emitCanBankItem(player: any, item: any): boolean | null {
+    if (PluginManager.canBankItemHooks.length === 0) return null;
+    const event: PluginCanBankItemEvent = { player, item, allow: null };
+    for (const hook of PluginManager.canBankItemHooks) {
+      PluginManager.executeHook(hook, event, "can_bank_item", "can_bank_item");
+      if (event.allow !== null) return event.allow;
     }
     return null;
   }
@@ -1256,7 +1318,7 @@ export class PluginManager {
     ) {
       throw new Error(`[plugins] ${configPath}.disabledPlugins must be a string[]`);
     }
-    return new Set(config.disabledPlugins.map((pluginName) => pluginName.trim()));
+    return new Set(config.disabledPlugins.map(normalizePluginName));
   }
 
   private static collectPluginLoadCandidates(
@@ -1895,6 +1957,20 @@ export class PluginManager {
           },
         });
       },
+      onCustomEvent: (eventName, handler) => {
+        if (
+          !isPluginCustomEventName(eventName) ||
+          typeof handler !== "function"
+        ) {
+          return;
+        }
+        const hooks = PluginManager.customEventHooks.get(eventName) ?? [];
+        hooks.push({
+          pluginName,
+          handler,
+        });
+        PluginManager.customEventHooks.set(eventName, hooks);
+      },
       onRegionLoaded: (handler) => {
         if (typeof handler !== "function") {
           return;
@@ -2158,6 +2234,16 @@ export class PluginManager {
             if (!event || !event.player) {
               return;
             }
+            handler(event);
+          },
+        });
+      },
+      onCanBankItem: (handler) => {
+        if (typeof handler !== "function") return;
+        PluginManager.canBankItemHooks.push({
+          pluginName,
+          handler: (event) => {
+            if (!event?.player || !event.item) return;
             handler(event);
           },
         });
@@ -2533,10 +2619,14 @@ export class PluginManager {
           },
         });
       },
-      onItemAction: (handler) => {
-        if (typeof handler !== "function") {
+      onItemAction: (
+        handler: string | ((event: PluginItemActionEvent) => void),
+        actions?: Record<string, (event: PluginItemActionEvent) => void | boolean>
+      ) => {
+        if (typeof handler !== "function" && (typeof handler !== "string" || !actions)) {
           return;
         }
+        const namedActions = new Map(Object.entries(actions ?? {}).filter(([, action]) => typeof action === "function"));
         PluginManager.itemActionHooks.push({
           pluginName,
           handler: (event) => {
@@ -2551,7 +2641,15 @@ export class PluginManager {
             ) {
               return;
             }
-            handler(event);
+            if (typeof handler === "function") {
+              handler(event);
+              return;
+            }
+            const definition = CacheDefinitions.getItem(event.itemId);
+            if (definition?.name !== handler || event.clickType < 1 || event.clickType > 5) return;
+            const option = definition.inventoryActions[event.clickType - 1];
+            const action = namedActions.get(option);
+            if (action && action(event) !== false) event.handled = true;
           },
         });
       },
@@ -2918,11 +3016,14 @@ export class PluginManager {
       emitCanEat: (player, itemId) => PluginManager.emitCanEat(player, itemId),
       emitCanDrink: (player, itemId) => PluginManager.emitCanDrink(player, itemId),
       emitCanBank: (player) => PluginManager.emitCanBank(player),
+      emitCanBankItem: (player, item) => PluginManager.emitCanBankItem(player, item),
       emitShouldKeepItemOnDeath: (player, item) =>
         PluginManager.emitShouldKeepItemOnDeath(player, item),
       emitFiremakingBlocked: (event) => PluginManager.emitFiremakingBlocked(event),
       emitObjectInteraction: (event) => PluginManager.emitObjectInteraction(event),
       emitPlayerLogin: (event) => PluginManager.emitPlayerLogin(event),
+      emitCustomEvent: (eventName, payload) =>
+        PluginManager.emitCustomEvent(eventName, payload),
       getPluginPerformanceSnapshot: (limit) =>
         PluginManager.getPluginPerformanceSnapshot(limit),
       resetPluginPerformanceStats: () => PluginManager.resetPluginPerformanceStats(),
