@@ -149,6 +149,24 @@ function setTargetWidget(ctx: HandlerContext, intOp: number, w: WidgetNode | nul
     }
 }
 
+/**
+ * One-shot console dedupe so a hot per-frame layout controller can't spam the
+ * console when the same component keeps failing to resolve.
+ */
+const ccCreateSoftFailSeen = new Set<string>();
+
+/**
+ * Log a skipped CC_CREATE. Stack discipline is handled at each call site (the
+ * underflow branch balances before logging; the post-consume branches have
+ * already consumed their args), so this only reports.
+ */
+function ccCreateSoftFail(reason: string): void {
+    if (!ccCreateSoftFailSeen.has(reason)) {
+        ccCreateSoftFailSeen.add(reason);
+        console.warn(`[Cs2] cc_create skipped (${reason}) - continuing script`);
+    }
+}
+
 function createDetachedDynamicWidget(
     parent: WidgetNode,
     parentUid: number,
@@ -690,7 +708,18 @@ export function registerWidgetOps(handlers: HandlerMap): void {
         const argCount = IS_MODERN ? 4 : 3;
 
         if (ctx.intStackSize < argCount) {
-            throw new Error("RuntimeException");
+            // Soft-fail: a component we cannot create must not abort the whole
+            // script chain (the mobile toplevel's var-transmit layout controller
+            // 902 -> 907 -> 9679 -> 9684 creates desktop-frame components in
+            // mobile sessions). Balance the stack deterministically and continue.
+            const available = Math.max(0, Math.min(ctx.intStackSize, argCount));
+            ctx.intStackSize -= available;
+            for (let pad = 0; pad < argCount - available; pad++) {
+                ctx.intStack[ctx.intStackSize++] = 0;
+            }
+            ctx.intStackSize -= argCount;
+            ccCreateSoftFail(`stack-underflow have=${available} need=${argCount}`);
+            return;
         }
 
         // Read deterministic arguments
@@ -710,7 +739,9 @@ export function registerWidgetOps(handlers: HandlerMap): void {
         let groupId = (parentUid >>> 16) & 0xffff;
 
         if (groupId === 0) {
-            throw new Error("RuntimeException");
+            // Args already consumed above - leave the stack as-is.
+            ccCreateSoftFail(`group-0 parent=${parentUid} type=${type} idx=${childIndex}`);
+            return;
         }
 
         // Ensure the parent's group is loaded before looking up the widget
@@ -719,7 +750,12 @@ export function registerWidgetOps(handlers: HandlerMap): void {
 
         const parent = ctx.widgetManager.getWidgetByUid(parentUid);
         if (!parent) {
-            throw new Error("RuntimeException");
+            // Group 161 (desktop toplevel) loads lazily/async in mobile sessions,
+            // so the layout controller's cc_create(161:100, ...) finds no parent.
+            // Skip creation instead of aborting the chain; downstream cc_set*
+            // handlers null-guard the target widget.
+            ccCreateSoftFail(`parent-not-resident uid=${parentUid} type=${type} idx=${childIndex}`);
+            return;
         }
 
         if (ctx.widgetManager.isServerOwnedWidget(parentUid)) {
@@ -733,7 +769,8 @@ export function registerWidgetOps(handlers: HandlerMap): void {
 
         if (!parent.children) parent.children = [];
         if (childIndex > 0 && !parent.children[childIndex - 1]) {
-            throw new Error("RuntimeException");
+            ccCreateSoftFail(`index-gap uid=${parentUid} idx=${childIndex}`);
+            return;
         }
         while (parent.children.length <= childIndex) parent.children.push(null);
 

@@ -1754,6 +1754,17 @@ export class Cs2Vm {
                                 ? this.handlerArray[opcode]
                                 : this.handlers.get(opcode);
                         if (!handler) {
+                            // RT7 device-capability setters (mobile engine builds).
+                            // Our client has no native device layer, so these are
+                            // semantic no-ops - but aborting the whole script chain
+                            // (previous behavior) left the mobile toplevel
+                            // half-initialized: the tab-area reveal (601:111) and the
+                            // tab-content population scripts never ran, leaving every
+                            // tab panel invisible/empty. Tolerate them so the
+                            // surrounding layout chain completes.
+                            if (opcode === 3228 || opcode === 3229) {
+                                break;
+                            }
                             const error = this.createError(
                                 `Unknown opcode ${opcode}`,
                                 currentScript,

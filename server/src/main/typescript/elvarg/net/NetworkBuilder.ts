@@ -25,16 +25,21 @@ import {
 import { MapRegionReplacementManager } from "../game/collision/MapRegionReplacementManager";
 import {
   decodeClientPackets,
-  MAIN_INVENTORY_GROUP_ID,
   encodeDefaultAnimations,
   encodeGameframeBootstrap,
   encodeHandshake,
   encodeLoginResponse,
   encodeLogoutResponse,
   encodeWelcome,
+  encodeWidgetSetHidden,
+  MAIN_INVENTORY_GROUP_ID,
   PlayerAppearance,
 } from "./protocol/ClientProtocol";
-import { fromDisplayUid } from "./protocol/ViewportMode";
+import {
+  fromDisplayUid,
+  MOBILE_ROOT_GROUP,
+  MOBILE_SERVER_OWNED_VISIBLE_CHILDREN,
+} from "./protocol/ViewportMode";
 import {
   WORLD_MAP_CLOSE_WIDGET_ID,
   WORLD_MAP_ORB_WIDGET_IDS,
@@ -869,6 +874,29 @@ class ClientConnection {
       .sendSkillsSnapshot()
       .sendRunEnergy();
     player.getQuickPrayers().sync();
+    if (player.getDisplayMode() === "mobile") {
+      // The mobile toplevel's login script chain (cs2 876 -> 9790) aborts on our
+      // client at unimplemented RT7-family opcodes before it can reveal the
+      // default-visible mobile chrome (tab area 601:111, minimap cluster 601:22,
+      // frame 601:24, buff bar 601:12, hotkey bar 601:40), and the deferred
+      // var-transmit listeners (cs2 919/907) re-hide them once the batch settles
+      // - so any unhide sent inside the bootstrap flush is overridden. Re-assert
+      // the visible state a few seconds after login, once the deferred script
+      // listeners have run. The client marks each container server-owned on
+      // reveal, so the listeners can never fight back after that.
+      // Server-ordered visibility is the same mechanism plugins use; see
+      // ViewportMode.ts for the full story.
+      const sessionRef = player.getSession();
+      const timer = setTimeout(() => {
+        for (const child of MOBILE_SERVER_OWNED_VISIBLE_CHILDREN) {
+          sessionRef.sendClientPacket(
+            encodeWidgetSetHidden((MOBILE_ROOT_GROUP << 16) | child, false),
+          );
+        }
+      }, 3000);
+      // If the player logs out before the timer fires, don't hold the session open.
+      timer.unref?.();
+    }
   }
 
   private walk(x: number, y: number, modifierFlags: number): void {
