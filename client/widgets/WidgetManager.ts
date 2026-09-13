@@ -1505,8 +1505,26 @@ export class WidgetManager {
         // before reaching the hide; with cc_create now failing soft (see
         // WidgetOps.ts) the hide fires, so pin the container the same way the
         // quest list pins its rows (see widgets/custom/questList.ts).
+        //
+        // Also pin the chat cluster (601:21), minimap cluster (601:22) and
+        // hotkey bar (601:40). The toplevel layout controller (cs2 907, fired on
+        // every varp-1021 change) reconciles DESKTOP-frame twins (161:x) and
+        // branches on device flags; in a mobile session group 161 is not
+        // resident, its cc_find lookups miss, and the "desktop present" guards
+        // misfire - 907 then hides the mobile chrome permanently (no script ever
+        // re-reveals it). Trace-verified hide sites: 907 pc=69/961/1227 targeting
+        // 601:21/22/40. Only these three containers are pinned; everything else
+        // (tab switching, hotkey expand/collapse, chat toggling, panel flips)
+        // stays fully script-driven.
         if (groupId === 601) {
             this.setServerOwnedWidget((601 << 16) | 111, true);
+            this.setServerOwnedWidget((601 << 16) | 21, true);
+            this.setServerOwnedWidget((601 << 16) | 22, true);
+            this.setServerOwnedWidget((601 << 16) | 40, true);
+            // 601:50 is the right-edge tab-rail slot (hosts the 14 tab-icon
+            // columns). Its reveal runs in the same misfiring 907 guards, so pin
+            // it too - the icons' click handlers remain script-driven.
+            this.setServerOwnedWidget((601 << 16) | 50, true);
         }
 
         const instance = this.getGroup(groupId);
