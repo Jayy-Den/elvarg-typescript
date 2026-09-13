@@ -6,6 +6,7 @@ import {
     processQuestListScrollbarInput,
 } from "./input/questListScrollbarInput";
 import { shouldSkipWidgetClickInput } from "./input/widgetClickGuard";
+import { processMobileChatTapInput } from "./input/widgetChatTapInput";
 import { processWidgetClickInput } from "./input/widgetClickInput";
 import { processWidgetDragInput } from "./input/widgetDragInput";
 import { processWidgetHoldInput } from "./input/widgetHoldInput";
@@ -89,6 +90,9 @@ export class WidgetInputController {
             getPrimaryWidgetAction,
             isNewClick,
         );
+        // Mobile tap-to-type: a chatbox tap that no widget consumed opens the
+        // soft keyboard (engine-owned typing path handles the keys).
+        processMobileChatTapInput(this.deps, frame, widgetManager, widgetInteraction, isNewClick);
         // The quest list has a dedicated scroll controller. Its cached
         // scrollbar thumb must not become a generic draggable widget.
         if (!isQuestListScrollbarWidget(widgetInteraction.clickedWidget, widgetManager)) {

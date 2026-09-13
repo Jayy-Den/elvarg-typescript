@@ -94,6 +94,8 @@ export type WidgetInputControllerDeps = {
     setPendingInputDialogAction: (action: { payload: any; option: string } | null) => void;
     /** True while the mobile soft-keyboard bridge is open (plain chatbox typing). */
     getMobileChatKeyboardOpen: () => boolean;
+    /** Open the mobile soft-keyboard bridge (chatbox tap-to-type). */
+    showMobileChatKeyboard?: () => void;
     getPendingTradeQuantityAction: () => {
         action: "offer" | "remove";
         slot: number;

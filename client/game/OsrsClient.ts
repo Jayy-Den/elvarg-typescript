@@ -1285,6 +1285,7 @@ export class OsrsClient {
             getCustomInterfaces: () => this.customInterfaces,
             getEnterToTypeChat: () => this.enterToTypeChat,
             getMobileChatKeyboardOpen: () => this.mobileChatKeyboard?.isOpen ?? false,
+            showMobileChatKeyboard: () => this.mobileChatKeyboard?.show(),
             getPlayerDesign: () => this.playerDesign,
             getObjTypeLoader: () => this.objTypeLoader,
             getInventory: () => this.inventory,
