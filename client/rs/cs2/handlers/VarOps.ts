@@ -23,6 +23,31 @@ export function registerVarOps(handlers: HandlerMap): void {
 
     // === Variable bits (VARBIT) ===
     handlers.set(Opcodes.GET_VARBIT, (ctx, intOp) => {
+        // Mobile popout gate shim (cs2 5357): the gate requires varbit 542 (varp 1021
+        // bit 6, the device flag native engines report) plus varbit 13981 to be set.
+        // Neither varp can be written on this client - SET fires the toplevel's
+        // var-transmit listener chain (cs2 902), which throws on the device path and
+        // kills the frame - and 13981 must also read 0 during toplevel init (7408's
+        // eligibility gate would take its device path mid-init). So both reads are
+        // answered from display state: once the mobile frame (root 601) has been up
+        // for a few seconds - i.e. after init, before any user could tap the popout
+        // button - the gate reads open; during init it reads closed.
+        if (intOp === 542 || intOp === 13981) {
+            const settledAt = (ctx.widgetManager as any)?.clientRef?.__mobileFrameSettledAt ??
+                (typeof window !== "undefined" ? (window as any).osrsClient?.__mobileFrameSettledAt : undefined);
+            const mobileFrame = (ctx.widgetManager as any)?.rootInterface === 601;
+            if (mobileFrame && settledAt !== undefined) {
+                const settled = Date.now() - settledAt > 3000;
+                if (settled) {
+                    ctx.pushInt(1);
+                    return;
+                }
+                if (intOp === 13981) {
+                    ctx.pushInt(0);
+                    return;
+                }
+            }
+        }
         ctx.pushInt(ctx.varManager.getVarbit(intOp));
     });
 

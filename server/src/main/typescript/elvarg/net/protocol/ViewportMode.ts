@@ -16,6 +16,16 @@ export const DESKTOP_ROOT_GROUP = 161;
 /** Mobile toplevel (toplevel_osm). */
 export const MOBILE_ROOT_GROUP = 601;
 
+/** Popout/share panel group (mounted at 601:134 on mobile). */
+export const POPOUT_PANEL_GROUP = 728;
+/**
+ * 728's desktop-layout edge rail: a 58x1128 strip that hugs the left edge. On the
+ * native engine its visibility is managed by the toplevel's var-transmit listener
+ * chain; on this client that chain (cs2 902) throws on the device path, so the rail
+ * would render permanently. The server hides it after the mobile bootstrap mounts.
+ */
+export const POPOUT_PANEL_RAIL_CHILD = 10;
+
 export type DisplayMode = "desktop" | "mobile";
 
 /**

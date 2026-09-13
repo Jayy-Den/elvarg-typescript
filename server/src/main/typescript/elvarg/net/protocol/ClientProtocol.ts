@@ -3,7 +3,7 @@ import { CLIENT_PACKET_LENGTHS as CLIENT_PACKET_LENGTHS, ClientPacketId as HighC
 import { CLIENT_PACKET_LENGTHS as NATIVE_CLIENT_PACKET_LENGTHS, ClientPacketId as NativeClientPacket } from "./NativeClientPackets";
 import { SERVER_PACKET_LENGTHS, ServerPacketId } from "./ServerPackets";
 import { deflateSync } from "zlib";
-import { DESKTOP_ROOT_GROUP, MOBILE_ROOT_GROUP } from "./ViewportMode";
+import { DESKTOP_ROOT_GROUP, MOBILE_ROOT_GROUP, POPOUT_PANEL_GROUP, POPOUT_PANEL_RAIL_CHILD } from "./ViewportMode";
 
 export const enum ClientPacket {
   NPC_OPTION_2 = 12,
@@ -1513,6 +1513,15 @@ export function encodeGameframeBootstrap(playerName: string, mode: "desktop" | "
     encodeWidgetSetFlagsRange(ACCOUNT_SUMMARY_ENTRY_LIST_UID, ACCOUNT_SUMMARY_COMBAT_TASKS_ROW, ACCOUNT_SUMMARY_COMBAT_TASKS_ROW, (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4)),
     encodeWidgetSetFlagsRange(ACCOUNT_SUMMARY_ENTRY_LIST_UID, ACCOUNT_SUMMARY_COLLECTION_LOG_ROW, ACCOUNT_SUMMARY_COLLECTION_LOG_ROW, (1 << 1) | (1 << 2)),
     encodeWidgetSetFlagsRange(ACCOUNT_SUMMARY_ENTRY_LIST_UID, ACCOUNT_SUMMARY_PLAYTIME_ROW, ACCOUNT_SUMMARY_PLAYTIME_ROW, 1 << 1),
+    // Hide the popout panel's desktop edge rail (728:10). Mobile bootstraps deliver the
+    // varbits each interface needs, but 728's desktop-layout rail is not varbit-gated on
+    // this client (cs2 902 - its would-be hide logic - throws on the device path), so the
+    // rail renders as a tall strip down the left edge. Server-ordered hide states are the
+    // same mechanism plugins use; the popout's compact button (728:36/24) stays visible
+    // and its expand gate is answered client-side - see VarOps.ts in the client.
+    ...(mobile
+      ? [encodeWidgetSetHidden((POPOUT_PANEL_GROUP << 16) | POPOUT_PANEL_RAIL_CHILD, true)]
+      : []),
     packet(ServerPacket.WIDGET_RUN_SCRIPT, loginScript, 2),
   ];
   return packets;

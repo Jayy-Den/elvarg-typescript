@@ -2343,6 +2343,16 @@ export class OsrsClient {
                         }
                         this.varManager.setVarcInt(170, displayMode);
                         console.log(`[OsrsClient] Set varc 170 (display mode) = ${displayMode}`);
+                        if (payload.groupId === 601) {
+                            // Stamp the mobile-frame settle time. The device-flag reads that cache
+                            // scripts make for the popout gate (cs2 5357: 13981==1 && 542==1) are
+                            // answered from this timestamp in the VM's GET_VARBIT handler (VarOps.ts):
+                            // reads DURING init see the gate closed, reads AFTER the frame settles see
+                            // it open. Writing varp 1021/3417 is never an option here - both fire the
+                            // toplevel's var-transmit listener chain (cs2 902), which throws on the
+                            // device path and leaves the frame uninitialized (verified live).
+                            (this as any).__mobileFrameSettledAt = Date.now();
+                        }
                         // Initialize varc 171 (selected tab index) to 3 (inventory) if not already set
                         // This matches toplevel_init behavior: if (%varcint171 <= 0) { %varcint171 = 3; }
                         const currentTab = this.varManager.getVarcInt(171);
