@@ -1376,7 +1376,11 @@ export function registerWidgetOps(handlers: HandlerMap): void {
         const wMode = ctx.intStack[ctx.intStackSize + 2];
         const hMode = ctx.intStack[ctx.intStackSize + 3];
         const w = ctx.widgetManager.getWidgetByUid(uid);
-        if (w && ctx.widgetManager.isServerOwnedWidget(uid)) return;
+        // NOTE: server-owned (mobile chrome) widgets deliberately allow IF_SETSIZE
+        // through — the mobile tab-rail collapse animation (cs2 7615, invoked by
+        // 7614 when varc 1222 flips) legitimately resizes the pinned rail slot
+        // 601:50 (85px expanded <-> 58px collapsed). The pin exists to stop
+        // script 907's misfiring HIDES, not geometry changes.
         // PERF: Only invalidate if size actually changed
         if (
             w &&
