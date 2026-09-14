@@ -1076,8 +1076,28 @@ export class WidgetManager {
     registerWidget(widget: WidgetNode): void {
         if (widget && typeof widget.uid === "number") {
             this.widgetByUid.set(widget.uid, widget);
+            this.enforceMobileWidgetPins(widget);
             this.maybeInvalidateDynamicChildrenCache(widget);
         }
+    }
+
+    /**
+     * TRANSPARENT CHAT (mobile): the desktop chatback HOST (162:37) is pinned
+     * server-owned while the mobile toplevel (601) is active. The pin guards the
+     * CS2 hide/show ops, but chat-layout scripts (113/923 paths) can also wipe the
+     * group via CC_DELETEALL and re-register the tree with cache-default visible
+     * state - that path fires no ops, so the pin alone cannot stop the parchment
+     * coming back. Every fresh registration of the pinned uid therefore starts
+     * hidden while the mobile root is active.
+     */
+    private enforceMobileWidgetPins(node: WidgetNode): void {
+        if (this.rootInterface !== 601) return;
+        if (node.uid !== ((162 << 16) | 37)) return;
+        if (!this.isServerOwnedWidget(node.uid)) return;
+        if (node.hidden && node.isHidden) return;
+        node.hidden = true;
+        node.isHidden = true;
+        this.invalidateWidget(node);
     }
 
     /**
@@ -1394,6 +1414,7 @@ export class WidgetManager {
             if (typeof uid === "number") {
                 widgetsByUid.set(uid, node);
                 this.widgetByUid.set(uid, node);
+                this.enforceMobileWidgetPins(node);
                 uids.add(uid);
             }
             const nodeGroupId = typeof node.groupId === "number" ? node.groupId | 0 : groupId;
@@ -1573,13 +1594,17 @@ export class WidgetManager {
             // it too - the icons' click handlers remain script-driven.
             this.setServerOwnedWidget((601 << 16) | 50, true);
 
-            // TRANSPARENT CHAT (official mobile look): pin the DESKTOP chatback
-            // (162:34) server-owned when the mobile toplevel mounts. should-
-            // LetServerOwnedHideThrough special-cases this uid: hides pass, shows
-            // are blocked. Official mobile draws chat text directly over the world
-            // (no backing box); the chat text lines live in the separate mobile
-            // container 162:56, so hiding the desktop backing does not hide them.
-            this.setServerOwnedWidget((162 << 16) | 34, true);
+            // TRANSPARENT CHAT (official mobile look): pin the desktop chatback
+            // HOST (162:37) server-owned when the mobile toplevel mounts. 162:37
+            // is the container that draws the parchment background sprite (the
+            // dynamic 162:38100 / sprite 1010 family created by cs2 923). The chat
+            // TEXT lives in the sibling subtree 162:55 -> 56 -> 57/58, which stays
+            // visible and fills from chat history exactly like the desktop layout
+            // (verified rendering top-left over the world). Hiding 34 instead
+            // blanked the text (55 is a child of 34) - that was the regression.
+            // shouldLetServerOwnedHideThrough special-cases 162:37: hides pass,
+            // shows are blocked, so no script can resurrect the parchment.
+            this.setServerOwnedWidget((162 << 16) | 37, true);
 
             // PARITY: keep the desktop frame (161) resident, exactly as the
             // native client does in mobile sessions. Cache script 907 (fired on
@@ -1596,10 +1621,11 @@ export class WidgetManager {
         }
 
         // TRANSPARENT CHAT (mobile): when the chat group (162) loads under the
-        // mobile toplevel, hide the desktop chatback (162:34) before first layout.
-        // Official mobile draws chat text directly over the world - no backing box.
+        // mobile toplevel, hide the desktop chatback HOST (162:37) before first
+        // layout. Official mobile draws chat text directly over the world - no
+        // backing box. The text subtree under 34/55/56 stays visible.
         if (groupId === 162 && this.rootInterface === 601) {
-            const chatback = this.getWidgetByUid((162 << 16) | 34);
+            const chatback = this.getWidgetByUid((162 << 16) | 37);
             if (chatback) {
                 chatback.hidden = true;
                 chatback.isHidden = true;
@@ -1612,12 +1638,13 @@ export class WidgetManager {
         }
 
         // TRANSPARENT CHAT (mobile): when the mobile toplevel (601) mounts, force
-        // the desktop chatback (162:34) hidden if its group is already resident.
-        // (If 162 loads later, the groupId===162 branch below handles it.) Combined
-        // with the server-owned pin in the 601 block above, no script or transmit
-        // path can re-show it - official mobile has no chat backing box.
+        // the desktop chatback HOST (162:37) hidden if its group is already
+        // resident. (If 162 loads later, the groupId===162 branch below handles
+        // it.) Combined with the server-owned pin in the 601 block above, no
+        // script or transmit path can re-show it - official mobile has no chat
+        // backing box. The text subtree (34 -> 55 -> 56) stays visible.
         if (groupId === 601) {
-            const chatback = this.getWidgetByUid((162 << 16) | 34);
+            const chatback = this.getWidgetByUid((162 << 16) | 37);
             if (chatback && (chatback.hidden || chatback.isHidden) === false) {
                 chatback.hidden = true;
                 chatback.isHidden = true;

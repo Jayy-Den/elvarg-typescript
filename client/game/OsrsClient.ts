@@ -6293,6 +6293,51 @@ export class OsrsClient {
                         }
                     }
                 }
+                if (varcId === 1220 && this.widgetManager?.rootInterface === 601) {
+                    // Mobile chat expand/collapse (toggle button 601:46 -> cs2 7610 ->
+                    // procedure 183, state varc 1220). The collapse branch hides the chat
+                    // text root (162:34) via cs2 5774, but the expand branch's show path
+                    // only sizes enum-mapped components and never re-shows it, leaving the
+                    // chat invisible until reload - the "tap tab collapses chat, tapping
+                    // again never brings it back" bug. Mirroring native end-state semantics
+                    // (same pattern as the varc-171 tab-area handler above): 1220=1 is
+                    // collapsed, 1220=0 is expanded. The varc write happens BEFORE the
+                    // rest of the toggle chain (5773 -> 113 layout) runs, and those later
+                    // scripts rehide 34 synchronously - so the end-state fix must land
+                    // AFTER the whole chain unwinds (microtask).
+                    const wm = this.widgetManager;
+                    const chatRootUid = (162 << 16) | 34;
+                    const chatRootHidden = varcValue === 1;
+                    queueMicrotask(() => {
+                        // The expand chain (7610 -> 5773 -> 113) rebuilds the desktop
+                        // tab strip via CC_DELETEALL + CC_CREATE, but unlike the show
+                        // path it never calls markWidgetsLoaded - so the recreated
+                        // IF3 subtree never receives its setup/var transmits and the
+                        // strip renders blank (recreated sprite child stays 1x1).
+                        // Re-arm transmit processing and re-run the group's initial
+                        // var-transmit so the fresh subtree is fully initialized. That
+                        // transmit's layout scripts also touch the chat text root's
+                        // visibility, so the END-STATE visibility fix must run AFTER
+                        // they drain (next frame).
+                        if (!chatRootHidden) {
+                            markWidgetsLoaded();
+                            this.widgetTransmitProcessor?.triggerInitialVarTransmitForGroup(162);
+                        }
+                        const applyEndState = () => {
+                            const chatRoot = wm.getWidgetByUid(chatRootUid);
+                            if (chatRoot && chatRoot.hidden !== chatRootHidden) {
+                                chatRoot.hidden = chatRootHidden;
+                                chatRoot.isHidden = chatRootHidden;
+                                wm.invalidateWidgetRender(chatRoot);
+                            }
+                        };
+                        if (chatRootHidden) {
+                            applyEndState();
+                        } else {
+                            requestAnimationFrame(applyEndState);
+                        }
+                    });
+                }
             };
             this.varManager.onVarcStringChange = (varcId) => {
                 if (this.varManager.isPersistentVarc(varcId)) {

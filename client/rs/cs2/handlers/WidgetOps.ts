@@ -40,13 +40,15 @@ interface WidgetLookupCache {
  */
 function shouldLetServerOwnedHideThrough(ctx: HandlerContext, uid: number, hidden: boolean): boolean {
     if (uid !== ((601 << 16) | 111)) {
-        // Mobile transparent chat: the desktop chatback (162:34) must never render
-        // in mobile sessions - official OSRS mobile draws chat text directly over
-        // the world with no backing box. The widget is pinned server-owned when the
-        // mobile toplevel (601) is active; hide ops pass through (harmless), but
-        // SHOW ops are blocked so no script (desktop chat layout 923/113 paths,
-        // transmit fallbacks) can resurrect the parchment backing.
-        if (uid === ((162 << 16) | 34)) return hidden;
+        // Mobile transparent chat: the desktop chatback HOST (162:37 - the
+        // container drawing the parchment sprite) must never render in mobile
+        // sessions - official OSRS mobile draws chat text directly over the world
+        // with no backing box. The widget is pinned server-owned when the mobile
+        // toplevel (601) is active; hide ops pass through (harmless), but SHOW ops
+        // are blocked so no script (desktop chat layout 923/113 paths, transmit
+        // fallbacks) can resurrect the parchment backing. The text subtree lives
+        // under 162:55/56 (sibling of 37), so it is unaffected.
+        if (uid === ((162 << 16) | 37)) return hidden;
         return false;
     }
     // Shows are always safe to let through - the destructive scripts only hide.
