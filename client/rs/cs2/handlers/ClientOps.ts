@@ -415,7 +415,14 @@ export function registerClientOps(handlers: HandlerMap): void {
     });
 
     handlers.set(Opcodes.GETWINDOWMODE, (ctx) => {
-        const mode = ctx.windowMode ?? 2;
+        // Mobile sessions run the mobile toplevel (601). The cache's mobile chat
+        // layout controller (cs2 113) gates its mobile branch on GETWINDOWMODE==1
+        // (the native mobile client reports window mode 1); with the desktop
+        // default of 2 that branch never runs, breaking the chatbox backdrop's
+        // hide/restore cycle (chat tabs could collapse the chat with no way back).
+        // Desktop sessions are unaffected - they keep the resizable default.
+        const mobile = ctx.widgetManager?.rootInterface === 601;
+        const mode = mobile ? 1 : (ctx.windowMode ?? 2);
         ctx.pushInt(mode);
     });
 

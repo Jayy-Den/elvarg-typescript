@@ -22,6 +22,42 @@ interface WidgetLookupCache {
     accessOrder: number[];
 }
 
+/**
+ * Server-owned pin override for the mobile tab-area container (601:111).
+ *
+ * The pin exists because cs2 919's pre-mounted-subs hide-branch fires for
+ * EVERY tab on this server (the server mounts all tab groups at login,
+ * unlike the native client's on-demand mounting), which would hide the
+ * tab area permanently. But 919 ALSO legitimately hides 601:111 when the
+ * player deliberately closes a panel (varc 171 == -1, the tab toggle-close
+ * action) - the native mobile behaviour. Blocking that hide leaves the
+ * tab-area frame visible after close (the "leftover outline" bug).
+ *
+ * So for 601:111 specifically, allow the hide through only when it is the
+ * deliberate close: the currently-active tab varc (171) is -1. Script 916
+ * sets varc 171 BEFORE invoking 919, so by the time the hide arrives the
+ * varc already reflects the post-action state.
+ */
+function shouldLetServerOwnedHideThrough(ctx: HandlerContext, uid: number, hidden: boolean): boolean {
+    if (uid !== ((601 << 16) | 111)) {
+        // Mobile transparent chat: the desktop chatback (162:34) must never render
+        // in mobile sessions - official OSRS mobile draws chat text directly over
+        // the world with no backing box. The widget is pinned server-owned when the
+        // mobile toplevel (601) is active; hide ops pass through (harmless), but
+        // SHOW ops are blocked so no script (desktop chat layout 923/113 paths,
+        // transmit fallbacks) can resurrect the parchment backing.
+        if (uid === ((162 << 16) | 34)) return hidden;
+        return false;
+    }
+    // Shows are always safe to let through - the destructive scripts only hide.
+    if (!hidden) return true;
+    try {
+        return (ctx.varManager?.getVarcInt?.(171) ?? 0) === -1;
+    } catch {
+        return false;
+    }
+}
+
 function getWidgetLookupCache(ctx: HandlerContext): WidgetLookupCache {
     let cache = (ctx as any)[WIDGET_CACHE_KEY] as WidgetLookupCache | undefined;
     if (!cache) {
@@ -1402,7 +1438,7 @@ export function registerWidgetOps(handlers: HandlerMap): void {
     handlers.set(Opcodes.CC_SETHIDE, (ctx, intOp) => {
         const hidden = ctx.intStack[--ctx.intStackSize] === 1;
         const w = getTargetWidget(ctx, intOp);
-        if (w && ctx.widgetManager.isServerOwnedWidget(w.uid)) return;
+        if (w && ctx.widgetManager.isServerOwnedWidget(w.uid) && !shouldLetServerOwnedHideThrough(ctx, w.uid, hidden)) return;
 
         if (w && (w.hidden !== hidden || w.isHidden !== hidden)) {
             w.hidden = hidden;
@@ -1422,7 +1458,7 @@ export function registerWidgetOps(handlers: HandlerMap): void {
     handlers.set(Opcodes.IF_SETHIDE, (ctx) => {
         const w = getWidgetFromStack(ctx);
         const hidden = ctx.intStack[--ctx.intStackSize] === 1;
-        if (w && ctx.widgetManager.isServerOwnedWidget(w.uid)) return;
+        if (w && ctx.widgetManager.isServerOwnedWidget(w.uid) && !shouldLetServerOwnedHideThrough(ctx, w.uid, hidden)) return;
 
         if (w && (w.hidden !== hidden || w.isHidden !== hidden)) {
             w.hidden = hidden;

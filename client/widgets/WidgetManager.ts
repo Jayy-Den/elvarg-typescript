@@ -1573,6 +1573,14 @@ export class WidgetManager {
             // it too - the icons' click handlers remain script-driven.
             this.setServerOwnedWidget((601 << 16) | 50, true);
 
+            // TRANSPARENT CHAT (official mobile look): pin the DESKTOP chatback
+            // (162:34) server-owned when the mobile toplevel mounts. should-
+            // LetServerOwnedHideThrough special-cases this uid: hides pass, shows
+            // are blocked. Official mobile draws chat text directly over the world
+            // (no backing box); the chat text lines live in the separate mobile
+            // container 162:56, so hiding the desktop backing does not hide them.
+            this.setServerOwnedWidget((162 << 16) | 34, true);
+
             // PARITY: keep the desktop frame (161) resident, exactly as the
             // native client does in mobile sessions. Cache script 907 (fired on
             // every varp-1021 change) cc_finds desktop-frame twins (161:4/5
@@ -1587,9 +1595,34 @@ export class WidgetManager {
             }
         }
 
+        // TRANSPARENT CHAT (mobile): when the chat group (162) loads under the
+        // mobile toplevel, hide the desktop chatback (162:34) before first layout.
+        // Official mobile draws chat text directly over the world - no backing box.
+        if (groupId === 162 && this.rootInterface === 601) {
+            const chatback = this.getWidgetByUid((162 << 16) | 34);
+            if (chatback) {
+                chatback.hidden = true;
+                chatback.isHidden = true;
+            }
+        }
+
         const instance = this.getGroup(groupId);
         if (!instance) {
             return undefined;
+        }
+
+        // TRANSPARENT CHAT (mobile): when the mobile toplevel (601) mounts, force
+        // the desktop chatback (162:34) hidden if its group is already resident.
+        // (If 162 loads later, the groupId===162 branch below handles it.) Combined
+        // with the server-owned pin in the 601 block above, no script or transmit
+        // path can re-show it - official mobile has no chat backing box.
+        if (groupId === 601) {
+            const chatback = this.getWidgetByUid((162 << 16) | 34);
+            if (chatback && (chatback.hidden || chatback.isHidden) === false) {
+                chatback.hidden = true;
+                chatback.isHidden = true;
+                this.invalidateWidgetRender(chatback, "mobile-transparent-chat");
+            }
         }
 
         if (this.canvasWidth > 0 && this.canvasHeight > 0) {

@@ -1491,11 +1491,11 @@ export function encodeGameframeBootstrap(playerName: string, mode: "desktop" | "
   const mobileVarbits = mobile
     ? {
         6352: 1, // osm_simulate ON
-        16111: 1, // mobile tab-panel backing visible: cs2 2386 hides the dark
-        // backdrop (601:112) under the open tab panel unless varbit 16111
-        // (varp 4507 bit 31) is set. Real devices carry this persisted
-        // preference from the OSRS mobile app; a fresh web session defaults
-        // to 0, leaving the panels ghost-translucent (sprite 1040 alpha 150).
+        // NOTE: do NOT seed varbit 16111 here. It gates tap-to-drop mode
+        // (inventory items tint red for dropping), not the tab-panel backing.
+        // Real sessions keep it 0 unless the player toggles the finger icon
+        // on the left hotkey bar. See SETTAPTODROP/GETTAPTODROP in the
+        // client's ClientOps.ts.
         11534: 3, // hotkey 0 -> inventory tab
         11535: 5, // hotkey 1 -> prayer tab
         11536: 6, // hotkey 2 -> magic tab

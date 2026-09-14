@@ -286,6 +286,23 @@ export class ItemIconRenderer {
             isStackable: boolean;
             canvas?: HTMLCanvasElement;
         };
+
+        // Streaming guard: with the sparse-streamed cache, the first icon render can
+        // race the item's model data. A rasterized-but-empty sprite (every pixel 0 =
+        // transparent, e.g. vertices present but face colours/materials still loading)
+        // must NOT be cached: entry.canvas would short-circuit every later retry and
+        // pin the item invisible for the whole session. Return uncached undefined so a
+        // later frame - after js5 fetch completion triggers a global widget invalidate
+        // - rebuilds the icon from the fully-loaded model.
+        let anyPixel = false;
+        for (let i = 0; i < spr.pixels.length; i++) {
+            if (spr.pixels[i] !== 0) {
+                anyPixel = true;
+                break;
+            }
+        }
+        if (!anyPixel) return undefined;
+
         if (!var5) this.itemSpriteCache.set(key, entry);
         return entry;
     }

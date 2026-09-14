@@ -6258,7 +6258,7 @@ export class OsrsClient {
                 0,
                 3,
             );
-            this.varManager.onVarcIntChange = (varcId) => {
+            this.varManager.onVarcIntChange = (varcId, _oldValue, varcValue) => {
                 if (this.varManager.isPersistentVarc(varcId)) {
                     this.markVarcsChanged();
                 }
@@ -6269,6 +6269,29 @@ export class OsrsClient {
                     // Selected-tab changes rebuild the tab rows via CS2; refresh
                     // the music tab's unlock coloring once that settles.
                     scheduleMusicTabRefresh();
+                    // Mobile parity: the native client decides the mobile tab-area
+                    // container's (toplevel_osm:tabarea, 601:111) visibility purely
+                    // from varc 171 - a tab index shows it, -1 (panel close toggle)
+                    // hides it. Our server pre-mounts all tab groups at login, which
+                    // makes cs2 919's pre-mounted-subs hide-branch fire for every tab
+                    // and fight scripts, so we pin 601:111 - but the pin would
+                    // otherwise freeze the close toggle. Mirroring native end-state
+                    // semantics here keeps close (171=-1) hiding the container and
+                    // any tab selection (>=0) showing it, exactly as the native
+                    // mobile client's varc-driven visibility.
+                    if (
+                        this.widgetManager?.rootInterface === 601 &&
+                        (this.widgetManager.isServerOwnedWidget((601 << 16) | 111) ?? false)
+                    ) {
+                        const tabAreaUid = (601 << 16) | 111;
+                        const tabArea = this.widgetManager.getWidgetByUid(tabAreaUid);
+                        const tabAreaHidden = varcValue === -1;
+                        if (tabArea && tabArea.hidden !== tabAreaHidden) {
+                            tabArea.hidden = tabAreaHidden;
+                            tabArea.isHidden = tabAreaHidden;
+                            this.widgetManager.invalidateWidgetRender(tabArea);
+                        }
+                    }
                 }
             };
             this.varManager.onVarcStringChange = (varcId) => {
