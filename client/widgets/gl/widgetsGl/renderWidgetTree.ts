@@ -55,6 +55,15 @@ import type { WorldMapLabelDraw, WorldMapLabelMetrics } from "./worldMapLabels";
 export type { WidgetNode };
 type Widget = WidgetNode;
 
+/**
+ * Tiled backdrop sprites used by the mobile sidebar panel (root 601's open
+ * tab panel, and the same panel inside the unmounted sidebar group 161). The
+ * official mobile client frames this panel with a 1px dark edge; the cache
+ * ships no border widget, no borderType/graphicShadow and a borderless tile,
+ * so the frame is drawn by us - see the tiled-sprite branch below.
+ */
+const MOBILE_SIDEBAR_BACKDROP_SPRITE_IDS = new Set<number>([1040, 897]);
+
 export function renderWidgetTreeGL(glr: GLRenderer, root: Widget, opts: GLRenderOpts) {
     // PERF: Reset widget count for this render pass
     ps._widgetRenderCount = 0;
@@ -1736,6 +1745,24 @@ export function renderWidgetTreeGL(glr: GLRenderer, root: Widget, opts: GLRender
         //  draws WallDecoration.compass with camera yaw rotation and circular mask
         const contentType = (w as any).contentType ?? 0;
         if (contentType === 1339) {
+            // Native compass control: tapping the orb re-orients the camera to true
+            // north. North is yaw 0 — the same reading the minimap's click-to-walk
+            // math and the editor's "north-up" reset use. Camera.setTargetYaw eases
+            // the turn like the official client, and registering here also consumes
+            // the tap so it cannot fall through to a world walk.
+            // Priority sits above the minimap's click-to-walk (90) but below widget
+            // targets (100) so real widgets painted over the cluster still win.
+            clicks?.register?.({
+                id: "compass:reset-north",
+                rect: { x, y, w: width, h: height },
+                priority: 95,
+                persist: false,
+                hoverText: "Compass",
+                onClick: () => {
+                    const camera = (opts.game as any)?.osrsClient?.camera;
+                    camera?.setTargetYaw?.(0);
+                },
+            });
             const compassStartMs = profileWidgetRender ? performance.now() : 0;
             const compassSpriteId = opts.widgetManager?.compassSpriteId ?? -1;
             if (compassSpriteId >= 0) {
@@ -2980,54 +3007,55 @@ export function renderWidgetTreeGL(glr: GLRenderer, root: Widget, opts: GLRender
                 });
                 if (tex) {
                     if (w.spriteTiling && tex.w > 0 && tex.h > 0) {
-                        // Tile the sprite to fill the widget area
-                        // Item widget rendering
-                        // Uses Rasterizer2D_expandClip to constrain drawing to widget bounds,
-                        // then draws full sprites, letting the scissor handle edge clipping.
-                        const sprLogicalW = Math.max(1, tex.w | 0);
-                        const sprLogicalH = Math.max(1, tex.h | 0);
-
-                        // Push expanded clip to constrain tiling to widget bounds
-                        sc.expandClip(x, y, x + width, y + height);
-
-                        // Tile in logical widget space, then project tile edges into buffer space.
-                        const tilesX = Math.ceil(logicalWidth / sprLogicalW);
-                        const tilesY = Math.ceil(logicalHeight / sprLogicalH);
-
-                        for (let tileY = 0; tileY < tilesY; tileY++) {
-                            for (let tileX = 0; tileX < tilesX; tileX++) {
-                                const tileLogicalX = logicalX + tileX * sprLogicalW;
-                                const tileLogicalY = logicalY + tileY * sprLogicalH;
-                                const tx = Math.round(tileLogicalX * rootScaleX + rootOffsetX);
-                                const ty = Math.round(tileLogicalY * rootScaleY + rootOffsetY);
-                                const tx1 = Math.round(
-                                    (tileLogicalX + sprLogicalW) * rootScaleX + rootOffsetX,
-                                );
-                                const ty1 = Math.round(
-                                    (tileLogicalY + sprLogicalH) * rootScaleY + rootOffsetY,
-                                );
-                                const drawW = Math.max(1, tx1 - tx);
-                                const drawH = Math.max(1, ty1 - ty);
-                                // Draw full sprite - scissor will clip edges
-                                glr.drawTexture(
-                                    tex,
-                                    tx,
-                                    ty,
-                                    drawW,
-                                    drawH,
-                                    1,
-                                    1,
-                                    0,
-                                    [0, 0, 0],
-                                    false,
-                                    false,
-                                    alpha,
-                                );
-                            }
+                        // Tile the sprite to fill the widget area (OSRS Rasterizer2D
+                        // semantics: native-size tiles laid from the widget's
+                        // top-left, clipped to bounds). Pre-rasterize the whole
+                        // pattern once and draw a single quad - the previous
+                        // per-tile drawTexture loop lost every tile after the
+                        // first row to the scissor/batch interaction, leaving the
+                        // tab-panel backdrops mostly transparent.
+                        const tiled = tc.getTiledSpriteById(
+                            effectiveSpriteId,
+                            Math.max(1, logicalWidth | 0),
+                            Math.max(1, logicalHeight | 0),
+                        );
+                        if (tiled) {
+                            glr.drawTexture(
+                                tiled,
+                                x,
+                                y,
+                                width,
+                                height,
+                                1,
+                                1,
+                                0,
+                                [0, 0, 0],
+                                false,
+                                false,
+                                alpha,
+                            );
+                        } else {
+                            // Fallback: stretch the base sprite (previous behavior
+                            // before the tiling path existed).
+                            glr.drawTexture(tex, x, y, width, height, 1, 1, 0, [0, 0, 0], false, false, alpha);
                         }
-
-                        // Restore previous clip
-                        sc.pop();
+                        // The mobile sidebar's stone panel is framed by a native
+                        // 1px dark edge in the official client. The cache ships
+                        // only the untextured backdrop tile (sprite 1040 in this
+                        // revision: borderType/graphicShadow 0, and every pixel of
+                        // the tile is the same stone colour), so the frame has to
+                        // come from the client. See client/public/__refs - every
+                        // mobile screenshot shows the same 1px near-black edge on
+                        // all four sides of an open sidebar panel.
+                        if (MOBILE_SIDEBAR_BACKDROP_SPRITE_IDS.has(effectiveSpriteId)) {
+                            const frame: [number, number, number, number] = [0, 0, 0, 1];
+                            const bw = Math.max(1, width | 0);
+                            const bh = Math.max(1, height | 0);
+                            glr.drawRect(x, y, bw, 1, frame);
+                            glr.drawRect(x, y + bh - 1, bw, 1, frame);
+                            glr.drawRect(x, y, 1, bh, frame);
+                            glr.drawRect(x + bw - 1, y, 1, bh, frame);
+                        }
                     } else {
                         const nativeSpriteDraw = !isIf3;
                         const drawX = x;

@@ -153,10 +153,11 @@ export function createPrimaryWidgetActionResolver(
             }
 
             // Shift-click drop overrides the inventory item's primary option only when
-            // no spell/item selection is active.
+            // no spell/item selection is active. Tap-to-drop (official OSRS mobile)
+            // reuses the same override on plain taps so every inventory tap drops.
+            const tapToDropActive = !isShiftHeld && !!deps.getSettings().tapToDrop;
             if (
-                isShiftHeld &&
-                deps.getSettings().shiftClickEnabled &&
+                ((isShiftHeld && deps.getSettings().shiftClickEnabled) || tapToDropActive) &&
                 !hasSelection &&
                 (resolvedGroupId | 0) === 149
             ) {

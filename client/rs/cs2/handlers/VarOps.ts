@@ -32,7 +32,14 @@ export function registerVarOps(handlers: HandlerMap): void {
         // answered from display state: once the mobile frame (root 601) has been up
         // for a few seconds - i.e. after init, before any user could tap the popout
         // button - the gate reads open; during init it reads closed.
-        if (intOp === 542 || intOp === 13981) {
+        //
+        // Scope guard: the compass look-direction handler (cs2 1050, ops
+        // Look North/East/South/West) gates on varbit 542 == 1 -> "touch device,
+        // do nothing". Answering 542 from display state here made every compass
+        // tap a no-op, so the shim only applies when the popout gate (5357) is
+        // the reading script. 1050 never reads 13981 and 5357 never calls 1050,
+        // so the two consumers cannot interfere.
+        if ((intOp === 542 || intOp === 13981) && ctx.cs2Vm?.currentScriptId !== 1050) {
             const settledAt = (ctx.widgetManager as any)?.clientRef?.__mobileFrameSettledAt ??
                 (typeof window !== "undefined" ? (window as any).osrsClient?.__mobileFrameSettledAt : undefined);
             const mobileFrame = (ctx.widgetManager as any)?.rootInterface === 601;

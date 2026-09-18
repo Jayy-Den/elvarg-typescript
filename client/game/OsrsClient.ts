@@ -486,6 +486,21 @@ export class OsrsClient {
     minimenuOrderEdit: boolean = false;
     minimenuScrollEnabled: boolean = false;
 
+    /**
+     * True while the mobile chat is collapsed (varc 1220 == 1). The cache's chat
+     * layout scripts read the same state from the 162:135 marker widget, and the
+     * client mirrors this value onto that marker (WidgetManager mobile mount +
+     * WidgetActionRouter group-162 guard) so tab taps stop wiping the chat when
+     * the marker's flag goes stale.
+     */
+    getChatCollapsed(): boolean {
+        try {
+            return this.varManager?.getVarcInt?.(1220) === 1;
+        } catch {
+            return false;
+        }
+    }
+
     basTypeLoader!: BasTypeLoader;
     idkTypeLoader!: IdkTypeLoader;
 
@@ -6307,6 +6322,13 @@ export class OsrsClient {
                     // AFTER the whole chain unwinds (microtask).
                     const wm = this.widgetManager;
                     const chatRootUid = (162 << 16) | 34;
+                    // The collapse branch (cs2 5774) hides the tab-strip container
+                    // (162:1) AND the chat text root (162:34); the expand branch only
+                    // re-shows 34. Left hidden, the whole filter-tab strip disappears
+                    // until some unrelated var transmit re-runs the layout script -
+                    // the "chat returns without filter buttons" bug. Apply the same
+                    // end-state to both nodes so expand/collapse is deterministic.
+                    const tabStripUid = (162 << 16) | 1;
                     const chatRootHidden = varcValue === 1;
                     queueMicrotask(() => {
                         // The expand chain (7610 -> 5773 -> 113) rebuilds the desktop
@@ -6324,11 +6346,24 @@ export class OsrsClient {
                             this.widgetTransmitProcessor?.triggerInitialVarTransmitForGroup(162);
                         }
                         const applyEndState = () => {
-                            const chatRoot = wm.getWidgetByUid(chatRootUid);
-                            if (chatRoot && chatRoot.hidden !== chatRootHidden) {
-                                chatRoot.hidden = chatRootHidden;
-                                chatRoot.isHidden = chatRootHidden;
-                                wm.invalidateWidgetRender(chatRoot);
+                            for (const uid of [tabStripUid, chatRootUid]) {
+                                const node = wm.getWidgetByUid(uid);
+                                if (node && node.hidden !== chatRootHidden) {
+                                    node.hidden = chatRootHidden;
+                                    node.isHidden = chatRootHidden;
+                                    wm.invalidateWidgetRender(node);
+                                }
+                            }
+                            // Keep the cache's chat-collapse marker (162:135) in
+                            // lockstep with varc 1220: proc 922 derives "chat is
+                            // collapsed" solely from this marker's hidden flag, so
+                            // a stale flag makes the next tab-switch rebuild (175 ->
+                            // 2823 -> 923) re-hide the chat text root.
+                            const marker = wm.getWidgetByUid(10616871);
+                            if (marker && (marker.hidden !== chatRootHidden || marker.isHidden !== chatRootHidden)) {
+                                marker.hidden = chatRootHidden;
+                                marker.isHidden = chatRootHidden;
+                                wm.invalidateWidgetRender(marker);
                             }
                         };
                         if (chatRootHidden) {
@@ -6370,6 +6405,27 @@ export class OsrsClient {
                 }
             } catch (e) {
                 console.warn("[OsrsClient] Failed to load GraphicsDefaults:", e);
+            }
+            if (this.widgetManager.compassSpriteId < 0) {
+                // Newer OSRS caches extended the graphic-defaults format with opcodes
+                // our decoder does not understand, so the decode stops before the
+                // compass block and yields -1 (compass renders as an empty metal
+                // disc). The sprite index's named-lookup fallback (same mechanism the
+                // dat2 GraphicsDefaults path uses) resolves the "compass" archive
+                // directly, so the rose still draws.
+                try {
+                    const compassArchive = this.cacheSystem
+                        .getIndex(IndexType.DAT2.sprites)
+                        ?.getArchiveId?.("compass");
+                    if (typeof compassArchive === "number" && compassArchive >= 0) {
+                        this.widgetManager.compassSpriteId = compassArchive;
+                        console.log(
+                            `[OsrsClient] GraphicsDefaults compass missing (new defaults format); using sprite archive ${compassArchive}`,
+                        );
+                    }
+                } catch (e) {
+                    console.warn("[OsrsClient] Compass sprite fallback lookup failed:", e);
+                }
             }
 
             this.startClientTickLoop();

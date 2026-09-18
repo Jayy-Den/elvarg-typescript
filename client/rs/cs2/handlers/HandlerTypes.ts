@@ -174,6 +174,8 @@ export interface Cs2VmLike {
     dotWidget: any | null;
     /** Clear handler caches to prevent memory leaks when interfaces change */
     clearHandlerCaches(): void;
+    /** Script currently executing (for handler-side scoping, e.g. varbit shims) */
+    readonly currentScriptId?: number;
 }
 
 /** Context passed to all handlers - gives access to VM state */

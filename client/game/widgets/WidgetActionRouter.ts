@@ -113,6 +113,59 @@ export class WidgetActionRouter {
             return;
         }
 
+        // CHAT-COLLAPSE MARKER (162:135): the cache's tab-switch rebuild
+        // (cs2 175 -> 2823 -> 923) reads its "chat collapsed" state purely from
+        // this marker's hidden flag and re-hides the chat text root (162:34)
+        // when it reads collapsed - so a stale marker wiped the chat on every
+        // filter-tab tap. Sync it from the authoritative varc-1220 state right
+        // before any group-162 action runs; the varc-1220 handler and the
+        // mobile-mount mirror in WidgetManager keep it correct everywhere else.
+        if ((groupId | 0) === 162 && widgetManager?.rootInterface === 601) {
+            const marker = widgetManager.getWidgetByUid(10616871);
+            if (marker) {
+                const collapsed = (widgetManager as any).osrsClient?.getChatCollapsed?.() ?? false;
+                const markerHidden = !!collapsed;
+                if (marker.hidden !== markerHidden || marker.isHidden !== markerHidden) {
+                    marker.hidden = markerHidden;
+                    marker.isHidden = markerHidden;
+                    widgetManager.invalidateWidgetRender(marker);
+                }
+            }
+        }
+
+        // TAP-TO-DROP (official OSRS mobile): the cache's customizable hotkey bar
+        // (group 892) ships an unused slot on the left strip (892:20, action
+        // label "Empty"). Bind it as the finger/X toggle: flip the client
+        // setting and mirror varbit 16111 — the same varbit the cache's red
+        // item-tint script reads and the same behaviour the SETTAPTODROP cs2 op
+        // implements (see ClientOps.ts). setVarbit fires the varp-change
+        // callback, so the inventory repaints with the red tint automatically.
+        if ((groupId | 0) === 892 && (childId | 0) === 20) {
+            const vm = this.deps.getCs2Vm();
+            const varManager = vm?.context?.varManager;
+            const osrsClient = (widgetManager as any)?.osrsClient;
+            const enabled = !(osrsClient?.settings?.tapToDrop);
+            if (osrsClient) {
+                osrsClient.settings.tapToDrop = enabled;
+            }
+            try {
+                varManager?.setVarbit(16111, enabled ? 1 : 0);
+            } catch {}
+            // Reflect the mode on the slot itself (the cache ships it labelled
+            // "Empty"); matches the finger/X glyph behaviour on official mobile.
+            // Click targets re-register from widget.actions every frame, so the
+            // mutated label appears on the next repaint without further plumbing.
+            try {
+                const slotWidget = widgetManager?.getWidgetByUid?.(((892 << 16) | 20) | 0);
+                if (slotWidget) {
+                    slotWidget.actions = [
+                        enabled ? "Disable tap-to-drop" : "Enable tap-to-drop",
+                    ];
+                }
+            } catch {}
+            return;
+        }
+
         if ((groupId | 0) === 679) {
             if (this.deps.getPlayerDesign().handleWidgetAction(childId | 0)) {
                 return;

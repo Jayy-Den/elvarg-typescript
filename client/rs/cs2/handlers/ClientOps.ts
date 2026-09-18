@@ -525,7 +525,7 @@ export function registerClientOps(handlers: HandlerMap): void {
     });
 
     handlers.set(Opcodes.CLIENTTYPE, (ctx) => {
-        // Client type constants:
+        // Client type constants (as the cache's own procs test them):
         // 1 = desktop (standard Java client)
         // 2 = android
         // 3 = ios
@@ -533,11 +533,16 @@ export function registerClientOps(handlers: HandlerMap): void {
         // 5 = mac
         // 7 = mobile (generic - used by ~on_mobile proc)
         // 10 = steam/enhanced variant
-        // Return 2 (android) for mobile interface or touch devices, 10 otherwise.
-        // [proc,on_mobile] checks `clienttype = 7` as one condition.
+        //
+        // Must be 7 for the mobile interface, never 2: no cached script compares
+        // clienttype against 2, while the mobiles/desktop helper procs do compare
+        // it against 4/5/10 (when varbit 6352 says "desktop") and against 7/8
+        // (otherwise). Reporting 2 fell through both tables, so e.g. chatbox 2476
+        // returned 0 and chat-tab selection 2823 switched the box into typing mode
+        // (varc 41 = 1337), wiping the chat panel on every filter tap.
         const wm = ctx.widgetManager as any;
         const isMobileInterface = wm?.rootInterface === 601;
-        const result = isMobileInterface || isTouchDevice ? 2 : 10;
+        const result = isMobileInterface || isTouchDevice ? 7 : 10;
         if (!loggedClientType) {
             loggedClientType = true;
             console.log(
@@ -623,11 +628,21 @@ export function registerClientOps(handlers: HandlerMap): void {
     });
 
     handlers.set(Opcodes.SETTAPTODROP, (ctx) => {
-        ctx.intStackSize--; // pop enabled
+        const enabled = ctx.intStack[--ctx.intStackSize] === 1;
+        // Store on the client so tap-to-drop survives interface rebuilds; cache
+        // scripts additionally mirror it into varbit 16111 (red item tint).
+        const osrsClient = (ctx.widgetManager as any).osrsClient;
+        if (osrsClient) {
+            osrsClient.settings.tapToDrop = enabled;
+        }
+        try {
+            ctx.varManager?.setVarbit(16111, enabled ? 1 : 0);
+        } catch {}
     });
 
     handlers.set(Opcodes.GETTAPTODROP, (ctx) => {
-        ctx.pushInt(0);
+        const osrsClient = (ctx.widgetManager as any).osrsClient;
+        ctx.pushInt(osrsClient?.settings?.tapToDrop ? 1 : 0);
     });
 
     handlers.set(Opcodes.SETSHIFTCLICKDROP, (ctx) => {

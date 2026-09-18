@@ -290,6 +290,43 @@ export class TextureCache {
         }
     }
 
+    /**
+     * Pre-rasterized tiled sprite at a target logical size.
+     *
+     * OSRS tiles type-5 sprites (spriteTiling) at the sprite's native pixel size
+     * into the widget bounds via Rasterizer2D. The GL path used to draw one
+     * drawTexture call per tile inside an expandClip push/pop, but only the
+     * first tile row survived the scissor/batch interaction, leaving large
+     * areas of the widget transparent (tab-panel backdrops rendered as a thin
+     * strip). Compositing the full pattern into one canvas (2D repeat-pattern
+     * semantics = native-size tiles laid from the widget's top-left, clipped
+     * to bounds) and drawing a single quad is visually identical and robust.
+     */
+    getTiledSpriteById(id: number, targetW: number, targetH: number) {
+        const key = `tile:${id | 0}:${targetW | 0}:${targetH | 0}`;
+        const cached = this.glr.getTexture(key);
+        if (cached) return cached;
+        try {
+            const sprite = SpriteLoader.loadIntoIndexedSprite(this.spriteIndex, id);
+            if (!sprite) return undefined;
+            const tile = spriteToCanvas(sprite);
+            const w = Math.max(1, targetW | 0);
+            const h = Math.max(1, targetH | 0);
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return undefined;
+            const pattern = ctx.createPattern(tile, "repeat");
+            if (!pattern) return undefined;
+            ctx.fillStyle = pattern;
+            ctx.fillRect(0, 0, w, h);
+            return this.glr.createTextureFromCanvas(key, canvas);
+        } catch {
+            return undefined;
+        }
+    }
+
     getWidgetSpriteMaskById(
         id: number,
         options?: {

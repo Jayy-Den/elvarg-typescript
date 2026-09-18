@@ -1650,6 +1650,27 @@ export class WidgetManager {
                 chatback.isHidden = true;
                 this.invalidateWidgetRender(chatback, "mobile-transparent-chat");
             }
+            // CHAT-COLLAPSE MARKER (162:135, uid 10616871): the mobile chat-layout
+            // proc 922 reports "chat collapsed" purely from this marker's hidden
+            // state, and the tab-switch rebuild (cs2 175 -> 2823 -> 923) re-hides
+            // the whole chat text root (162:34) whenever it reports collapsed -
+            // which wiped the chat on every filter-tab tap. Our client keeps the
+            // authoritative collapse state in varc 1220 (see the varc-1220 handler
+            // in OsrsClient.ts), and the official client's init shows the marker
+            // (cache ships cachedHidden=true only as the pre-init default). Mirror
+            // the marker to varc 1220 here: visible when expanded (1220 != 1),
+            // hidden when collapsed - proc 922 then reports the real state and
+            // script 923 stops clobbering the chat on tab taps.
+            const chatMarker = this.getWidgetByUid(10616871);
+            if (chatMarker) {
+                const collapsed = this.osrsClient?.getChatCollapsed?.() ?? false;
+                const markerHidden = !!collapsed;
+                if (chatMarker.hidden !== markerHidden || chatMarker.isHidden !== markerHidden) {
+                    chatMarker.hidden = markerHidden;
+                    chatMarker.isHidden = markerHidden;
+                    this.invalidateWidgetRender(chatMarker, "mobile-chat-collapse-marker");
+                }
+            }
         }
 
         if (this.canvasWidth > 0 && this.canvasHeight > 0) {
