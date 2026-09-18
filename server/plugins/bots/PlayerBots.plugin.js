@@ -1,7 +1,6 @@
 const path = require("path");
 const { GameConstants } = require("../../src/main/typescript/elvarg/game/GameConstants");
 const { Wilderness } = require("../../src/main/typescript/elvarg/game/content/wilderness/Wilderness");
-const { PlayerRights } = require("../../src/main/typescript/elvarg/game/model/rights/PlayerRights");
 const { ObjectIds } = require("../../src/main/typescript/elvarg/util/IdEnums");
 const {
   resetMovementState,
@@ -224,9 +223,25 @@ const BOT_CONFIG = Object.freeze({
   }),
 });
 
+function registerDuelBotAcceptance(api) {
+  const accept = (event) => {
+    if (event?.player?.isPlayerBot?.() === true) event.accept = true;
+  };
+  for (const eventName of ["duelarena:request", "duelarena:rules-changed", "duelarena:accept", "duelarena:accept-clicked"]) {
+    api.onCustomEvent(eventName, accept);
+  }
+  api.onCustomEvent("duelarena:validate-winnings", (event) => {
+    if (event?.player?.isPlayerBot?.() === true) event.handled = true;
+  });
+  api.onCustomEvent("duelarena:settle-winnings", (event) => {
+    if (event?.player?.isPlayerBot?.() === true) event.handled = true;
+  });
+}
+
 module.exports = {
   name: "PlayerBots",
   register(api) {
+    registerDuelBotAcceptance(api);
     initPlayerBotStateCoreAccess(api);
     initBotRecruitRuntimeCoreAccess(api);
     const { botApi, recentBotLogsByUsername } = createBotPluginLogging({
@@ -262,7 +277,6 @@ module.exports = {
     registerBotCommands({
       api,
       botApi,
-      hasAdminRights: (player) => PlayerRights.hasAdminRights(player),
       runtime: boot.runtime,
       behaviorMode: BOT_CONFIG.behaviorMode,
       assignableBehaviors: boot.modeRegistries.assignableBehaviors,
@@ -322,4 +336,5 @@ module.exports = {
       homeRadius: BOT_CONFIG.treeOptions.botHomeRadius,
     });
   },
+  registerDuelBotAcceptance,
 };

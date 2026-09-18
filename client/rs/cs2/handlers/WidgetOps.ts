@@ -9,6 +9,7 @@ import { markWidgetInteractionDirty } from "../../../widgets/WidgetInteraction";
 import type { WidgetNode } from "../../../widgets/WidgetManager";
 import { getViewportSize } from "../../../common/utils/DeviceUtil";
 import { Cs2ArrayObject } from "../Cs2ArrayObject";
+import { applyNpcRowIcon } from "../spawnSearch";
 import { Opcodes } from "../Opcodes";
 import type { HandlerContext, HandlerMap } from "./HandlerTypes";
 
@@ -529,6 +530,9 @@ function applySetObjectWidget(
     quantityMode: 0 | 1 | 2,
 ): void {
     if (!w) return;
+
+    // An npc search reuses the item-search rows: the row shows the npc, not item id `itemId`.
+    if (applyNpcRowIcon(w, itemId)) return;
 
     w.itemId = itemId;
     w.itemQuantity = amount;
@@ -2389,11 +2393,16 @@ export function registerWidgetOps(handlers: HandlerMap): void {
     // cc_setplayermodel_self(keepEquipment)
     //
     handlers.set(Opcodes.CC_SETPLAYERMODEL_SELF, (ctx, intOp) => {
-        const keepEquipment = ctx.intStack[--ctx.intStackSize] === 1;
+        const requestedEquipment = ctx.intStack[--ctx.intStackSize] === 1;
         const w = getTargetWidget(ctx, intOp);
         if (!w) {
             throw new Error("RuntimeException");
         }
+
+        // The Makeover Mage preview is always the player's base appearance.
+        // Its cache script reruns this opcode after each design change.
+        const keepEquipment =
+            requestedEquipment && ((w.groupId ?? ((w.uid >>> 16) & 0xffff)) | 0) !== 679;
 
         w.modelType = 7;
         w.modelId = -1;

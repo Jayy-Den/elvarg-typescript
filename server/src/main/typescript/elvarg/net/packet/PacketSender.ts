@@ -1,3 +1,4 @@
+import { encodePlayerOption } from "../protocol/ClientProtocol";
 import { BIT_MASKS } from "../../game/cache/codec/rs/MathConstants";
 import { PacketBuilder } from "./PacketBuilder";
 import { ValueType } from "./ValueType";
@@ -63,6 +64,7 @@ import {
 import { CacheDefinitions } from "../../game/cache/CacheDefinitions";
 import { toDisplayUid } from "../protocol/ViewportMode";
 const CHATBOX_MODAL_TARGET_UID = (162 << 16) | 567;
+const MAIN_MODAL_TARGET_UID = (161 << 16) | 16;
 const VARBIT_MULTICOMBAT_AREA = 4605;
 // Quest completion states consulted by spellbook CS2 scripts. Keep these client
 // flags separate from server-side spell casting so quests can be enforced later.
@@ -264,12 +266,12 @@ export class PacketSender {
   }
 
   sendInterface(id: number): this {
+    this.player.setInterfaceId(id);
     if (this.player.isPlayerBot()) {
       return this;
     }
 
-    this.player.setInterfaceId(id);
-    if (this.player.getSession().sendClientPacket(encodeWidgetOpen(id, true))) return this;
+    return this.sendSubInterface(MAIN_MODAL_TARGET_UID, id, 0);
   }
 
   public sendConfiguredInterface(reference: string | number): this {
@@ -423,6 +425,13 @@ export class PacketSender {
 
   public clearItemOnInterface(frame: number): PacketSender {
     if (this.player.getSession().sendClientPacket(encodeWidgetSetItem(frame, -1, 0))) return this;
+  }
+
+  public sendPlayerOption(slot: number, option: string, priority = false): this {
+    if (Number.isInteger(slot) && slot >= 1 && slot <= 8) {
+      this.player.getSession().sendClientPacket(encodePlayerOption(slot, option, priority));
+    }
+    return this;
   }
 
   public sendInteractionOption(
@@ -656,7 +665,12 @@ export class PacketSender {
 
   closeInterruptibleInterfaces(): this {
     const interfaceId = this.resetInterfaceState();
-    if (this.closeTrackedInterfaces()) return this;
+    if (this.closeTrackedInterfaces()) {
+      if (interfaceId === 300 || interfaceId === 334 || interfaceId === 335) {
+        this.sendSubInterface((161 << 16) | 79, MAIN_INVENTORY_GROUP_ID, 1);
+      }
+      return this;
+    }
     if (interfaceId >= 0) this.player.getSession().sendClientPacket(encodeWidgetClose(interfaceId));
     return this;
   }
@@ -881,7 +895,7 @@ export class PacketSender {
     }
 
     this.player.setCreationMenu?.(menu);
-    const names = items.map((id: number) => CacheDefinitions.getItem(id)?.name || "null");
+    const names = items.map((id: number) => CacheDefinitions.hasItem(id) ? CacheDefinitions.getItem(id).name : "null");
     const paddedIds = [...items];
     while (paddedIds.length < 18) paddedIds.push(-1);
 
@@ -1031,6 +1045,10 @@ export class PacketSender {
     type = 1,
     options: Parameters<typeof encodeWidgetOpenSub>[3] = {}
   ): this {
+    const existing = this.subInterfaceTargets.get(groupId);
+    if (existing && existing.targetUid !== targetUid) {
+      this.player.getSession().sendClientPacket(encodeWidgetCloseSub(existing.targetUid));
+    }
     for (const [mountedGroupId, mounted] of this.subInterfaceTargets) {
       if (mounted.targetUid === targetUid && mountedGroupId !== groupId) {
         this.subInterfaceTargets.delete(mountedGroupId);

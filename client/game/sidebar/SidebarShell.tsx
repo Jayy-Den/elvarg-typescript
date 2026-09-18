@@ -95,7 +95,7 @@ function GroundItemsPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Eleme
                 RuneLite-style filtering, highlighting, and value coloring for item labels.
             </p>
             {!config.enabled && (
-                <p className="rl-sidebar-panel-copy">Plugin is currently disabled in xRSPS.</p>
+                <p className="rl-sidebar-panel-copy">Plugin is currently disabled in RSPS.app.</p>
             )}
 
             <label className="rl-sidebar-check">
@@ -442,7 +442,7 @@ function InteractHighlightPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX
                 RuneLite-style object highlight. Hover is blue and active interaction is red.
             </p>
             {!config.enabled && (
-                <p className="rl-sidebar-panel-copy">Plugin is currently disabled in xRSPS.</p>
+                <p className="rl-sidebar-panel-copy">Plugin is currently disabled in RSPS.app.</p>
             )}
             <label className="rl-sidebar-check">
                 <input
@@ -516,7 +516,7 @@ function TileMarkersPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Eleme
                 RuneLite-style destination and true tile indicators for your player.
             </p>
             {!config.enabled && (
-                <p className="rl-sidebar-panel-copy">Plugin is currently disabled in xRSPS.</p>
+                <p className="rl-sidebar-panel-copy">Plugin is currently disabled in RSPS.app.</p>
             )}
             <label className="rl-sidebar-check">
                 <input
@@ -664,8 +664,47 @@ function PluginHubPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Element
         vengeanceTimerGetSnapshot,
     );
 
+    const poisonTimerPlugin = osrsClient.poisonTimerPlugin;
+    const poisonTimerSubscribe = useCallback(
+        (listener: () => void) => poisonTimerPlugin.subscribe(listener),
+        [poisonTimerPlugin],
+    );
+    const poisonTimerGetSnapshot = useCallback(
+        () => poisonTimerPlugin.getState(),
+        [poisonTimerPlugin],
+    );
+    const poisonTimerState = useSyncExternalStore(
+        poisonTimerSubscribe,
+        poisonTimerGetSnapshot,
+        poisonTimerGetSnapshot,
+    );
+    const freezeTimerPlugin = osrsClient.freezeTimerPlugin;
+    const freezeTimerSubscribe = useCallback(
+        (listener: () => void) => freezeTimerPlugin.subscribe(listener),
+        [freezeTimerPlugin],
+    );
+    const freezeTimerGetSnapshot = useCallback(
+        () => freezeTimerPlugin.getState(),
+        [freezeTimerPlugin],
+    );
+    const freezeTimerState = useSyncExternalStore(
+        freezeTimerSubscribe,
+        freezeTimerGetSnapshot,
+        freezeTimerGetSnapshot,
+    );
+
+    const hdPlugin = osrsClient.hdPlugin;
+    const hdEnabled = useSyncExternalStore(hdPlugin.subscribe, hdPlugin.getEnabled, hdPlugin.getEnabled);
+
     const pluginToggles = useMemo<PluginHubToggle[]>(
         () => [
+            {
+                id: "hd",
+                name: "117 HD",
+                description: "HD lighting, environments and shadows.",
+                enabled: hdEnabled,
+                setEnabled: hdPlugin.setEnabled,
+            },
             {
                 id: "ground_items",
                 name: "Ground Items",
@@ -720,8 +759,28 @@ function PluginHubPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Element
                     vengeanceTimerPlugin.setConfig({ enabled });
                 },
             },
+            {
+                id: "poison_timer",
+                name: "Poison Timer",
+                description: "Shows poison or venom duration and type.",
+                enabled: poisonTimerState.config.enabled,
+                setEnabled: (enabled: boolean) => {
+                    poisonTimerPlugin.setConfig({ enabled });
+                },
+            },
+            {
+                id: "freeze_timer",
+                name: "Freeze Timer",
+                description: "Shows the spell that froze you and its duration.",
+                enabled: freezeTimerState.config.enabled,
+                setEnabled: (enabled: boolean) => {
+                    freezeTimerPlugin.setConfig({ enabled });
+                },
+            },
         ],
         [
+            hdPlugin,
+            hdEnabled,
             groundItemsPlugin,
             groundItemsState.config.enabled,
             interactHighlightPlugin,
@@ -734,12 +793,16 @@ function PluginHubPanel({ osrsClient }: { osrsClient: OsrsClient }): JSX.Element
             tileMarkersState.config.enabled,
             vengeanceTimerPlugin,
             vengeanceTimerState.config.enabled,
+            poisonTimerPlugin,
+            poisonTimerState.config.enabled,
+            freezeTimerPlugin,
+            freezeTimerState.config.enabled,
         ],
     );
 
     return (
         <div className="rl-sidebar-panel-content rl-sidebar-scrollable">
-            <div className="rl-sidebar-panel-title">xRSPS</div>
+            <div className="rl-sidebar-panel-title">RSPS.app</div>
             <p className="rl-sidebar-panel-copy">
                 Enable or disable plugins. Toggle states persist in local storage.
             </p>
@@ -883,7 +946,7 @@ export function SidebarShell({
             <aside className="rl-sidebar-drawer" aria-hidden={!shouldShowPanel}>
                 <div className="rl-sidebar-drawer-header">
                     <div className="rl-sidebar-heading">
-                        <div className="rl-sidebar-heading-kicker">xRSPS</div>
+                        <div className="rl-sidebar-heading-kicker">RSPS.app</div>
                         <div className="rl-sidebar-heading-title">{drawerTitle}</div>
                     </div>
                     <button

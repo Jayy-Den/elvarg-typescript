@@ -5,6 +5,7 @@ import type { PlayerPersistence } from "../game/entity/impl/player/persistence/P
 import type { ActiveRegionSnapshot } from "../game/ActiveRegionIndex";
 import type { DefinitionSource } from "../game/definition/loader/DefinitionLoader";
 import type { FriendsChatAction } from "../net/protocol/ClientProtocol";
+import type { PlayerRights } from "../game/model/rights/PlayerRights";
 
 export interface PluginPlayerLoginEvent {
   player: any;
@@ -153,6 +154,7 @@ export interface PluginCanAttackEvent {
 
 export interface PluginCanTeleportEvent {
   player: any;
+  wildernessLevelLimit?: number;
   allow: boolean | null;
 }
 
@@ -419,6 +421,9 @@ export interface PluginItemDropEvent {
   handled: boolean;
 }
 
+/** The lowest PlayerRights that may run a command; everyone at or above it passes. */
+export type PluginCommandRights = PlayerRights;
+
 export interface PluginCommandEvent {
   player: any;
   raw: string;
@@ -624,11 +629,14 @@ export interface PluginApi {
     clickType: number,
     handler: (event: PluginGroundItemInteractionEvent) => void | boolean
   ): void;
+  onGroundItemPickup(handler: (event: PluginGroundItemInteractionEvent) => void | boolean): void;
   onGroundItemSecondClick(
     itemIds: number | number[],
     handler: (event: PluginGroundItemInteractionEvent) => void | boolean
   ): void;
   onItemOnObject(handler: (event: PluginItemOnObjectEvent) => void, filter?: PluginItemUseFilter): void;
+  /** Matches exact item and object names. Return false to fall through. */
+  onItemOnObject(itemName: string, objectName: string, handler: (event: PluginItemOnObjectEvent) => void | boolean, filter?: PluginItemUseFilter): void;
   onItemOnItem(handler: (event: PluginItemOnItemEvent) => void, filter?: PluginItemUseFilter): void;
   /** Matches exact item names in either order; event items retain their original order. */
   onItemOnItem(
@@ -668,10 +676,21 @@ export interface PluginApi {
     handler: (event: PluginInterfaceActionClickEvent) => void | boolean
   ): void;
   onCommand(handler: (event: PluginCommandEvent) => void): void;
+  /**
+   * Registers a command handler. `minimumRights` is the lowest rank that may run it -
+   * the core denies everyone below before the handler is called, so handlers never
+   * check rights themselves. Omitted means any player may run it.
+   */
   registerCommand(
     command: string,
-    handler: (event: PluginCommandEvent) => void | boolean
+    handler: (event: PluginCommandEvent) => void | boolean,
+    minimumRights?: PluginCommandRights
   ): void;
+  /**
+   * Overrides the rank a command requires, whoever registered it. `PlayerRights.NONE`
+   * opens the command to every player - e.g. a spawn-mode plugin granting ::items.
+   */
+  setCommandRights(command: string, minimumRights: PluginCommandRights): void;
   /**
    * Serves a read-only JSON resource at /api/<name> on the game port, for interface data
    * that is request/response shaped (searches, lists, lookups) rather than a game event.

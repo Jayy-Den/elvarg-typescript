@@ -189,20 +189,42 @@ import { KNOWN_WATER_TEXTURE_IDS } from "../../water/WaterTextureIds";
 import type { WebGLOsrsRendererHost } from "../hostInterface";
 import { RENDER_CONSTANTS } from "../constants";
 
+/**
+ * Scales a portrait so the model fits its row. Projected size is roughly
+ * `extent * zoom3d / zoom2d`, so the zoom that fits the widget box comes straight from the
+ * model's own bounds - one arithmetic pass, and the render it feeds is cached per npc.
+ */
+function fitPortraitParams(model: any, params: any): any {
+    model.calculateBoundsCylinder?.();
+    const box = params.widget;
+    const boxHeight = Math.max(1, (box?.height | 0) - 2);
+    const boxWidth = Math.max(1, (box?.width | 0) - 2);
+    const modelHeight = Math.max(1, model.height | 0);
+    const modelWidth = Math.max(1, (model.xzRadius | 0) * 2);
+    const zoom3d = Math.max(1, (params.zoom3d ?? 512) | 0);
+    const zoom2d = Math.max(
+        (modelHeight * zoom3d) / boxHeight,
+        (modelWidth * zoom3d) / boxWidth,
+    );
+    return { ...params, zoom2d: Math.max(1, zoom2d | 0) };
+}
+
 export async function initShaders(host: WebGLOsrsRendererHost, ): Promise<Program[]> {
 
         const supportsMultiDraw = host.drawBackend?.supportsMultiDraw ?? false;
         // Create FXAA separately so a Metal/ANGLE link failure on iOS Safari
         // cannot reject the entire program batch (player/NPC/etc.).
         const programs = await host.app.createPrograms(
-            createMainProgram(false, supportsMultiDraw),
-            createMainProgram(true, supportsMultiDraw),
-            createNpcProgram(true, supportsMultiDraw),
-            createNpcProgram(false, supportsMultiDraw),
-            createProjectileProgram(true, supportsMultiDraw),
-            createProjectileProgram(false, supportsMultiDraw),
-            createPlayerProgram(true, supportsMultiDraw),
-            createPlayerProgram(false, supportsMultiDraw),
+            ...[
+                createMainProgram(false, supportsMultiDraw),
+                createMainProgram(true, supportsMultiDraw),
+                createNpcProgram(true, supportsMultiDraw),
+                createNpcProgram(false, supportsMultiDraw),
+                createProjectileProgram(true, supportsMultiDraw),
+                createProjectileProgram(false, supportsMultiDraw),
+                createPlayerProgram(true, supportsMultiDraw),
+                createPlayerProgram(false, supportsMultiDraw),
+            ].map((source) => host.osrsClient.clientPlugins.transformSceneProgram(source)),
             FRAME_PROGRAM,
             // hover line program (added at end)
             [
@@ -236,6 +258,7 @@ export async function initShaders(host: WebGLOsrsRendererHost, ): Promise<Progra
             uiTabsProgram,
         ] = programs;
         host.mainProgram = mainProgram;
+        host.osrsClient.clientPlugins.sceneProgramsReady(host, programs.slice(0, 8));
         host.mainAlphaProgram = mainAlphaProgram;
         host.npcProgram = npcProgram;
         host.npcProgramOpaque = npcProgramOpaque;
@@ -880,6 +903,7 @@ export async function initShaders(host: WebGLOsrsRendererHost, ): Promise<Progra
                                             host.osrsClient.varManager,
                                             host.osrsClient.npcTypeLoader,
                                         ) ?? baseNpcType;
+                                    const portrait = params.widget.npcPortraitFit === true;
                                     if (
                                         npcType &&
                                         npcType.chatheadModelIds &&
@@ -889,9 +913,28 @@ export async function initShaders(host: WebGLOsrsRendererHost, ): Promise<Progra
                                         if (chatModel) {
                                             return host.model2DRenderer.renderModelInstanceToCanvasExtents(
                                                 chatModel,
-                                                params,
+                                                portrait ? fitPortraitParams(chatModel, params) : params,
                                             );
                                         }
+                                    }
+                                    if (portrait) {
+                                        // ::npcs rows: most npcs have no chathead, so fall back to the
+                                        // body model. Both builders cache per npc id.
+                                        const npcModelLoader = npcType
+                                            ? host.getInteractNpcModelLoader()
+                                            : undefined;
+                                        const bodyModel = npcType
+                                            ? npcModelLoader?.getModel(npcType, -1, -1)
+                                            : undefined;
+                                        if (bodyModel) {
+                                            return host.model2DRenderer.renderModelInstanceToCanvasExtents(
+                                                bodyModel,
+                                                fitPortraitParams(bodyModel, params),
+                                            );
+                                        }
+                                        // modelId is an npc id here, never a model id: draw nothing
+                                        // rather than whatever model happens to share the number.
+                                        return undefined;
                                     }
                                 } else if (params.widget.isPlayerChathead) {
                                     const haveLoaders =

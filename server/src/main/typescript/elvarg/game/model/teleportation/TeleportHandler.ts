@@ -9,6 +9,7 @@ import { Location } from "../Location";
 import { PluginManager } from "../../../plugins/PluginManager";
 import { Wilderness } from "../../content/wilderness/Wilderness";
 import { PlayerRights } from "../rights/PlayerRights";
+import { hasGlobalWorldTag } from "../../definition/WorldDefinition";
 
 class TeleportTask extends Task {
     private teleportTick = 0;
@@ -67,7 +68,7 @@ export class TeleportHandler {
         if (wildernessWarning) {
             let warning = "";
             const wilderness = Wilderness.isInLocation(targetLocation);
-            const wildernessLevel = Wilderness.levelForY(targetLocation.getY());
+            const wildernessLevel = Wilderness.levelAt(targetLocation.getX(), targetLocation.getY());
             if (wilderness) {
                 warning += "Are you sure you want to teleport there? ";
                 if (wildernessLevel > 0) {
@@ -103,18 +104,19 @@ export class TeleportHandler {
 
     public static checkReqs(player: Player, targetLocation: Location, wildernessLevelLimit: number = 20): boolean {
         if (player.busy()) {
-            player.getPacketSender().sendMessage("You cannot do that right now.");
+            player.sendMessage("You cannot do that right now.");
             return false;
         }
 
-        if (Wilderness.isIn(player) && player.getWildernessLevel() > wildernessLevelLimit && player.getRights() !== PlayerRights.DEVELOPER) {
-            player.getPacketSender().sendMessage(`You must be below level ${wildernessLevelLimit} of Wilderness to use teleportation.`);
+        if (Wilderness.isIn(player) && player.getWildernessLevel() > wildernessLevelLimit && player.getRights() !== PlayerRights.DEVELOPER &&
+            !(player.isPlayerBot() && hasGlobalWorldTag("pvp"))) {
+            player.sendMessage(`You must be below level ${wildernessLevelLimit} of Wilderness to use teleportation.`);
             return false;
         }
 
         if (!player.getCombat().getTeleblockTimer().finished()) {
             if (Wilderness.isIn(player)) {
-                player.getPacketSender().sendMessage("A magical spell is blocking you from teleporting.");
+                player.sendMessage("A magical spell is blocking you from teleporting.");
                 return false;
             } else {
                 player.getCombat().getTeleblockTimer().stop();
@@ -126,7 +128,7 @@ export class TeleportHandler {
             return false;
         }
 
-        if (PluginManager.emitCanTeleport(player) === false) {
+        if (PluginManager.emitCanTeleport(player, wildernessLevelLimit) === false) {
             return false;
         }
 

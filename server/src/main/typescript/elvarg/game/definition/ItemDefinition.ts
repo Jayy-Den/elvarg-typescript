@@ -2,12 +2,35 @@ import { WeaponInterfaces } from "../content/combat/WeaponInterfaces";
 import { EquipmentType } from "../model/EquipmentType";
 import { CacheDefinitions } from "../cache/CacheDefinitions";
 import { ObjStackability } from "../cache/codec/rs/config/objtype/ObjStackability";
+import { ItemIdentifiers } from "../../util/ItemIdentifiers";
 
 const EQUIPMENT_SLOTS = new Set([0, 1, 2, 3, 4, 5, 7, 9, 10, 12, 13]);
 
 export class ItemDefinition {
     public static definitions: Map<number, ItemDefinition> = new Map<number, ItemDefinition>();
     public static DEFAULT = new ItemDefinition();
+
+    public static registerCustom(id: number, baseId: number, raw: Record<string, unknown> = {}): ItemDefinition {
+        const base = baseId >= 0 ? this.forId(baseId) : this.DEFAULT;
+        const definition = new ItemDefinition();
+        Object.assign(definition, base);
+        definition.id = id;
+        definition.cacheHydrated = false;
+        definition.hydrateFromCache(id);
+        definition.bonuses = [...(base.bonuses ?? new Array(14).fill(0))];
+        definition.requirements = [...(base.requirements ?? new Array(23).fill(0))];
+        for (const key of ["equipmentType", "weaponInterface", "doubleHanded", "stackable",
+            "tradeable", "dropable", "sellable", "value", "highAlch", "lowAlch", "dropValue",
+            "bloodMoneyValue", "blockAnim", "standAnim", "walkAnim", "runAnim", "standTurnAnim",
+            "turn180Anim", "turn90CWAnim", "turn90CCWAnim", "bonuses", "requirements"]) {
+            const value = raw[key];
+            if (value !== undefined) {
+                (definition as any)[key] = Array.isArray(value) ? [...value] : value;
+            }
+        }
+        this.definitions.set(id, definition);
+        return definition;
+    }
 
     private id: number;
     private name: string = "";
@@ -59,7 +82,7 @@ export class ItemDefinition {
         this.name = cached.name;
         this.examine = cached.examine ?? this.examine;
         this.stackable = cached.stackability === ObjStackability.ALWAYS;
-        this.tradeable = cached.isTradable;
+        this.tradeable = cached.isTradable || id === ItemIdentifiers.COINS;
         this.dropable = cached.inventoryActions[4]?.toLowerCase() === "drop";
         this.noted = cached.noteTemplate !== -1;
         this.noteId = cached.note;

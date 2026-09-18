@@ -1,6 +1,7 @@
 const { GameConstants } = require("../../../src/main/typescript/elvarg/game/GameConstants");
 const { CacheDefinitions } = require("../../../src/main/typescript/elvarg/game/cache/CacheDefinitions");
-const { PrayerData } = require("../../../src/main/typescript/elvarg/game/content/PrayerHandler");
+const { PrayerData, PrayerHandler } = require("../../../src/main/typescript/elvarg/game/content/PrayerHandler");
+const { SkillManager } = require("../../../src/main/typescript/elvarg/game/content/skill/SkillManager");
 const { CombatSpecial } = require("../../../src/main/typescript/elvarg/game/content/combat/CombatSpecial");
 const { CombatSpells } = require("../../../src/main/typescript/elvarg/game/content/combat/magic/CombatSpells");
 const { Autocasting } = require("../../../src/main/typescript/elvarg/game/content/combat/magic/Autocasting");
@@ -10,6 +11,7 @@ const { Wilderness } = require("../../../src/main/typescript/elvarg/game/content
 const { isSafeLocation: isFeroxSafeLocation } = require("../../items/LootKeys.plugin");
 const { Item } = require("../../../src/main/typescript/elvarg/game/model/Item");
 const { Skill } = require("../../../src/main/typescript/elvarg/game/model/Skill");
+const { MagicSpellbook } = require("../../../src/main/typescript/elvarg/game/model/MagicSpellbook");
 const { Flag } = require("../../../src/main/typescript/elvarg/game/model/Flag");
 const { Bank } = require("../../../src/main/typescript/elvarg/game/model/container/impl/Bank");
 const { Misc } = require("../../../src/main/typescript/elvarg/util/Misc");
@@ -32,6 +34,8 @@ const {
 } = require("./presetsWidget");
 
 const OPEN_ON_DEATH_ATTRIBUTE = "pvp:openPresetsOnDeath";
+const CUSTOM_PRESETS_ATTRIBUTE = "pvp:customPresets";
+const CUSTOM_PRESET_SLOT_ATTRIBUTE = "pvp:selectedCustomPresetSlot";
 
 function shouldOpenOnDeath(player) {
   return player.getAttribute(OPEN_ON_DEATH_ATTRIBUTE) !== false;
@@ -177,20 +181,94 @@ function isSpawnable(itemId) {
   return false;
 }
 
-function ensurePlayerPresets(player) {
-  const existing = player?.getPresets?.();
-  if (Array.isArray(existing) && existing.length >= MAX_PRESETS) {
-    return existing;
+function itemRecord(item) {
+  if (!isValidItem(item)) {
+    return null;
   }
+  return {
+    id: item.getId(),
+    amount: item.getAmount(),
+    meta: item.getMeta?.() ?? null,
+  };
+}
 
-  const next = new Array(MAX_PRESETS).fill(null);
-  if (Array.isArray(existing)) {
-    for (let i = 0; i < Math.min(existing.length, MAX_PRESETS); i++) {
-      next[i] = existing[i] ?? null;
-    }
+function itemFromRecord(record) {
+  const id = Number(record?.id);
+  const amount = Number(record?.amount);
+  if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(amount) || amount <= 0) {
+    return null;
   }
-  player?.setPresets?.(next);
-  return next;
+  return new Item(id, amount, record?.meta ?? null);
+}
+
+function spellbookFromRecord(record) {
+  const interfaceId = Number(record?.spellbookId);
+  return [
+    MagicSpellbook.NORMAL,
+    MagicSpellbook.ANCIENT,
+    MagicSpellbook.LUNAR,
+    MagicSpellbook.ARCEUUS,
+  ].find((spellbook) => spellbook.getInterfaceId() === interfaceId) ??
+    MagicSpellbook.NORMAL;
+}
+
+function presetFromRecord(record) {
+  const name = typeof record?.name === "string" ? record.name : "";
+  if (!name) {
+    return null;
+  }
+  const inventory = Array.isArray(record.inventory)
+    ? record.inventory.map(itemFromRecord).filter((item) => item != null)
+    : [];
+  const equipment = Array.isArray(record.equipment)
+    ? record.equipment.map(itemFromRecord).filter((item) => item != null)
+    : [];
+  const stats = Array.isArray(record.stats)
+    ? record.stats.slice(0, COMBAT_SKILLS.length).map((level) =>
+      Math.max(1, Math.floor(Number(level) || 1)))
+    : [];
+  if (stats.length !== COMBAT_SKILLS.length) {
+    return null;
+  }
+  return new Presetable(
+    name,
+    inventory,
+    equipment,
+    stats,
+    spellbookFromRecord(record),
+    false,
+    Number.isInteger(record.autocastSpellId) ? record.autocastSpellId : -1
+  );
+}
+
+function presetRecord(preset) {
+  return {
+    name: preset.getName(),
+    inventory: preset.getInventory().map(itemRecord).filter((item) => item != null),
+    equipment: preset.getEquipment().map(itemRecord).filter((item) => item != null),
+    stats: preset.getStats().map((level) => Math.max(1, Math.floor(Number(level) || 1))),
+    spellbookId: preset.getSpellbook().getInterfaceId(),
+    autocastSpellId: resolvePresetAutocastSpellId(preset),
+  };
+}
+
+function customPresets(player) {
+  const records = player?.getAttribute?.(CUSTOM_PRESETS_ATTRIBUTE);
+  const presets = Array.isArray(records) ? records.map(presetFromRecord) : [];
+  return Array.from({ length: MAX_PRESETS }, (_, index) => presets[index] ?? null);
+}
+
+function setCustomPreset(player, index, preset) {
+  const records = Array.isArray(player.getAttribute(CUSTOM_PRESETS_ATTRIBUTE))
+    ? [...player.getAttribute(CUSTOM_PRESETS_ATTRIBUTE)]
+    : new Array(MAX_PRESETS).fill(null);
+  records[index] = preset ? presetRecord(preset) : null;
+  player.setAttribute(CUSTOM_PRESETS_ATTRIBUTE, records.slice(0, MAX_PRESETS));
+}
+
+function selectedCustomPresetSlot(player) {
+  const slot = player.getAttribute(CUSTOM_PRESET_SLOT_ATTRIBUTE);
+  return Number.isInteger(slot) && slot >= 0 && slot < MAX_PRESETS ? slot : -1;
 }
 
 function captureCombatStats(player) {
@@ -246,10 +324,6 @@ function isPresetBlockedInWilderness(player) {
   return Wilderness.isIn(player) && !isFeroxSafeLocation(player?.getLocation?.()) && !isPlayerBot(player);
 }
 
-function customPresets(player) {
-  return ensurePlayerPresets(player);
-}
-
 function renderPresetLists(player) {
   const sender = player.getPacketSender();
   const pool = getGlobalPresetPool();
@@ -259,9 +333,12 @@ function renderPresetLists(player) {
     const custom = row >= GLOBAL_ROW_COUNT;
     const preset = custom ? presets[row - GLOBAL_ROW_COUNT] : pool[row];
     const name = preset?.getName?.();
+    const isSelected = custom
+      ? row - GLOBAL_ROW_COUNT === selectedCustomPresetSlot(player)
+      : preset === selected;
     sender.sendString(
       name
-        ? `<col=${preset === selected ? "ffffff" : "c5b79b"}>${name}</col>`
+        ? `<col=${isSelected ? "ffffff" : "c5b79b"}>${name}</col>`
         : custom
           ? "<col=6f6355>Empty slot</col>"
           : "",
@@ -329,8 +406,9 @@ function renderSelectedPreset(player, preset) {
   }
 }
 
-function selectPreset(player, preset) {
+function selectPreset(player, preset, customSlot = -1) {
   player.setCurrentPreset(preset ?? null);
+  player.setAttribute(CUSTOM_PRESET_SLOT_ATTRIBUTE, customSlot);
   renderPresetLists(player);
   renderSelectedPreset(player, preset ?? null);
   renderButtons(player);
@@ -342,7 +420,7 @@ function openPresetInterface(player, preset = null) {
   }
 
   if (isPresetBlockedInWilderness(player)) {
-    player.getPacketSender().sendMessage("You can't open presets in the wilderness!");
+    player.sendMessage("You can't open presets in the wilderness!");
     return false;
   }
 
@@ -506,25 +584,22 @@ function promptSavePreset(player, index) {
     execute: (rawInput) => {
       const input = Misc.formatText(rawInput ?? "");
       if (!Misc.isValidName(input)) {
-        player.getPacketSender().sendMessage("Invalid name for preset.");
+        player.sendMessage("Invalid name for preset.");
         player.setCurrentPreset(null);
         openPresetInterface(player, null);
         return;
       }
 
-      const presets = ensurePlayerPresets(player);
       const inventory = player.getInventory().copyValidItemsArray();
       const equipment = player.getEquipment().copyValidItemsArray();
       for (const item of [...inventory, ...equipment]) {
         if (item?.getDefinition?.()?.isNoted?.()) {
-          player
-            .getPacketSender()
-            .sendMessage("You cannot create presets which contain noted items.");
+          player.sendMessage("You cannot create presets which contain noted items.");
           return;
         }
       }
 
-      presets[index] = new Presetable(
+      const preset = new Presetable(
         input,
         inventory,
         equipment,
@@ -533,8 +608,8 @@ function promptSavePreset(player, index) {
         false,
         player.getCombat()?.getAutocastSpell?.()?.spellId?.() ?? -1
       );
-      renderPresetLists(player);
-      selectPreset(player, presets[index]);
+      setCustomPreset(player, index, preset);
+      selectPreset(player, preset, index);
     },
   });
   player
@@ -562,7 +637,7 @@ function handlePresetRowClick(player, buttonId) {
   if (globalRow >= 0) {
     const preset = getGlobalPresetPool()[globalRow] ?? null;
     if (!preset) {
-      player.getPacketSender().sendMessage("That preset is currently unavailable.");
+      player.sendMessage("That preset is currently unavailable.");
       return true;
     }
     selectPreset(player, preset);
@@ -573,7 +648,7 @@ function handlePresetRowClick(player, buttonId) {
   if (customRow >= 0) {
     const preset = customPresets(player)[customRow] ?? null;
     if (preset) {
-      selectPreset(player, preset);
+      selectPreset(player, preset, customRow);
     } else {
       promptSavePreset(player, customRow);
     }
@@ -597,7 +672,7 @@ function handlePresetActionButton(player, buttonId) {
     case uid(COMPONENT.LOAD_BUTTON): {
       const preset = player.getCurrentPreset();
       if (!preset) {
-        player.getPacketSender().sendMessage("You haven't selected any preset yet.");
+        player.sendMessage("You haven't selected any preset yet.");
         return true;
       }
       applyPreset(player, preset);
@@ -608,12 +683,10 @@ function handlePresetActionButton(player, buttonId) {
       // Saving over a selected custom preset edits it in place; otherwise it fills the
       // first free slot, which is the only way to create one.
       const selected = player.getCurrentPreset();
-      const selectedIndex = selected ? customPresets(player).indexOf(selected) : -1;
+      const selectedIndex = selected ? selectedCustomPresetSlot(player) : -1;
       const index = selectedIndex >= 0 ? selectedIndex : firstFreePresetSlot(player);
       if (index < 0) {
-        player
-          .getPacketSender()
-          .sendMessage(`You already have ${MAX_PRESETS} presets. Select one to overwrite it.`);
+        player.sendMessage(`You already have ${MAX_PRESETS} presets. Select one to overwrite it.`);
         return true;
       }
       promptSavePreset(player, index);
@@ -625,10 +698,6 @@ function handlePresetActionButton(player, buttonId) {
   }
 }
 
-let PrayerHandler;
-let CombatFactory;
-let SkillManager;
-
 module.exports = {
   name: "Presets",
   applyPreset,
@@ -638,9 +707,7 @@ module.exports = {
   openPresetInterface,
   shouldOpenOnDeath,
   register(api) {
-    PrayerHandler = api.getPrayerHandler();
-    CombatFactory = api.getCombatFactory();
-    SkillManager = api.getSkillManager();
+    api.persistAttribute(CUSTOM_PRESETS_ATTRIBUTE);
     api.registerCustomInterface(INTERFACE_DEFINITION);
 
     api.onInterfaceActionButton(PRESET_BUTTON_UIDS, ({ player, buttonId }) =>

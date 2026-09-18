@@ -7,7 +7,8 @@ import { PlayerRights } from "../../model/rights/PlayerRights";
 import { Task } from "../Task";
 import { Item } from "../../model/Item";
 import { SkullType } from "../../model/SkullType";
-import { PrayerHandler } from "../../content/PrayerHandler";
+import { PrayerData, PrayerHandler } from "../../content/PrayerHandler";
+import { Skill } from "../../model/Skill";
 import { Location } from "../../model/Location";
 import { BrokenItem } from "../../model/BrokenItem";
 import { Animation } from "../../model/Animation";
@@ -143,7 +144,7 @@ export class PlayerDeathTask extends Task {
                         // Handle defeat..
                         if (this.killer) {
                             if (shouldDropItemsOnDeath && !dropped && !pluginHandledDrop) {
-                                this.killer.getPacketSender().sendMessage(`${this.player.getUsername()} had no valuable items to be dropped.`);
+                                this.killer.sendMessage(`${this.player.getUsername()} had no valuable items to be dropped.`);
                             }
                         }
 
@@ -163,7 +164,7 @@ export class PlayerDeathTask extends Task {
                                 const brokenItem = BrokenItem.get(id);
                                 if (brokenItem != null) {
                                     id = brokenItem.getBrokenItem();
-                                    this.player.getPacketSender().sendMessage(`Your ${ItemDefinition.forId(it.getId()).getName()} has been broken. You can fix it by talking to Perdu.`);
+                                    this.player.sendMessage(`Your ${ItemDefinition.forId(it.getId()).getName()} has been broken. You can fix it by talking to Perdu.`);
                                 }
                                 this.player.getInventory().adds(id, it.getAmount());
                             }
@@ -215,7 +216,7 @@ export class PlayerDeathTask extends Task {
                     this.player.getPacketSender().sendInterfaceRemoval();
 
                     // Send death message..
-                    this.player.getPacketSender().sendMessage("Oh dear, you are dead!");
+                    this.player.sendMessage("Oh dear, you are dead!");
 
                     // Perform death animation..
                     this.player.performAnimation(new Animation(836));
@@ -245,7 +246,10 @@ export class PlayerDeathTask extends Task {
         ) {
             return 0;
         }
-        return (player.getSkullTimer() > 0 ? 0 : 3) + (PrayerHandler.isActivated(player, PrayerHandler.PROTECT_ITEM) ? 1 : 0);
+        const protectItem = player.getSkillManager().getMaxLevel(Skill.PRAYER) >= PrayerData.PROTECT_ITEM.requirement &&
+            player.getSkillManager().getCurrentLevel(Skill.PRAYER) > 0 &&
+            PrayerHandler.isActivated(player, PrayerHandler.PROTECT_ITEM);
+        return (player.getSkullTimer() > 0 ? 0 : 3) + (protectItem ? 1 : 0);
     }
 
     private static getItemsToKeep(player: Player): Item[] {

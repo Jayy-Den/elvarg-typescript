@@ -1,5 +1,3 @@
-const { Area } = require("../../src/main/typescript/elvarg/game/model/areas/Area");
-const { Boundary } = require("../../src/main/typescript/elvarg/game/model/Boundary");
 const { Location } = require("../../src/main/typescript/elvarg/game/model/Location");
 const { CombatMethod } = require("../../src/main/typescript/elvarg/game/content/combat/method/CombatMethod");
 const { PendingHit } = require("../../src/main/typescript/elvarg/game/content/combat/hit/PendingHit");
@@ -17,8 +15,6 @@ const KING_BLACK_DRAGON_IDS = [
 ];
 const KBD_LADDER_DOWN_OBJECT_ID = 18987;
 
-const KingBlackDragonBoundary = new Boundary(2249, 2292, 4672, 4720, 0);
-const KingBlackDragonLocation = new Location(3005, 3850);
 const KingBlackDragonLairLocation = new Location(2271, 4680, 0);
 
 const Breath = {
@@ -27,16 +23,6 @@ const Breath = {
   POISON: 2,
   SHOCK: 3,
 };
-
-class KingBlackDragonArea extends Area {
-  constructor() {
-    super([KingBlackDragonBoundary]);
-  }
-
-  isMulti() {
-    return true;
-  }
-}
 
 class KingBlackDragonCombatMethod extends CombatMethod {
   constructor() {
@@ -65,14 +51,19 @@ class KingBlackDragonCombatMethod extends CombatMethod {
         default:
           break;
       }
-      Projectile.createProjectile(character, target, projectileId, 40, 55, 31, 43).sendProjectile();
+      // Leaves the head (43) for the target's chest (31), not the ground for their scalp.
+      Projectile.createProjectile(
+        character,
+        target,
+        projectileId,
+        40,
+        Projectile.arrivalCycles(character, target),
+        43,
+        31
+      ).sendProjectile();
     } else if (this.currentAttackType === CombatType.MELEE) {
       character.performAnimation(new Animation(91));
     }
-  }
-
-  attackSpeed() {
-    return this.currentAttackType === CombatType.MAGIC ? 6 : 4;
   }
 
   attackDistance() {
@@ -84,7 +75,10 @@ class KingBlackDragonCombatMethod extends CombatMethod {
   }
 
   hits(character, target) {
-    const hit = new PendingHit(character, target, this, 1);
+    // The burn lands when the fire does, not before it.
+    const hitDelay =
+      this.currentAttackType === CombatType.MAGIC ? Projectile.arrivalTicks(character, target) : 1;
+    const hit = new PendingHit(character, target, this, hitDelay);
     if (target.isPlayer()) {
       const player = target.getAsPlayer();
       if (this.currentAttackType === CombatType.MAGIC && this.currentBreath === Breath.DRAGON) {
@@ -93,7 +87,7 @@ class KingBlackDragonCombatMethod extends CombatMethod {
           CombatEquipment.hasDragonProtectionGear(player) &&
           !player.getCombat().getFireImmunityTimer().finished()
         ) {
-          target.getPacketSender().sendMessage("You're protected against the dragonfire breath.");
+          target.sendMessage("You're protected against the dragonfire breath.");
           return [hit];
         }
         let extendedHit = 25;
@@ -106,7 +100,7 @@ class KingBlackDragonCombatMethod extends CombatMethod {
         if (CombatEquipment.hasDragonProtectionGear(player)) {
           extendedHit -= 10;
         }
-        player.getPacketSender().sendMessage("The dragonfire burns you.");
+        player.sendMessage("The dragonfire burns you.");
         hit.getHits()[0].incrementDamage(extendedHit);
       }
       if (this.currentAttackType === CombatType.MAGIC) {
@@ -126,7 +120,9 @@ class KingBlackDragonCombatMethod extends CombatMethod {
   }
 
   finished(character, target) {
-    if (character.getLocation().getDistance(target.getLocation()) <= 3) {
+    // Distance from the dragon's body, not its south-west corner: standing at its east
+    // side read as 5 tiles away, so it breathed on you point blank instead of biting.
+    if (character.calculateDistance(target) <= 1) {
       if (Misc.randomInclusive(0, 2) === 0) {
         this.currentAttackType = CombatType.MAGIC;
       } else {
@@ -150,19 +146,14 @@ class KingBlackDragonCombatMethod extends CombatMethod {
   }
 }
 
-let AreaManager;
 let PrayerHandler;
 let CombatFactory;
 
 module.exports = {
   name: "KingBlackDragon",
   register(api) {
-    AreaManager = api.getAreaManager();
     PrayerHandler = api.getPrayerHandler();
     CombatFactory = api.getCombatFactory();
-    if (!AreaManager.areas.some((area) => area instanceof KingBlackDragonArea)) {
-      AreaManager.areas.push(new KingBlackDragonArea());
-    }
 
     api.onObjectFirstClick(KBD_LADDER_DOWN_OBJECT_ID, ({ player }) => {
       player.moveTo(KingBlackDragonLairLocation);

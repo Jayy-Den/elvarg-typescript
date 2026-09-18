@@ -206,6 +206,7 @@ export function clearSessionCaches(host: WebGLOsrsRendererHost, ): void {
 
         // Clear loc overrides and spawns (door state changes accumulate)
         host.locOverrides.clear();
+        host.addedLocs.clear();
         for (const timer of host.locAnimTimers.values()) {
             clearTimeout(timer);
         }
@@ -307,6 +308,7 @@ export async function cleanUp(host: WebGLOsrsRendererHost, ): Promise<void> {
         host.quadPositions = undefined;
 
         // Uniforms
+        host.osrsClient.clientPlugins.disposeRenderer(host);
         host.sceneUniformBuffer?.delete();
         host.sceneUniformBuffer = undefined;
 

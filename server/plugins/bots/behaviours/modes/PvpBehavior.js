@@ -223,11 +223,10 @@ class PvpBehavior {
       pvpPhase: PVP_PHASE,
     });
     this.defensiveActionNode = new PvpDefensiveActionNode({
+      api,
       setPhase: (state, phase) => this.setPhase(state, phase),
       stopPvp: (player, state, nowMs, reason) =>
         this.stopPvp(player, state, nowMs, reason),
-      isActivelyEngagedWithTarget: (player, target) =>
-        this.isActivelyEngagedWithTarget(player, target),
       getProfile: (state) => this.getProfile(state),
       pvpPhase: PVP_PHASE,
     });
@@ -635,8 +634,9 @@ class PvpBehavior {
       return Math.floor(resolved);
     }
     const location = player.getLocation?.();
+    const x = Number(location?.getX?.() ?? Number.NaN);
     const y = Number(location?.getY?.() ?? Number.NaN);
-    return Number.isFinite(y) ? Wilderness.levelForY(y) : 0;
+    return Number.isFinite(x) && Number.isFinite(y) ? Wilderness.levelAt(x, y) : 0;
   }
 
   isHighWildernessAggressionActive(player) {
@@ -1412,6 +1412,7 @@ class PvpBehavior {
     if (!player || !state || !pvp) {
       return false;
     }
+    if (pvp.retreat && player.getHitpoints() > 0) return true;
     if (this.isPvpOnly(state) && !pvp.targetUsername) {
       this.setPhase(state, PVP_PHASE.SEEKING);
       return Wilderness.isIn(player);
@@ -1447,6 +1448,18 @@ class PvpBehavior {
       return false;
     }
     return true;
+  }
+
+  tickDefensive(context) {
+    const resolved = resolveBotNodeContext(context, this.botStatesByName, {
+      requiredMode: this.behaviorMode.PVP,
+      requireNotInCombat: false,
+      requireNotBusy: false,
+    });
+    if (!resolved) return { handled: false };
+    return this.defensiveActionNode.tick({
+      ...resolved, target: this.resolveTargetPlayer(resolved.state),
+    });
   }
 
   tick(context) {
@@ -1499,18 +1512,6 @@ class PvpBehavior {
     }
 
     const target = validation?.target ?? null;
-    const defensive = this.ServerPerf.measurePhase("bot.pvp.tick.defensive", () =>
-      this.defensiveActionNode.tick({
-        player,
-        state,
-        nowMs,
-        target,
-      })
-    );
-    if (defensive?.handled) {
-      return defensive.status ?? "failure";
-    }
-
     const freeze = this.ServerPerf.measurePhase("bot.pvp.tick.freeze", () =>
       this.freezeAndKiteNode.tick({
         player,

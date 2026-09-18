@@ -281,7 +281,7 @@ export class CombatFactory {
             }
         } else if (attacker.isPlayer() && target.isNpc()) {
             if (target.getAsNpc().getOwner() != null && target.getAsNpc().getOwner() != attacker.getAsPlayer()) {
-                attacker.getAsPlayer().getPacketSender().sendMessage("This npc was not spawned for you.");
+                attacker.getAsPlayer().sendMessage("This npc was not spawned for you.");
                 return false;
             }
         }
@@ -496,6 +496,10 @@ export class CombatFactory {
         if (attacker.getPrivateArea() !== target.getPrivateArea()) {
             return CanAttackResponse.CANT_ATTACK_IN_AREA;
         }
+        if (attacker.isPlayer() && target.isPlayer() &&
+            (Wilderness.isInSafeBuilding(attacker.getLocation()) || Wilderness.isInSafeBuilding(target.getLocation()))) {
+            return CanAttackResponse.CANT_ATTACK_IN_AREA;
+        }
         const pluginCanAttack = PluginManager.emitCanAttack(attacker, target);
         if (pluginCanAttack === true) {
             return CanAttackResponse.CAN_ATTACK;
@@ -519,6 +523,11 @@ export class CombatFactory {
         spellRadius: number
     ): boolean {
         if (!candidate || candidate === attacker || candidate === primaryTarget) {
+            return false;
+        }
+        // Duel damage is restricted to the agreed opponent, including spell splashes.
+        if ((attacker.isPlayer() && attacker.getAsPlayer().getDueling().inDuel()) ||
+            (candidate.isPlayer() && candidate.getAsPlayer().getDueling().inDuel())) {
             return false;
         }
         if (candidate.getHitpoints() <= 0) {
@@ -596,6 +605,12 @@ export class CombatFactory {
             return;
         }
 
+        // Safe buildings take effect immediately, including projectiles already in flight.
+        if (attacker.isPlayer() && target.isPlayer() &&
+            (Wilderness.isInSafeBuilding(attacker.getLocation()) || Wilderness.isInSafeBuilding(target.getLocation()))) {
+            return;
+        }
+
         // Before target takes damage, manipulate the hit to handle last-second effects.
         let resolvedHit = target.manipulateHit(qHit);
         if (!resolvedHit) {
@@ -619,10 +634,7 @@ export class CombatFactory {
         if (target.isPlayer()) {
             const playerTarget = target.getAsPlayer();
             if (resolvedHit.isAccurate() && damage > 0) {
-                const hitSound = playerTarget.getAppearance()?.isMale?.()
-                    ? Sound.MALE_GETTING_HIT
-                    : Sound.FEMALE_GETTING_HIT;
-                Sounds.sendSound(playerTarget, hitSound);
+                Sounds.sendSound(playerTarget, Sound.PLAYER_GETTING_HIT);
             } else {
                 Sounds.sendSound(playerTarget, Sound.DEFENCE_BLOCK);
             }
@@ -831,7 +843,7 @@ export class CombatFactory {
                 return;
             }
             if (!alreadyPoisoned) {
-                player.getPacketSender().sendMessage("You have been poisoned!");
+                player.sendMessage("You have been poisoned!");
             }
             player.getPacketSender().sendPoisonType(poisonOrbType);
         }
@@ -853,7 +865,7 @@ export class CombatFactory {
         }
         player.getCombat().getPrayerBlockTimer().start(200);
         PrayerHandler.resetPrayers(player, PrayerHandler.PROTECTION_PRAYERS);
-        player.getPacketSender().sendMessage("You have been disabled and can no longer use protection prayers.");
+        player.sendMessage("You have been disabled and can no longer use protection prayers.");
     }
 
     public static handleRecoil(player: Player, attacker: Mobile, damage: number) {
@@ -873,7 +885,7 @@ export class CombatFactory {
         if (player.getRecoilDamage() >= 40) {
             player.getEquipment().set(Equipment.RING_SLOT, new Item(-1));
             player.getEquipment().refreshItems();
-            player.getPacketSender().sendMessage("Your ring of recoil has degraded.");
+            player.sendMessage("Your ring of recoil has degraded.");
             player.setRecoilDamage(0);
         }
     }
@@ -938,11 +950,11 @@ export class CombatFactory {
         player.setSkullTimer(Misc.getTicks(seconds));
         player.getUpdateFlag().flag(Flag.APPEARANCE);
         if (type == SkullType.RED_SKULL) {
-            player.getPacketSender().sendMessage(
+            player.sendMessage(
                 "@bla@You have received a @red@red skull@bla@! You can no longer use the Protect item prayer!");
             PrayerHandler.deactivatePrayer(player, PrayerHandler.PROTECT_ITEM);
         } else if (type == SkullType.WHITE_SKULL) {
-            player.getPacketSender().sendMessage("You've been skulled!");
+            player.sendMessage("You've been skulled!");
         }
     }
 
@@ -967,24 +979,38 @@ export class CombatFactory {
         character.performGraphic(new Graphic(348, GraphicHeight.HIGH));
 
         if (character.isPlayer()) {
-            character.getAsPlayer().getPacketSender().sendMessage("You've been stunned!");
+            character.getAsPlayer().sendMessage("You've been stunned!");
         }
     }
 
     static handleRetaliation(attacker: Mobile, target: Mobile) {
         const currentTarget = target.getCombat().getTarget();
+        const playerIsBusy = () => target.isPlayer() && (
+            target.getMovementQueue().size() > 0 ||
+            target.getMovementQueue().isMovings() ||
+            TaskManager.hasActiveTask(target.getIndex(), "MovementTask") ||
+            TaskManager.wasTaskActiveThisCycle(target.getIndex(), "MovementTask")
+        );
         const hasActiveDifferentTarget =
             currentTarget != null &&
             currentTarget !== attacker &&
             currentTarget.getHitpoints() > 0 &&
             (typeof currentTarget.isRegistered !== "function" || currentTarget.isRegistered());
 
-        if (!hasActiveDifferentTarget) {
+        // In multi-combat, an NPC may change to a player who has just attacked it.
+        // A single NPC still has one active target and attack sequence at a time.
+        const npcCanRetargetInMulti =
+            target.isNpc() &&
+            attacker.isPlayer() &&
+            AreaManager.inMulti(attacker) &&
+            AreaManager.inMulti(target);
+
+        if (!hasActiveDifferentTarget || npcCanRetargetInMulti) {
             let auto_ret = false;
             if (target.isPlayer()) {
                 auto_ret =
                     target.getAsPlayer().autoRetaliateReturn() &&
-                    !target.getMovementQueue().isMovings();
+                    !playerIsBusy();
             } else if (target.isNpc()) {
                 auto_ret = target.hasFlag?.("combat:no-retaliate") !== true
                     && target.getAsNpc().getMovementCoordinator().getCoordinateState() == CoordinateState.HOME;
@@ -994,7 +1020,7 @@ export class CombatFactory {
                 return;
             }
 
-            if (target.getMovementQueue) {
+            if (target.isNpc()) {
                 target.getMovementQueue().reset();
             }
             // OSRS flinch: whoever was not already mid-fight waits half an attack
@@ -1014,7 +1040,8 @@ export class CombatFactory {
                 target.getCombat().extendAttackDelay(Math.floor(attackSpeed / 2));
             }
             TaskManager.submit(new CombatFactoryTask(1, target, false, () => {
-                if (target.isPlayer() && !target.getAsPlayer().autoRetaliateReturn()) {
+                if (target.isPlayer() &&
+                    (!target.getAsPlayer().autoRetaliateReturn() || playerIsBusy())) {
                     return;
                 }
                 target.getCombat().attack(attacker, true);
@@ -1037,7 +1064,8 @@ export class CombatFactory {
         character.getMovementQueue().reset();
 
         if (character.isPlayer()) {
-            character.getAsPlayer().getPacketSender().sendMessage("You have been frozen!").sendEffectTimer(seconds, EffectTimer.FREEZE);
+            character.getAsPlayer().sendMessage("You have been frozen!");
+            character.getAsPlayer().getPacketSender().sendEffectTimer(seconds, EffectTimer.FREEZE);
         }
     }
 
@@ -1047,7 +1075,7 @@ export class CombatFactory {
             victim.performGraphic(new Graphic(436));
             victim.getSkillManager().setCurrentLevels(Skill.PRAYER, 0);
             victim.getSkillManager().setCurrentLevels(Skill.HITPOINTS, victim.getHitpoints() + amountToHeal);
-            victim.getPacketSender().sendMessage("You've run out of prayer points!");
+            victim.sendMessage("You've run out of prayer points!");
             PrayerHandler.deactivatePrayers(victim);
         }
     }
@@ -1073,7 +1101,7 @@ export class CombatFactory {
         const rangedWeapon = player.getCombat().getRangedWeapon();
         const ammoData = player.getCombat().getAmmunition();
         const reject = (message?: string) => {
-            if (message) player.getPacketSender().sendMessage(message);
+            if (message) player.sendMessage(message);
             if (!skipReset) player.getCombat().reset();
             return false;
         };
@@ -1192,7 +1220,7 @@ export class CombatFactory {
             player.getUpdateFlag().flag(Flag.APPEARANCE);
 
             if (isEmptyCrystalBow(currentWeaponId)) {
-                player.getPacketSender().sendMessage("Your crystal bow has run out of charges.");
+                player.sendMessage("Your crystal bow has run out of charges.");
             }
             return;
         }
@@ -1214,7 +1242,7 @@ export class CombatFactory {
 
         // If we are at 0 ammo remove the item from the equipment completely.
         if (player.getEquipment().get(slot).getAmount() == 0) {
-            player.getPacketSender().sendMessage("You have run out of ammunition!");
+            player.sendMessage("You have run out of ammunition!");
             player.getEquipment().set(slot, new Item(-1));
 
             if (slot == Equipment.WEAPON_SLOT) {

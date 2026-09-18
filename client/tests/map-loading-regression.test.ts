@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { MapManager } from "../game/MapManager";
 import { decodeServerPacket } from "../network/packet/ServerBinaryDecoder";
+import { clearSessionCaches } from "../render/render/session";
 import { onLocAddChange } from "../render/render/locs";
 import { onLocDel, scheduleLocReload } from "../render/render/locs2";
 import { getMapSquareId } from "../rs/map/MapFileIndex";
@@ -169,6 +170,7 @@ function locUpdateBeforeInitialMapDoesNotStartADuplicateMapTask(): void {
             loadingMapIds: new Set(),
             getMap: () => undefined,
         },
+        pendingStreamMapsByGeneration: new Map(),
         pendingLocReloadMaps: new Map(),
         pendingLocReloadFlushTimer: undefined,
         beginLocReloadBatch: () => assert.fail("initial load must not start a second reload"),
@@ -177,6 +179,26 @@ function locUpdateBeforeInitialMapDoesNotStartADuplicateMapTask(): void {
     scheduleLocReload(host, mapX, mapY);
     assert.equal(host.locReloadVersions.get(mapId), 1);
     assert.equal(host.pendingLocReloadMaps.size, 0);
+}
+
+function locReplayInvalidatesCompletedMapsWaitingToRender(): void {
+    const mapId = getMapSquareId(48, 154);
+    let reloads = 0;
+    const host = {
+        locReloadVersions: new Map(),
+        mapManager: { getMap: () => undefined },
+        pendingStreamMapsByGeneration: new Map([[1, new Map([[mapId, {}]])]]),
+        queueLoadMap: (x, y) => {
+            assert.deepEqual([x, y], [48, 154]);
+            reloads++;
+        },
+    } as any;
+    scheduleLocReload(host, 48, 154);
+    assert.equal(host.pendingStreamMapsByGeneration.get(1).has(mapId), false,
+        "a completed map with closed doors must not render after open-door replay");
+    assert.equal(reloads, 1, "rebuild a nonresident map whose completed build was invalidated");
+    scheduleLocReload(host, 48, 154);
+    assert.equal(reloads, 1, "later replay packets must not start duplicate builds");
 }
 
 function crossShapeReplacementKeepsBaseWallHidden(): void {
@@ -228,6 +250,32 @@ multipartLocsRequestAllMissingModelsTogether();
 incomingMapsRenderBeforeTheWholeGridIsReady();
 duplicateLocReplayIsIgnored();
 locUpdateBeforeInitialMapDoesNotStartADuplicateMapTask();
+locReplayInvalidatesCompletedMapsWaitingToRender();
 crossShapeReplacementKeepsBaseWallHidden();
 regionReplacementUsesNativeMapData();
 console.log("Map loading regression tests passed");
+
+// Disconnect restores the cache door and must discard its old open counterpart.
+const session: any = {
+    interactHighlightDrawTargets: [],
+    clearInteractHighlightActiveTarget() {},
+    clearInteractHighlightHoverTarget() {},
+    clearDynamicNpcAnimRuntimeState() {},
+    clearCameraShake() {},
+};
+for (const key of [
+    "npcDefaultHeightCache", "npcNameCache", "npcHitsplats", "playerHitsplats",
+    "npcHealthBars", "playerHealthBars", "hitsplatSeenNpc", "actorServerTilesSeenNpc",
+    "locOverrides", "locAnimTimers", "locSpawns", "addedLocs", "terrainOverrides",
+    "mapRegionReplacements", "gamemodeWorldLocOverrideKeys", "gamemodeWorldLocSpawnKeys",
+    "gamemodeWorldTerrainOverrideKeys", "mapsToLoad", "pendingStreamMapsByGeneration",
+    "activeStreamExpectedMapIds", "pendingLocUpdates", "pendingLocGeometryUpdates",
+    "pendingDoorLocUpdates", "pendingLocReloadMaps", "pendingLocReloadBatches",
+    "queuedLocReloadBatchByMap", "groundItemStacks", "groundItemStackHashes",
+    "minimapIcons", "projectileRenderDebugCounts", "cachedLocIds", "cachedObjIds", "cachedNpcIds",
+]) session[key] = new Map();
+session.locOverrides.set("3200,3200,0,-1", { newId: 0, matchType: 0 });
+session.addedLocs.set("3199,3200,0,0", { locId: 778, x: 3199, y: 3200, level: 0, shape: 0, rotation: 1 });
+clearSessionCaches(session);
+assert.equal(session.locOverrides.size, 0);
+assert.equal(session.addedLocs.size, 0, "reconnect must remove the previous session's open door");

@@ -9,6 +9,7 @@ const { MagicSpellbook } = require("../../../../src/main/typescript/elvarg/game/
 const { ItemIdentifiers } = require("../../../../src/main/typescript/elvarg/util/ItemIdentifiers");
 const { Equipment } = require("../../../../src/main/typescript/elvarg/game/model/container/impl/Equipment");
 const { getPvpLoadout, getPvpProfile } = require("../pvp/PvpAssignment");
+const { isFoodItem } = require("../../../items/Food.plugin");
 
 const ICE_BARRAGE_SPELL_ID = 12891;
 const ICE_BLITZ_SPELL_ID = CombatSpells.ICE_BLITZ.spellId();
@@ -179,7 +180,8 @@ const BOT_PRESET_GROUPS = Object.freeze([
 
 function selectBotPreset(state, rng = Math.random) {
   const pvp = state?.pvp;
-  if (pvp?.presetPoolEnabled !== true) {
+  // F2P assignments must use their generated F2P gear, including after respawn.
+  if (pvp?.presetPoolEnabled !== true || pvp.loadoutId?.startsWith("f2p_")) {
     return null;
   }
   const group =
@@ -3354,6 +3356,14 @@ function applyGeneratedPvpLoadout(player, state, options = {}) {
       archetypeId: generated.archetypeId,
     });
     return false;
+  }
+  const inventoryItems = player.getInventory().getItems();
+  if (player.getInventory().getFreeSlots() === 0 &&
+      player.getEquipment().isSlotOccupied(Equipment.SHIELD_SLOT) &&
+      inventoryItems.some((item) => item?.getDefinition().isDoubleHanded())) {
+    // Virtual eating never frees a slot to stow the shield during a two-handed switch.
+    const foodSlot = inventoryItems.findIndex((item) => isFoodItem(item?.getId()));
+    if (foodSlot >= 0) player.getInventory().deleteAtSlot(foodSlot, 1);
   }
   if (state?.pvp) {
     const equipment = generated.preset.getEquipment?.() ?? [];

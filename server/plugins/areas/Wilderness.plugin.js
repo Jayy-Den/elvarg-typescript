@@ -1,8 +1,24 @@
+const { Equipment } = require("../../src/main/typescript/elvarg/game/model/container/impl/Equipment");
+const { Animation } = require("../../src/main/typescript/elvarg/game/model/Animation");
+const { BonusManager } = require("../../src/main/typescript/elvarg/game/model/equipment/BonusManager");
+const { WeaponInterfaces } = require("../../src/main/typescript/elvarg/game/content/combat/WeaponInterfaces");
+const { GameObject } = require("../../src/main/typescript/elvarg/game/entity/impl/object/GameObject");
+const { MapObjects } = require("../../src/main/typescript/elvarg/game/entity/impl/object/MapObjects");
+
 const { Wilderness } = require("../../src/main/typescript/elvarg/game/content/wilderness/Wilderness");
+const {
+  hasGlobalWorldTag,
+  WORLD_ZONE_BOUNDARIES,
+} = require("../../src/main/typescript/elvarg/game/definition/WorldDefinition");
 const { Obelisks } = require("../../src/main/typescript/elvarg/game/content/Obelisks");
 const { PlayerRights } = require("../../src/main/typescript/elvarg/game/model/rights/PlayerRights");
 const { Location } = require("../../src/main/typescript/elvarg/game/model/Location");
 const { isSafeLocation: isFeroxSafeLocation } = require("../items/LootKeys.plugin");
+
+function isSafeLocation(location) {
+  return Wilderness.isInSafeBuilding(location) || isFeroxSafeLocation(location)
+    || (!!location && WORLD_ZONE_BOUNDARIES.safe.some((boundary) => boundary.inside(location)));
+}
 
 // ---------------------------------------------------------------------------
 // pvp_icons overlay (OSRS interface 90)
@@ -67,7 +83,7 @@ function combatLevelOf(player) {
 
 function wildernessLevelOf(player) {
   const location = player?.getLocation?.();
-  if (isFeroxSafeLocation(location)) {
+  if (isSafeLocation(location)) {
     return 0;
   }
   const stored = player?.getWildernessLevel?.() | 0;
@@ -86,15 +102,17 @@ function wildernessLevelOf(player) {
   if (cached && cached.x === x && cached.y === y) {
     return cached.level;
   }
-  const level = Wilderness.isInLocation(location)
-    ? Math.max(0, Wilderness.levelForY(y))
-    : 0;
+  const level = Wilderness.isInLocation(location) ? Wilderness.levelAt(x, y) : 0;
   derivedLevels.set(player, { x, y, level });
   return level;
 }
 
+function levelForTile(tile) {
+  return tile ? Wilderness.levelAt(tile.x, tile.y) : 0;
+}
+
 function isWildernessLocation(location) {
-  return Wilderness.isInLocation(location) && !isFeroxSafeLocation(location);
+  return Wilderness.isInLocation(location) && !isSafeLocation(location);
 }
 
 /**
@@ -173,6 +191,7 @@ function isInWilderness(state, player) {
   if (!player) {
     return false;
   }
+  if (isSafeLocation(player.getLocation?.())) return false;
   if (wildernessLevelOf(player) > 0) {
     return true;
   }
@@ -186,7 +205,7 @@ function isInWilderness(state, player) {
   }
   const inWilderness = tile
     ? isWildernessLocation(tile.location)
-    : Wilderness.isIn(player) && !isFeroxSafeLocation(player?.getLocation?.());
+    : Wilderness.isIn(player) && !isSafeLocation(player?.getLocation?.());
   state.tiles.set(player, { ...cached, ...(tile ?? {}), inWilderness });
   return inWilderness;
 }
@@ -199,6 +218,7 @@ const lastIconsVisible = new WeakMap();
 const lastWildernessState = new WeakMap();
 const lastPvpLayoutState = new WeakMap();
 const lastSafeBadgeVisible = new WeakMap();
+const lastLevelRowVisible = new WeakMap();
 
 function mountPvpIcons(player) {
   if (!player || player?.isPlayerBot?.() === true) {
@@ -214,29 +234,61 @@ function mountPvpIcons(player) {
   // A fresh mount resets the group's widgets to their cache defaults.
   lastIconsVisible.delete(player);
   lastSafeBadgeVisible.delete(player);
-  syncPvpIcons(player, isFeroxSafeLocation(player.getLocation?.()));
-  syncSafeBadge(player, isFeroxSafeLocation(player.getLocation?.()));
+  lastLevelRowVisible.delete(player);
+  syncOverlay(player, player.getLocation?.());
 
   const tile = readPlayerTile(player);
-  if (tile && isWildernessLocation(tile.location)) {
+  if (tile && Wilderness.isPvpArea(tile.location)) {
     syncPvpLayout(player, tile, true);
   }
 }
 
-// Nothing outside the wilderness is wired up yet (skull timer, attack style, PvP worlds),
-// so the server keeps the whole block hidden unless the player has a wilderness level.
-// Driven off the level itself rather than an entry/exit edge: every tick reconverges, so a
-// teleport, a login or a missed transition can't strand the block on screen.
-function syncPvpIcons(player, inSafeZone = isFeroxSafeLocation(player?.getLocation?.())) {
+// The block belongs to PvP ground, not to the Wilderness: a PvP zone anywhere on the map
+// shows the skull, and its safe carve-outs show the same skull with the red cross. The duel
+// arena's glowing axe (SpriteID.OVERLAY_DUEL, which cache script 386 puts on the same
+// graphic) hangs in this block too, so its zones keep it on screen - one owner per widget,
+// or whichever plugin syncs last hides the other's icon.
+function needsPvpOverlay(location) {
+  return Wilderness.isPvpArea(location)
+    || (!!location && WORLD_ZONE_BOUNDARIES.duel.some((boundary) => boundary.inside(location)));
+}
+
+// Driven off the tile rather than an entry/exit edge: every tick reconverges, so a teleport,
+// a login or a missed transition can't strand the block on screen.
+function syncPvpIcons(player, location = player?.getLocation?.()) {
   if (!player || player?.isPlayerBot?.() === true) {
     return;
   }
-  const visible = inSafeZone || (player.getWildernessLevel?.() | 0) > 0;
+  const visible = needsPvpOverlay(location);
   if (lastIconsVisible.get(player) === visible) {
     return;
   }
   lastIconsVisible.set(player, visible);
   player.getPacketSender().sendInterfaceDisplayState(PVP_ICONS_UID, !visible);
+}
+
+// The three overlay bits always move together, so they reconverge together: the block
+// follows PvP ground, the crossed skull follows safe ground, and the level row only exists
+// where a level does.
+function syncOverlay(player, location) {
+  if (!player || player?.isPlayerBot?.() === true) {
+    return;
+  }
+  const tile = Location.readTile(location);
+  syncPvpIcons(player, location);
+  syncSafeBadge(player, isSafeLocation(location));
+  syncLevelRow(player, levelForTile(tile) > 0);
+}
+
+// The level text is painted by cache script 388 from the client's own coordinates, so the
+// only way to keep it off an unlevelled tile is to own the row's visibility here. Nothing
+// in the cache sets this flag - script 386 only reads it, to place the row below.
+function syncLevelRow(player, levelled) {
+  if (lastLevelRowVisible.get(player) === levelled) {
+    return;
+  }
+  lastLevelRowVisible.set(player, levelled);
+  player.getPacketSender().sendInterfaceDisplayState(PVP_LEVEL_UID, !levelled);
 }
 
 function syncSafeBadge(player, inSafeZone) {
@@ -257,7 +309,7 @@ function syncWildernessState(player, inWilderness) {
 }
 
 function syncPvpLayout(player, tile, force = false) {
-  const wildernessLevel = Wilderness.levelForY(tile.y);
+  const wildernessLevel = levelForTile(tile);
   const combatLevel = combatLevelOf(player);
   const multiIcon = Wilderness.isMulti(tile.x, tile.y) ? 1 : 0;
   const state = `${wildernessLevel}:${combatLevel}:${multiIcon}`;
@@ -278,15 +330,16 @@ function refreshWildernessUi(player, tile, inWilderness) {
     return;
   }
 
-  const inSafeZone = isFeroxSafeLocation(tile.location);
-  syncPvpIcons(player, inSafeZone);
-  syncSafeBadge(player, inSafeZone);
+  syncOverlay(player, tile.location);
 
   if (inWilderness) {
+    // The varbit is the client's "you may attack players here" switch, so it follows the
+    // PvP ground rather than the level: only the original Wilderness is levelled, and
+    // elsewhere the level row stays empty and the level rules never bite.
+    const level = levelForTile(tile);
     syncWildernessState(player, true);
     player.getPacketSender().sendInteractionOption("Attack", 2, true);
 
-    const level = Wilderness.levelForY(tile.y);
     if (player.getWildernessLevel() !== level) {
       player.setWildernessLevel(level);
     }
@@ -326,9 +379,7 @@ function onPlayerProcess(state, player) {
   }
   const previous = state.tiles.get(player);
   if (Location.isSameTile(previous, tile) && typeof previous.inWilderness === "boolean") {
-    const inSafeZone = isFeroxSafeLocation(tile.location);
-    syncPvpIcons(player, inSafeZone);
-    syncSafeBadge(player, inSafeZone);
+    syncOverlay(player, tile.location);
     if (previous.inWilderness) {
       syncPvpLayout(player, tile);
     }
@@ -364,6 +415,7 @@ function enterWilderness(player, tile, wasInWilderness) {
 }
 
 function leaveWilderness(player, tile, wasInWilderness) {
+  syncOverlay(player, tile.location);
   if (wasInWilderness) {
     refreshWildernessUi(player, tile, false);
     return;
@@ -417,16 +469,20 @@ function onPlayerDisconnect(state, player) {
   lastWildernessState.delete(player);
   lastPvpLayoutState.delete(player);
   lastSafeBadgeVisible.delete(player);
+  lastLevelRowVisible.delete(player);
 }
 
 function onCanAttack(state, event) {
-  if (event.allow !== null) {
-    return;
-  }
   const { attacker, target } = event;
   if (!attacker?.isPlayer?.() || !target?.isPlayer?.()) {
     return;
   }
+
+  if (Wilderness.isInSafeBuilding(attacker.getLocation?.()) || Wilderness.isInSafeBuilding(target.getLocation?.())) {
+    event.allow = false;
+    return;
+  }
+  if (event.allow !== null) return;
 
   if (shareClanChat(attacker, target)) {
     denyAttack(event, CLAN_CHAT_MESSAGES);
@@ -460,18 +516,16 @@ function onCanTeleport(state, event) {
   if (!isInWilderness(state, player)) {
     return;
   }
+  const levelLimit = event.wildernessLevelLimit ?? TELEPORT_BLOCK_LEVEL;
   if (
-    wildernessLevelOf(player) > TELEPORT_BLOCK_LEVEL &&
-    player.getRights() !== PlayerRights.DEVELOPER
+    wildernessLevelOf(player) > levelLimit &&
+    player.getRights() !== PlayerRights.DEVELOPER &&
+    !(player.isPlayerBot?.() && hasGlobalWorldTag("pvp"))
   ) {
-    player
-      .getPacketSender()
-      .sendMessage("Teleport spells are blocked in this level of Wilderness.");
-    player
-      .getPacketSender()
-      .sendMessage(
-        `You must be below level ${TELEPORT_BLOCK_LEVEL} of Wilderness to use teleportation spells.`
-      );
+    player.sendMessage("Teleport spells are blocked in this level of Wilderness.");
+    player.sendMessage(
+      `You must be below level ${levelLimit} of Wilderness to use teleportation spells.`
+    );
     event.allow = false;
   }
 }
@@ -483,6 +537,62 @@ function onNpcAggressionTolerance(state, event) {
   if (isInWilderness(state, event.player)) {
     event.override = true;
   }
+}
+
+// https://oldschool.runescape.wiki/w/Web — use the item's bonus, not total equipment bonuses.
+function webCutChance(item) {
+  if (!item || item.getId() <= 0) return 0;
+  const definition = item.getDefinition();
+  if (definition.isNoted()) return 0;
+  if (definition.getName() === "Knife") return 0.5;
+  if (definition.getEquipmentType().getSlot() !== Equipment.WEAPON_SLOT) return 0;
+  if (/^Wilderness sword [1-4]$/.test(definition.getName())) return 1;
+  const slash = definition.getBonuses()?.[BonusManager.ATTACK_SLASH] ?? 0;
+  if (slash <= 0) return 0;
+  const type = definition.getWeaponInterface();
+  const floor = type === WeaponInterfaces.SCIMITAR || type === WeaponInterfaces.LONGSWORD ? 0.5 : 0.2;
+  return Math.min(1, Math.max(floor, slash / 100));
+}
+
+function slashWeb(api, event, usedItem) {
+  if (event.objectId !== 733) return false;
+  event.handled = true;
+  const { player, object } = event;
+  if (player.busy() || !MapObjects.get(733, object.getLocation(), object.getPrivateArea())) return;
+  const chance = usedItem ? webCutChance(usedItem) : Math.max(
+    webCutChance(player.getEquipment().getItems()[Equipment.WEAPON_SLOT]),
+    ...player.getInventory().getItems().map(webCutChance),
+  );
+  if (!chance) {
+    player.sendMessage("You need a knife or a weapon with a slash bonus to cut this web.");
+    return;
+  }
+  player.performAnimation(new Animation(911));
+  if (Math.random() >= chance) {
+    player.sendMessage("You fail to cut through the web.");
+    return;
+  }
+  const slashed = new GameObject(734, object.getLocation().clone(), object.getType(), object.getFace(), object.getPrivateArea());
+  api.getObjectManager().deregister(object, true);
+  api.getObjectManager().register(slashed, true);
+  player.sendMessage("You slash through the web.");
+}
+
+function pullLever(api, event) {
+  const { player, location } = event;
+  if (location.z !== 0) return false;
+  let destination;
+  if (location.x === 3153 && location.y === 3923) {
+    destination = new Location(3090, 3475);
+  } else if (location.x === 3090 && location.y === 3956) {
+    destination = new Location(2539, 4712);
+  } else if (location.x === 2539 && location.y === 4712) {
+    destination = new Location(3090, 3956);
+  } else {
+    return false;
+  }
+  event.handled = true;
+  api.emitCustomEvent("lever:teleport", { player, destination });
 }
 
 function onObeliskClick(event) {
@@ -506,8 +616,14 @@ module.exports = {
     api.onCanTeleport((event) => onCanTeleport(state, event));
     api.onNpcAggressionTolerance((event) => onNpcAggressionTolerance(state, event));
     api.onObjectFirstClick(Obelisks.OBELISK_IDS, onObeliskClick);
-
-    api.log("registered");
+    api.onObjectInteraction("Lever", { Pull: (event) => pullLever(api, event) });
+    api.onObjectInteraction("Web", { Slash: (event) => slashWeb(api, event) });
+    api.onItemOnObject("Knife", "Web", (event) => slashWeb(api, event, event.item), { noted: false });
+    api.onItemOnObject((event) => {
+      if (event.object.getDefinition().getName() === "Web" && webCutChance(event.item) > 0) {
+        slashWeb(api, event, event.item);
+      }
+    });
   },
   // Shared with bot target selection so the rule has one home.
   canAttackByWildernessLevel,

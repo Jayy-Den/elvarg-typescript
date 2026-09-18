@@ -33,9 +33,10 @@ const COINS = ItemIdentifiers.COINS;
 const offers = new WeakMap();
 const completionTimers = new WeakMap();
 const viewing = new WeakMap();
+const searching = new WeakSet();
 
 function validItem(id) {
-  if (!Number.isInteger(id) || id <= 0 || id >= CacheDefinitions.getCounts().items) return false;
+  if (!CacheDefinitions.hasItem(id)) return false;
   const name = CacheDefinitions.getItem(id)?.name;
   return Boolean(name && name !== "null");
 }
@@ -138,6 +139,7 @@ function refresh(player, offer) {
 }
 
 function home(player) {
+  closeSearch(player);
   offers.delete(player);
   viewing.delete(player);
   player.setEnteredAmountAction(null);
@@ -148,6 +150,12 @@ function home(player) {
     .sendVarbit(QUANTITY, 1)
     .sendVarbit(PRICE, 1)
     .sendVarbit(SELECTED_SLOT, 0);
+}
+
+function closeSearch(player) {
+  if (!searching.delete(player)) return;
+  player.setEnteredSyntaxAction(null);
+  player.getPacketSender().sendClientScript(138);
 }
 
 function showCompleted(player, slot) {
@@ -164,17 +172,19 @@ function showCompleted(player, slot) {
 
 function chooseItem(player, offer) {
   if (offer.sell) {
-    player.getPacketSender().sendMessage("Choose an item from your inventory to sell.");
+    player.sendMessage("Choose an item from your inventory to sell.");
     return;
   }
   player.setEnteredSyntaxAction({ execute: (input) => {
     if (!active(player, offer)) return;
     const id = Number(input);
     if (!validItem(id)) return;
+    closeSearch(player);
     offer.itemId = id;
     offer.quantity = 1;
     refresh(player, offer);
   } });
+  searching.add(player);
   player.getPacketSender().sendInterfaceScript(750, ["Grand Exchange Item Search", 0, -1, 0]);
 }
 
@@ -182,7 +192,7 @@ function start(player, sell, slot = 0, itemId = -1) {
   if (Object.hasOwn(completedOffers(player), slot)) {
     const free = Array.from({ length: 8 }, (_, i) => i).find((i) => !Object.hasOwn(completedOffers(player), i));
     if (free == null) {
-      player.getPacketSender().sendMessage("Collect an offer before creating another one.");
+      player.sendMessage("Collect an offer before creating another one.");
       return;
     }
     slot = free;
@@ -249,12 +259,12 @@ function collect(player, action, slot = viewing.get(player)) {
   result.setItems(destination.getCopiedItems());
   const before = result.getAmount(outputId);
   if (before + outputAmount > MAX) {
-    player.getPacketSender().sendMessage(`You do not have enough ${action === 3 ? "bank" : "inventory"} space to collect that offer.`);
+    player.sendMessage(`You do not have enough ${action === 3 ? "bank" : "inventory"} space to collect that offer.`);
     return;
   }
   result.add(new Item(outputId, outputAmount), false);
   if (result.getAmount(outputId) !== before + outputAmount) {
-    player.getPacketSender().sendMessage(`You do not have enough ${action === 3 ? "bank" : "inventory"} space to collect that offer.`);
+    player.sendMessage(`You do not have enough ${action === 3 ? "bank" : "inventory"} space to collect that offer.`);
     return;
   }
   destination.setItems(result.getItems());
@@ -272,7 +282,7 @@ function collect(player, action, slot = viewing.get(player)) {
 function openGrandExchange({ player }) {
   if ([GE, GE_COLLECT].includes(player.getInterfaceId())) player.getPacketSender().sendInterfaceRemoval();
   if (player.busy()) {
-    player.getPacketSender().sendMessage("Finish what you are doing before opening the Grand Exchange.");
+    player.sendMessage("Finish what you are doing before opening the Grand Exchange.");
     return true;
   }
   player.getMovementQueue().reset();
@@ -387,7 +397,7 @@ function handleExchangeButton({ player, buttonId, slot, action }) {
     } });
     player.getPacketSender().sendEnterAmountPrompt("How many would you like to trade?");
   } else if (slot >= 8 && slot <= 16) {
-    player.getPacketSender().sendMessage("This exchange uses fixed guide prices.");
+    player.sendMessage("This exchange uses fixed guide prices.");
   }
   refresh(player, offer);
   return true;
@@ -403,7 +413,11 @@ module.exports = {
     api.onPlayerLogin(({ player }) => {
       for (const offer of Object.values(completedOffers(player))) scheduleCompletion(player, offer);
     });
+    api.onPlayerProcess(({ player }) => {
+      if (searching.has(player) && player.getInterfaceId() !== GE) closeSearch(player);
+    });
     api.onPlayerLogout(({ player }) => {
+      searching.delete(player);
       for (const timer of completionTimers.get(player) ?? []) clearTimeout(timer);
       completionTimers.delete(player);
     });
@@ -424,6 +438,7 @@ module.exports = {
 
     api.onInterfaceActionButton(COLLECTION_BUTTONS, handleCollectionButton);
     api.onItemFirstAction(handleInventoryItem);
+    api.onInterfaceActionButton(SIDE_ITEMS, (event) => event.action === 1 && handleInventoryItem(event));
     api.onInterfaceActionButton(EXCHANGE_BUTTONS, handleExchangeButton);
   },
 };

@@ -18,7 +18,8 @@ const KEY_IDS = Object.freeze([ItemIdentifiers.LOOT_KEY, ItemIdentifiers.LOOT_KE
 const KEY_ID_SET = new Set(KEY_IDS);
 const KEY_DATA = "lootKey";
 const MAX_KEYS = 5;
-const UNLOCK_ATTRIBUTE = "lootKeysEnabled";
+const UNLOCK_ATTRIBUTE = "lootKeysUnlocked";
+const ENABLED_ATTRIBUTE = "lootKeysEnabled";
 const SETTINGS_ATTRIBUTE = "lootKeySettings";
 const CHEST_ATTRIBUTE = "lootChestContents";
 const CHEST_TAB_ATTRIBUTE = "lootChestTab";
@@ -29,8 +30,14 @@ const serialiseItem = (item) => validItem({ id: item?.getId?.(), amount: item?.g
 const keyItems = (key) => (key?.getMetaValue?.(KEY_DATA)?.items ?? []).filter(validItem);
 const createKey = (items, index = 0) => new Item(KEY_IDS[Math.max(0, Math.min(MAX_KEYS - 1, index))], 1, { [KEY_DATA]: { items: items.map(serialiseItem).filter(Boolean) } });
 const reindexKey = (key, index) => new Item(KEY_IDS[Math.max(0, Math.min(MAX_KEYS - 1, index))], 1, key?.getMeta?.());
-const hasEnabledLootKeys = (player) => player?.getAttribute?.(UNLOCK_ATTRIBUTE) === true;
-const setLootKeysEnabled = (player, enabled) => player?.setAttribute?.(UNLOCK_ATTRIBUTE, enabled === true);
+const hasEnabledLootKeys = (player) => player?.getAttribute?.(ENABLED_ATTRIBUTE) === true;
+// Legacy saves only wrote this boolean after buying keys (including disabling them).
+const hasUnlockedLootKeys = (player) => player?.getAttribute?.(UNLOCK_ATTRIBUTE) === true ||
+  typeof player?.getAttribute?.(ENABLED_ATTRIBUTE) === "boolean";
+const setLootKeysEnabled = (player, enabled) => {
+  if (enabled || hasUnlockedLootKeys(player)) player?.setAttribute?.(UNLOCK_ATTRIBUTE, true);
+  player?.setAttribute?.(ENABLED_ATTRIBUTE, enabled === true);
+};
 const countKeys = (player) => (player?.getInventory?.()?.getValidItems?.() ?? []).filter(isLootKey).length;
 
 function getSettings(player) {
@@ -77,7 +84,7 @@ function openKey(player, slot, expectedKey = null) {
   if (!isLootKey(key) || (expectedKey && key !== expectedKey) || chestItems(player).length) return false;
   const items = keyItems(key);
   if (!items.length) {
-    player.getPacketSender().sendMessage("This Loot key has no recoverable loot and was not consumed.");
+    player.sendMessage("This Loot key has no recoverable loot and was not consumed.");
     return false;
   }
   player.getInventory().deleteAtSlot(slot, 1);
@@ -114,12 +121,12 @@ function takeChestItem(player, index, destination, asNotes = false, requestedAmo
   const item = items[index];
   if (!item) return false;
   const amount = Math.max(1, Math.min(item.amount, Math.trunc(Number(requestedAmount) || 0)));
-  const moved = { ...item, id: asNotes ? noteId(item) : item.id, amount };
+  const moved = { ...item, id: destination === "bank" ? ItemDefinition.forId(item.id).unNote() : asNotes ? noteId(item) : item.id, amount };
   if (destination === "inventory") {
     const inventory = player.getInventory();
     const stackable = ItemDefinition.forId(moved.id).isStackable?.() === true;
     if (!((stackable && hasSameItem(inventory, moved)) || inventory.getFreeSlots() >= (stackable ? 1 : amount))) {
-      player.getPacketSender().sendMessage("You don't have enough inventory space.");
+      player.sendMessage("You don't have enough inventory space.");
       return true;
     }
     inventory.add(new Item(moved.id, moved.amount, moved.meta), false);
@@ -127,7 +134,7 @@ function takeChestItem(player, index, destination, asNotes = false, requestedAmo
   } else {
     const bank = bankForItem(player, moved);
     if (!bank) {
-      player.getPacketSender().sendMessage("You need more space in your bank.");
+      player.sendMessage("You need more space in your bank.");
       return true;
     }
     bank.add(new Item(moved.id, moved.amount, moved.meta), false);
@@ -142,15 +149,16 @@ const takeAllChestItems = (player, destination, asNotes) => {
   for (let index = chestItems(player).length - 1; index >= 0; index--) takeChestItem(player, index, destination, asNotes);
   return true;
 };
-const destroyChestItem = (player, index) => {
+const destroyChestItem = (player, index, amount = Number.MAX_SAFE_INTEGER) => {
   const items = chestItems(player);
-  if (!items[index]) return false;
-  items.splice(index, 1);
+  if (!items[index] || !Number.isSafeInteger(amount) || amount <= 0) return false;
+  items[index].amount -= Math.min(items[index].amount, amount);
+  if (items[index].amount === 0) items.splice(index, 1);
   setChestItems(player, items);
   return true;
 };
 
-const LootKeys = { CHEST_ATTRIBUTE, CHEST_TAB_ATTRIBUTE, KEY_IDS, MAX_KEYS, SETTINGS_ATTRIBUTE, UNLOCK_ATTRIBUTE, chestItems, chestTab, countKeys, createKey, describeKey, destroyChestItem, getSettings, hasEnabledLootKeys, isEligibleKill, isLootKey, isSupply, keyItems, openKey, reindexKey, setChestItems, setChestTab, setLootKeysEnabled, setSettings, shouldStoreItem, takeAllChestItems, takeChestItem, totalValue };
+const LootKeys = { CHEST_ATTRIBUTE, CHEST_TAB_ATTRIBUTE, ENABLED_ATTRIBUTE, KEY_IDS, MAX_KEYS, SETTINGS_ATTRIBUTE, UNLOCK_ATTRIBUTE, chestItems, chestTab, countKeys, createKey, describeKey, destroyChestItem, getSettings, hasEnabledLootKeys, hasUnlockedLootKeys, isEligibleKill, isLootKey, isSupply, keyItems, openKey, reindexKey, setChestItems, setChestTab, setLootKeysEnabled, setSettings, shouldStoreItem, takeAllChestItems, takeChestItem, totalValue };
 
 const pendingLoot = new WeakMap();
 const recentlyDefeated = new WeakMap();
@@ -198,12 +206,13 @@ function createLootKey({ killer, victim }) {
   recentlyDefeated.set(victim, Date.now());
   if (!state || !LootKeys.isEligibleKill(killer, victim) || killerCannotReceiveKey(killer)) return;
 
-  const drops = state.drops.filter((entry) => !entry.handled && entry.item?.isValid?.()).map((entry) => entry.item);
+  // Later hooks can change eligibility, including the bot's selected equipment drops.
+  const drops = state.drops.filter((entry) => entry.dropEligible === true && !entry.handled && entry.item?.isValid?.()).map((entry) => entry.item);
   const candidates = drops.length ? [LootKeys.createKey(drops, LootKeys.countKeys(killer))] : [];
   candidates.push(...state.keys.sort((left, right) => LootKeys.describeKey(right).value - LootKeys.describeKey(left).value));
   const available = LootKeys.MAX_KEYS - LootKeys.countKeys(killer);
   const received = candidates.slice(0, available).map((key) => giveKey(killer, key, victim.getLocation()));
-  if (drops.length) killer.getPacketSender().sendMessage(received[0]
+  if (drops.length) killer.sendMessage(received[0]
     ? "Your opponent's loot has been placed in a Loot key."
     : "Your inventory is full, so your Loot key has been placed on the ground.");
 }
@@ -212,14 +221,14 @@ function checkOrDestroy(api, event) {
   if (!LootKeys.isLootKey(event.item)) return;
   const option = String(event.option ?? "").toLowerCase();
   if (option === "check") {
-    event.player.getPacketSender().sendMessage(`This Loot key contains ${LootKeys.describeKey(event.item).description}.`);
+    event.player.sendMessage(`This Loot key contains ${LootKeys.describeKey(event.item).description}.`);
     event.handled = true;
     return;
   }
   if (option !== "destroy") return;
   event.handled = true;
   if (!Wilderness.isIn(event.player) || LootKeys.describeKey(event.item).value >= DESTROY_VALUE_LIMIT) {
-    event.player.getPacketSender().sendMessage("This Loot key cannot be destroyed here or is worth too much.");
+    event.player.sendMessage("This Loot key cannot be destroyed here or is worth too much.");
     return;
   }
   const key = event.item;
@@ -233,7 +242,7 @@ function setFloorValue(player) {
   player.setEnteredAmountAction({ execute: (amount) => {
     if (!Number.isInteger(amount) || amount < 0) return;
     LootKeys.setSettings(player, { ...LootKeys.getSettings(player), floorValue: amount });
-    player.getPacketSender().sendMessage(`Items worth ${amount.toLocaleString("en-US")} coins or more will drop to the floor.`);
+    player.sendMessage(`Items worth ${amount.toLocaleString("en-US")} coins or more will drop to the floor.`);
   }});
   player.getPacketSender().sendEnterAmountPrompt("Set Loot Key floor-value threshold (0 to disable)");
 }
@@ -243,16 +252,16 @@ function openSkullyPrompt(api, player) {
   const settings = LootKeys.getSettings(player);
   api.sendMultiChatboxPrompt(
     player, "Skully's Loot Keys",
-    enabled ? "Disable Loot Keys" : "Unlock Loot Keys (1,000,000 coins)", () => {
-      if (enabled) {
+    enabled ? "Disable Loot Keys" : LootKeys.hasUnlockedLootKeys(player) ? "Enable Loot Keys" : "Unlock Loot Keys (1,000,000 coins)", () => {
+      if (LootKeys.hasEnabledLootKeys(player)) {
         LootKeys.setLootKeysEnabled(player, false);
-        player.getPacketSender().sendMessage("You will now receive normal PvP loot piles.");
-      } else if (player.getInventory().getAmount(ItemIdentifiers.COINS) < UNLOCK_COST) {
-        player.getPacketSender().sendMessage("You need 1,000,000 coins to unlock Loot Keys.");
+        player.sendMessage("You will now receive normal PvP loot piles.");
+      } else if (!LootKeys.hasUnlockedLootKeys(player) && player.getInventory().getAmount(ItemIdentifiers.COINS) < UNLOCK_COST) {
+        player.sendMessage("You need 1,000,000 coins to unlock Loot Keys.");
       } else {
-        player.getInventory().delete(ItemIdentifiers.COINS, UNLOCK_COST);
+        if (!LootKeys.hasUnlockedLootKeys(player)) player.getInventory().delete(ItemIdentifiers.COINS, UNLOCK_COST);
         LootKeys.setLootKeysEnabled(player, true);
-        player.getPacketSender().sendMessage("You will now receive Loot keys for Wilderness player kills.");
+        player.sendMessage("You will now receive Loot keys for Wilderness player kills.");
       }
     },
     `Supplies in keys: ${settings.includeSupplies ? "On" : "Off"}`, () => {
@@ -260,7 +269,7 @@ function openSkullyPrompt(api, player) {
       openSkullyPrompt(api, player);
     },
     `Floor-value threshold: ${settings.floorValue.toLocaleString("en-US")}`, () => setFloorValue(player),
-    "What are Loot Keys?", () => player.getPacketSender().sendMessage("Loot Keys hold a defeated player's dropped items in one inventory slot. Open them at a Loot Chest."),
+    "What are Loot Keys?", () => player.sendMessage("Loot Keys hold a defeated player's dropped items in one inventory slot. Open them at a Loot Chest."),
     "Never mind", () => {}
   );
 }
@@ -343,7 +352,7 @@ function openKeySelection(api, player) {
   if (LootKeys.chestItems(player).length) return openChest(player);
   const keys = inventoryKeys(player);
   if (!keys.length) {
-    player.getPacketSender().sendMessage("You do not currently have any Wilderness Loot Keys. For more information, speak to Skully in the Ferox Enclave.");
+    player.sendMessage("You do not currently have any Wilderness Loot Keys. For more information, speak to Skully in the Ferox Enclave.");
     return true;
   }
   if (keys.length === 1) return openChestKey(player, keys[0].slot, keys[0].item);
@@ -369,8 +378,9 @@ function handleContentAction(player, event) {
   if (event.action === 4 || event.action === 6 || event.action === 8) {
     const destination = event.action === 6 ? "bank" : "inventory";
     player.setEnteredAmountAction({ execute: (amount) => {
+      if (player.getInterfaceId() !== GROUP_ID || LootKeys.chestItems(player)[index] !== item) return;
       if (Number.isInteger(amount) && amount > 0) {
-        if (event.action === 8) LootKeys.destroyChestItem(player, index);
+        if (event.action === 8) LootKeys.destroyChestItem(player, index, amount);
         else LootKeys.takeChestItem(player, index, destination, destination === "inventory" && state.notes, amount);
         refreshChest(player);
       }
@@ -469,7 +479,7 @@ function passThrough({ player, object }) {
   const crossing = crossingTarget(current, object);
   if (!crossing) return true;
   if (crossing.entering && isTeleblocked(player)) {
-    player.getPacketSender().sendMessage("A magical force prevents you from entering the Ferox Enclave while teleblocked.");
+    player.sendMessage("A magical force prevents you from entering the Ferox Enclave while teleblocked.");
     return true;
   }
   if (current && TaskManager && player.getForceMovement?.() == null) {
@@ -495,6 +505,7 @@ module.exports = {
   register(api) {
     TaskManager = api.getTaskManager();
     api.persistAttribute(LootKeys.UNLOCK_ATTRIBUTE);
+    api.persistAttribute(LootKeys.ENABLED_ATTRIBUTE);
     api.persistAttribute(LootKeys.SETTINGS_ATTRIBUTE);
     api.persistAttribute(LootKeys.CHEST_ATTRIBUTE);
     api.persistAttribute(LootKeys.CHEST_TAB_ATTRIBUTE);
@@ -502,14 +513,14 @@ module.exports = {
       if (LootKeys.countKeys(event.killer) < LootKeys.MAX_KEYS) warnedAtKeyLimit.delete(event.killer);
       if (LootKeys.hasEnabledLootKeys(event.killer) && LootKeys.countKeys(event.killer) >= LootKeys.MAX_KEYS && !warnedAtKeyLimit.has(event.killer)) {
         warnedAtKeyLimit.add(event.killer);
-        event.killer.getPacketSender().sendMessage("You have reached the limit of 5 loot keys.");
+        event.killer.sendMessage("You have reached the limit of 5 loot keys.");
       }
       queueDrop(event);
     });
     api.onPlayerDefeated((event) => { warnedAtKeyLimit.delete(event.victim); createLootKey(event); });
     api.onCanBankItem((event) => {
       if (LootKeys.isLootKey(event.item)) {
-        event.player.getPacketSender().sendMessage("Loot keys cannot be banked.");
+        event.player.sendMessage("Loot keys cannot be banked.");
         event.allow = false;
       }
     });
@@ -531,5 +542,6 @@ module.exports = {
   },
   ...LootKeys,
   isSafeLocation,
+  isInsideEnclave,
   _test: { createLootKey, queueDrop, handleInterfaceAction: handleChestInterfaceAction, nativeInventories, open: openChest, openKeySelection, crossingTarget, denySafeZoneAttack, isInsideEnclave, isSafeLocation, passThrough },
 };

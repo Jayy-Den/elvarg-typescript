@@ -658,7 +658,7 @@ export class MovementQueue {
         const inWilderness = Wilderness.isInLocation(location);
 
         if (inWilderness) {
-            const wildernessLevel = Wilderness.levelForY(location.getY());
+            const wildernessLevel = Wilderness.levelAt(location.getX(), location.getY());
             const multiIcon = Wilderness.isMulti(location.getX(), location.getY()) ? 1 : 0;
             player.setWildernessLevel(wildernessLevel);
             player.setMultiIcon(multiIcon);
@@ -681,7 +681,6 @@ export class MovementQueue {
         this.followX = -1;
         this.followY = -1;
         this.isMoving = false;
-        this.movedThisCycle = false;
         this.foundRoute = false;
         this.routeEvaluated = false;
         this.alternativeRoute = false;
@@ -1115,6 +1114,12 @@ export class MovementQueue {
         }
 
         PathFinder.calculateEntityRoute(this.player, entity);
+        if (this.canInteractWithUnreachableNpc(entity)) {
+            this.reset();
+            this.player.setMobileInteraction(entity);
+            runnable?.();
+            return;
+        }
 
         let routedX = entity.getLocation().getX();
         let routedY = entity.getLocation().getY();
@@ -1145,12 +1150,18 @@ export class MovementQueue {
                 PathFinder.calculateEntityRoute(this.player, entity);
             }
 
+            if (this.canInteractWithUnreachableNpc(entity)) {
+                queue.reset();
+                task.stop();
+                runnable?.();
+                return;
+            }
             if (queue.points.length || queue.isMovings()) {
                 return;
             }
             queue.reset();
             task.stop();
-            this.player.getPacketSender().sendMessage("I can't reach that!");
+            this.player.sendMessage("I can't reach that!");
         }));
     }
 
@@ -1234,7 +1245,9 @@ export class MovementQueue {
                 task.stop();
                 return;
             }
-            if (PathFinder.reachedObject(
+            // The reach check already respects shape, rotation and access flags.
+            // Accept either reachable side, even if the original route ended elsewhere.
+            if (this.points.length === 0 && PathFinder.reachedObject(
                 this.player,
                 objectX,
                 objectY,
@@ -1243,7 +1256,9 @@ export class MovementQueue {
                 routeSpec.reachAngle,
                 routeSpec.reachShape,
                 routeSpec.reachBlockAccessFlags
-            ) && !this.player.getMovementQueue().didMoveThisCycle()) {
+            )) {
+                // Arrival is not a failed route: operate on the following cycle.
+                if (this.didMoveThisCycle()) return;
                 if (objectX === this.player.getLocation().getX() && objectY === this.player.getLocation().getY()) {
                     this.player.setDirection([Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH][direction]);
                 }
@@ -1273,7 +1288,18 @@ export class MovementQueue {
             MovementQueue.log(
                 `[walkToObject] ${this.ownerLabel()} failed route=${this.player.getMovementQueue().hasRoute()} current=${this.player.getLocation().getX()},${this.player.getLocation().getY()} expected=${finalDestinationX},${finalDestinationY}`
             );
-            this.player.getPacketSender().sendMessage("You can't reach that!");
+            console.warn("[object-route] unreachable", {
+                objectId: id,
+                shape: type,
+                rotation: direction,
+                target: [objectX, objectY],
+                player: [this.player.getLocation().getX(), this.player.getLocation().getY(), this.player.getLocation().getZ()],
+                routeEnd: [this.pathX, this.pathY],
+                accessMask: routeSpec.reachBlockAccessFlags,
+                routeInvalidated: this.wasRouteInvalidated(),
+                blockedByEntity: this.wasBlockedByDynamicOccupancy(),
+            });
+            this.player.sendMessage("You can't reach that!");
             task.stop();
             TaskManager.cancelTasks(this.player.getIndex());
         }));
@@ -1290,6 +1316,13 @@ export class MovementQueue {
     public isWithinEntityInteractionDistance(entityLocation: Location): boolean {
         return this.points.length <= MovementQueue.NPC_INTERACT_RADIUS &&
             this.player.getLocation().getDistance(entityLocation) <= MovementQueue.NPC_INTERACT_RADIUS;
+    }
+
+    private canInteractWithUnreachableNpc(entity: Mobile): boolean {
+        // Prefer adjacent reach. Counters may leave an NPC visible but no adjacent tile reachable.
+        return entity.isNpc() && (this.alternativeRoute || this.points.length === 0) && !this.isMovings() &&
+            this.isWithinEntityInteractionDistance(entity.getLocation()) &&
+            RegionManager.canProjectileAttack(this.player, this.player.getLocation(), entity.getLocation());
     }
 
     canMove(): boolean {
@@ -1326,7 +1359,7 @@ export class MovementQueue {
                 return;
         }
 
-        player.getPacketSender().sendMessage(message);
+        player.sendMessage(message);
     }
 }
 
@@ -1379,7 +1412,7 @@ class Mobility {
                 return;
         }
 
-        player.getPacketSender().sendMessage(message);
+        player.sendMessage(message);
     }
 }
 

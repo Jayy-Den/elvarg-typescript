@@ -29,6 +29,7 @@ import {
     VARBIT_ROOF_REMOVAL,
     VARBIT_STAMINA_ACTIVE,
     VARC_COMBAT_LEVEL,
+    VARC_ACTIVE_TAB,
     VARP_AREA_SOUNDS_VOLUME,
     VARP_ATTACK_STYLE,
     VARP_MAP_FLAGS_CACHED,
@@ -39,6 +40,7 @@ import {
     VARP_OPTION_RUN,
     VARP_SOUND_EFFECTS_VOLUME,
 } from "../common/vars";
+
 import {
     getDefaultServerAddress,
     getDefaultServerName,
@@ -161,6 +163,7 @@ import { VarManager } from "../rs/config/vartype/VarManager";
 import { scheduleMusicTabRefresh } from "./widgets/handlers/musicTab";
 import { chatHistory } from "../rs/cs2/ChatHistory";
 import { Cs2Vm, ScriptArgMagic, type ScriptEvent, createScriptEvent } from "../rs/cs2/Cs2Vm";
+import { setSpawnSearch } from "../rs/cs2/spawnSearch";
 import { Opcodes as Cs2Opcodes } from "../rs/cs2/Opcodes";
 import { BitmapFont } from "../rs/font/BitmapFont";
 import { encodeInteractionIndex } from "../rs/interaction/InteractionIndex";
@@ -262,6 +265,7 @@ import { PlayerMovementSync } from "./movement/PlayerMovementSync";
 import { NpcInstanceFlushController } from "./npc/NpcInstanceFlushController";
 import { ClientPluginManager } from "./plugins/ClientPluginManager";
 import { FirstPersonPlugin } from "./plugins/firstperson/FirstPersonPlugin";
+import { HdPlugin } from "./plugins/hd/HdPlugin";
 import { createBrowserGroundItemsPluginPersistence } from "./plugins/grounditems/BrowserGroundItemsPluginPersistence";
 import { GroundItemsPlugin } from "./plugins/grounditems/GroundItemsPlugin";
 import { createBrowserInteractHighlightPluginPersistence } from "./plugins/interacthighlight/BrowserInteractHighlightPluginPersistence";
@@ -274,6 +278,8 @@ import { createBrowserTileMarkersPluginPersistence } from "./plugins/tilemarkers
 import { TileMarkersPlugin } from "./plugins/tilemarkers/TileMarkersPlugin";
 import { createBrowserVengeanceTimerPluginPersistence } from "./plugins/vengeancetimer/BrowserVengeanceTimerPluginPersistence";
 import { VengeanceTimerPlugin } from "./plugins/vengeancetimer/VengeanceTimerPlugin";
+import { createBrowserStatusTimerPluginPersistence } from "./plugins/statustimer/BrowserStatusTimerPluginPersistence";
+import { StatusTimerPlugin } from "./plugins/statustimer/StatusTimerPlugin";
 import {
     SPLIT_PRIVATE_CHAT_VARP,
     SplitPrivateChatPlugin,
@@ -332,6 +338,34 @@ import { WorldViewManager } from "./worldview/WorldViewManager";
 
 const DEVICE_OPTION_INTERFACE_SCALING = 27;
 
+// OSRS side-panel order skips inventory because Escape selects it separately.
+const TAB_SHORTCUTS: Readonly<Record<string, number>> = {
+    F1: 0,
+    F2: 1,
+    F3: 2,
+    F4: 4,
+    F5: 5,
+    F6: 6,
+    F7: 7,
+    F8: 8,
+    F9: 9,
+    F10: 10,
+    F11: 11,
+    F12: 12,
+    Escape: 3,
+};
+
+// Enum IDs consumed by the stock tab-switch script (914), per game-frame layout.
+const TAB_SWITCH_SCRIPT = 914;
+const DEFAULT_ROOT_INTERFACE = 161;
+const DEFAULT_DISPLAY_ENUM = 1130;
+const DISPLAY_ENUM_BY_ROOT_INTERFACE: Readonly<Record<number, number>> = {
+    [DEFAULT_ROOT_INTERFACE]: DEFAULT_DISPLAY_ENUM,
+    165: 1132,
+    548: 1129,
+    164: 1131,
+};
+
 // OSRS draw distance is constrained in Scene.setDrawDistanceRaw(25..90).
 const MIN_RENDER_DISTANCE = 25;
 const MAX_RENDER_DISTANCE = 90;
@@ -369,6 +403,9 @@ const VARC_CHATBOX_SELECTED_TAB = 41;
 const ACCOUNT_TYPE_MAIN = 0;
 const SCRIPT_HIGHLIGHT_SCREEN_COMPONENT = 2463;
 const SCRIPT_HIGHLIGHT_TEXTBOX_DEFAULT = 2465;
+// Chatbox search: its title says whether this one is a spawn search, and 138 closes it.
+const SCRIPT_CHATBOX_SEARCH = 750;
+const SCRIPT_CHATBOX_SEARCH_CLOSE = 138;
 
 // Use shared OSRS rotation scale
 
@@ -536,9 +573,12 @@ export class OsrsClient {
     readonly rememberLoginPlugin: RememberLoginPlugin;
     readonly tileMarkersPlugin: TileMarkersPlugin;
     readonly vengeanceTimerPlugin: VengeanceTimerPlugin;
+    readonly poisonTimerPlugin: StatusTimerPlugin;
+    readonly freezeTimerPlugin: StatusTimerPlugin;
     readonly splitPrivateChatPlugin: SplitPrivateChatPlugin;
     readonly clientPlugins: ClientPluginManager = new ClientPluginManager();
     readonly firstPersonPlugin: FirstPersonPlugin;
+    readonly hdPlugin = new HdPlugin();
     readonly tileHighlightManager: TileHighlightManager = new TileHighlightManager();
     private sidebarPluginVisibility: Required<SidebarPluginVisibilityOptions> = {
         groundItemsEnabled: true,
@@ -604,6 +644,9 @@ export class OsrsClient {
      * Default true per OSRS reference.
      */
     renderSelf: boolean = true;
+
+    /** True while the first-person plugin renders the local player's arms and equipment. */
+    firstPersonArmsVisible: boolean = false;
 
     /**
      * Mobile feedback ripple effect enabled (set by SETFEEDBACKSPRITE).
@@ -834,7 +877,7 @@ export class OsrsClient {
     /** Collection log inventory (ID 620) - stores obtained items for CS2 inv_total queries */
     collectionInventory: Inventory = new Inventory(2048);
     /** Shop stock inventory (ID 516) - stores shop items for CS2 inv queries */
-    shopInventory: Inventory = new Inventory(40);
+    shopInventory: Inventory = new Inventory(300);
     /** Your offered trade items (inventory ID 90 in the cache scripts). */
     tradeOfferInventory: Inventory = new Inventory(28);
     /** The other player's offered items use OSRS's inventory-other offset. */
@@ -889,6 +932,7 @@ export class OsrsClient {
 
     private unsubscribeWidgetEvents?: () => void;
     private pendingInterfaceUpdates = new PendingInterfaceUpdates();
+    private pendingInterfaceOpens = new Map<number, { groupId: number }>();
     private handleWidgetPayload?: (payload: any) => void;
     private unsubscribeNpcInfo?: () => void;
     private unsubscribeCombat?: () => void;
@@ -967,6 +1011,39 @@ export class OsrsClient {
         rendererType: OsrsRendererType,
         cache?: LoadedCache,
     ) {
+        document.addEventListener(
+            "keydown",
+            (event) => {
+                const shortcut = TAB_SHORTCUTS[event.key] ?? TAB_SHORTCUTS[event.code];
+                const functionKeyEvent =
+                    event.code.startsWith("F") ||
+                    event.key.startsWith("F") ||
+                    event.key.startsWith("Brightness") ||
+                    event.key.startsWith("Audio");
+                if (functionKeyEvent) {
+                    console.info("[OsrsClient] function keydown", {
+                        key: event.key,
+                        code: event.code,
+                        repeat: event.repeat,
+                        loggedIn: this.isLoggedIn(),
+                        hasVarManager: !!this.varManager,
+                    });
+                }
+                if (!this.isLoggedIn() || event.repeat || shortcut === undefined) {
+                    return;
+                }
+
+                this.switchToTab(shortcut);
+                console.info("[OsrsClient] switched game tab from function key", {
+                    key: event.key,
+                    tab: shortcut,
+                    activeTab: this.varManager?.getVarcInt(VARC_ACTIVE_TAB),
+                });
+                event.preventDefault();
+                if (event.key !== "Escape") event.stopImmediatePropagation();
+            },
+            true,
+        );
         this.varcPersistence = new VarcPersistence({
             getVarManager: () => this.varManager,
         });
@@ -1090,9 +1167,16 @@ export class OsrsClient {
         this.vengeanceTimerPlugin = new VengeanceTimerPlugin(
             createBrowserVengeanceTimerPluginPersistence("osrs.plugin.vengeance_timer.v1"),
         );
+        this.poisonTimerPlugin = new StatusTimerPlugin(
+            createBrowserStatusTimerPluginPersistence("osrs.plugin.poison_timer.v1"),
+        );
+        this.freezeTimerPlugin = new StatusTimerPlugin(
+            createBrowserStatusTimerPluginPersistence("osrs.plugin.freeze_timer.v1"),
+        );
         this.splitPrivateChatPlugin = new SplitPrivateChatPlugin();
         this.firstPersonPlugin = new FirstPersonPlugin(this);
         this.clientPlugins.add(this.firstPersonPlugin);
+        this.clientPlugins.add(this.hdPlugin);
         this.syncSidebarPlugins(true);
         if (new URLSearchParams(window.location.search).has("edit")) {
             this.loadEditModePlugin();
@@ -1256,6 +1340,15 @@ export class OsrsClient {
             }
         }
         this.customInterfaces.onInterfaceOpened(payload.groupId | 0);
+    }
+
+    private cancelPendingInterfaceOpen(targetUid: number): void {
+        const pending = this.pendingInterfaceOpens.get(targetUid | 0);
+        if (!pending) return;
+        this.pendingInterfaceOpens.delete(targetUid | 0);
+        if (![...this.pendingInterfaceOpens.values()].some((entry) => entry.groupId === pending.groupId)) {
+            this.pendingInterfaceUpdates.cancel(pending.groupId);
+        }
     }
 
     private initCustomInterfaces(): void {
@@ -2180,6 +2273,7 @@ export class OsrsClient {
 
         // Clean up click targets when interfaces close to prevent stale/ghost click regions
         this.widgetManager.onInterfaceClose = (groupId) => {
+            this.customInterfaces.onInterfaceClosed(groupId);
             // The click registry is on the WidgetsOverlay's GL canvas, not the main game canvas
             const glCanvas = (this.renderer as any)?.getWidgetsGLCanvas?.();
             if (glCanvas) {
@@ -2444,8 +2538,15 @@ export class OsrsClient {
                         // in the same batch as that open - they would land before the
                         // widgets exist.
                         const pendingGroupId = payload.groupId | 0;
+                        const pendingTargetUid = payload.targetUid | 0;
+                        const pendingOpen = { groupId: pendingGroupId };
+                        this.pendingInterfaceOpens.set(pendingTargetUid, pendingOpen);
                         this.pendingInterfaceUpdates.open(pendingGroupId);
                         void fetchInterfaceDefinition(pendingGroupId).then((definition) => {
+                            if (this.pendingInterfaceOpens.get(pendingTargetUid) !== pendingOpen) {
+                                return;
+                            }
+                            this.pendingInterfaceOpens.delete(pendingTargetUid);
                             if (!definition || !setCustomInterface(definition)) {
                                 console.error(
                                     `[OsrsClient] cannot open group ${pendingGroupId}: it is not in the cache and has no server definition`,
@@ -2464,6 +2565,7 @@ export class OsrsClient {
                 }
             } else if (payload?.action === "close_sub") {
                 const targetUid = Number(payload.targetUid) | 0;
+                this.cancelPendingInterfaceOpen(targetUid);
                 console.log(
                     `[OsrsClient] Server closing sub-interface at widget ${targetUid} (ESC or close button)`,
                 );
@@ -2483,8 +2585,6 @@ export class OsrsClient {
                         this.widgetManager.meslayerContinueWidget = null;
                     }
                 }
-
-                this.customInterfaces.onInterfaceClosed(closingGroupId | 0);
             } else if (payload?.action === "set_text") {
                 const uid = Number(payload.uid) | 0;
                 const text = typeof payload.text === "string" ? payload.text : String(payload.text);
@@ -2693,6 +2793,11 @@ export class OsrsClient {
                         this.widgetManager.meslayerContinueWidget = null;
                     }
                     console.log(`[OsrsClient] run_script: scriptId=${scriptId}, args=`, args);
+                    if (scriptId === SCRIPT_CHATBOX_SEARCH) {
+                        setSpawnSearch(args[0]);
+                    } else if (scriptId === SCRIPT_CHATBOX_SEARCH_CLOSE) {
+                        setSpawnSearch(null);
+                    }
                     // Apply varps/varbits BEFORE running the script so it can read them
                     if (this.varManager) {
                         this._serverVarpSync = true;
@@ -3749,6 +3854,15 @@ export class OsrsClient {
         const script = this.cs2Vm.context?.loadScript?.(scriptId | 0);
         if (!script) return;
         this.cs2Vm.run(script, args, []);
+    }
+
+    /** Switch the stock side panel through its cache script so all tab widgets update together. */
+    private switchToTab(tab: number): void {
+        const rootInterface = this.widgetManager?.rootInterface ?? DEFAULT_ROOT_INTERFACE;
+        const displayEnum = DISPLAY_ENUM_BY_ROOT_INTERFACE[rootInterface] ?? DEFAULT_DISPLAY_ENUM;
+        const script = this.cs2Vm?.context?.loadScript?.(TAB_SWITCH_SCRIPT);
+        if (script) this.cs2Vm.run(script, [1, displayEnum, tab], []);
+        else this.varManager?.setVarcInt(VARC_ACTIVE_TAB, tab);
     }
 
     private substituteWidgetScriptMagicArgs(intArgs: number[], widget: any): number[] {
@@ -5424,6 +5538,11 @@ export class OsrsClient {
         );
     }
 
+    /** Adds a client-side system message to the in-game chatbox. */
+    addGameMessage(message: string): void {
+        chatHistory.addMessage("game", message);
+    }
+
     /**
      * Handle login screen keyboard input.
      * Returns true if the input was handled by the login screen.
@@ -6680,7 +6799,7 @@ export class OsrsClient {
 
         if (Array.isArray(state.stock)) {
             for (const entry of state.stock) {
-                const slot = Math.max(0, Math.min(39, entry.slot | 0));
+                const slot = Math.max(0, Math.min(299, entry.slot | 0));
                 const itemId = entry.itemId | 0;
                 const quantity = typeof entry.quantity === "number" ? entry.quantity | 0 : 1;
                 if (itemId > 0) {

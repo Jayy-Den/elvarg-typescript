@@ -14,6 +14,15 @@ export interface CustomObjTypeProps {
     // Core identification
     name: string;
     examine?: string;
+    wearPos?: number;
+    wearPos2?: number;
+    wearPos3?: number;
+    note?: number;
+    noteTemplate?: number;
+    unnotedId?: number;
+    notedId?: number;
+    placeholder?: number;
+    placeholderTemplate?: number;
 
     // Inventory model & rendering
     model?: number;
@@ -129,7 +138,7 @@ export interface CustomItemDefinition {
     objType: CustomObjTypeProps;
 
     /** Server-level properties (affects combat/equipment/trading) */
-    itemDef: CustomItemDefProps;
+    itemDef?: CustomItemDefProps;
 }
 
 /**

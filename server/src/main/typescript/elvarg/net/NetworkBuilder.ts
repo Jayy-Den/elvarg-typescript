@@ -625,7 +625,8 @@ class ClientConnection {
               this.player.getDialogueManager().isActive() ||
               this.player.getPacketSender().hasInterruptibleInterface();
             if (hadSomethingOpen) {
-              this.player.closeInterruptibleInterfaces();
+              // IF_CLOSE is explicit: clear even interfaces that world interactions preserve.
+              this.player.getPacketSender().closeInterruptibleInterfaces();
             } else {
               // Nothing was open - real OSRS opens the logout tab here.
               // TODO: needs the exact tab-switch mechanism confirmed against
@@ -650,13 +651,13 @@ class ClientConnection {
         case "examine_npc":
           if (this.player) {
             const definition = NpcDefinition.forId(packet.id);
-            this.player.getPacketSender().sendMessage(definition.getExamine() || definition.getName());
+            this.player.sendMessage(definition.getExamine());
           }
           continue;
         case "examine_object":
           if (this.player) {
             const definition = ObjectDefinition.forId(packet.id);
-            this.player.getPacketSender().sendMessage(definition?.description || definition?.getName() || "It's an object.");
+            this.player.sendMessage(definition?.getExamine() ?? "It's nothing special.");
           }
           continue;
         case "appearance":
@@ -891,15 +892,20 @@ class ClientConnection {
     const item = player.getInventory().getItems()[packet.slot];
     if (!item || item.getId() !== packet.itemId) return;
     const option = packet.option?.toLowerCase() ?? "";
+    const optionIndex = option && option !== "examine"
+      ? (CacheDefinitions.getItem(packet.itemId)?.inventoryActions ?? [])
+          .findIndex((action) => action?.toLowerCase() === option) + 1
+      : packet.optionIndex;
+    if (optionIndex === 0) return;
     if (/^(wield|wear|equip)$/.test(option)) {
       EquipPacketListener.equip(player, packet.itemId, packet.slot, 3214);
-    } else if (option === "drop" || option === "destroy" || packet.optionIndex === 5) {
+    } else if (option === "drop" || option === "destroy" || optionIndex === 5) {
       DropItemPacketListener.drop(player, packet.itemId, 3214, packet.slot);
     } else if (option === "examine") {
       const definition = ItemDefinition.forId(packet.itemId);
-      player.getPacketSender().sendMessage(definition.getExamine() || definition.getName());
+      player.sendMessage(definition.getExamine() || definition.getName());
     } else {
-      ItemActionPacketListener.handleAction(player, packet.widgetId, packet.itemId, packet.slot, packet.optionIndex ?? 1, packet.option);
+      ItemActionPacketListener.handleAction(player, packet.widgetId, packet.itemId, packet.slot, optionIndex ?? 1, packet.option);
     }
   }
 
@@ -933,7 +939,7 @@ class ClientConnection {
     const option = packet.option?.toLowerCase() ?? "";
     if (option === "examine") {
       const definition = ItemDefinition.forId(packet.itemId);
-      player.getPacketSender().sendMessage(definition.getExamine() || definition.getName());
+      player.sendMessage(definition.getExamine() || definition.getName());
     } else if (option === "take" || packet.optionIndex === 3 || packet.optionIndex == null) {
       PickupItemPacketListener.pickup(player, packet.itemId, packet.x, packet.y);
     } else {

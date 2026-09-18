@@ -69,6 +69,7 @@ export class ShopManager {
     private static readonly SALES_TAX = 0.85;
     private static readonly shopsById = new Map<number, RuntimeShop>();
     private static readonly activeShopByPlayer = new WeakMap<object, number>();
+    private static readonly activeTargetByPlayer = new WeakMap<object, number>();
     private static readonly viewersByShopId = new Map<number, Set<any>>();
     private static restockTaskRunning = false;
     private static readonly currencyHandlers = new Map<string, ShopCurrencyHandler>();
@@ -102,7 +103,12 @@ export class ShopManager {
         return this.shopsById.size;
     }
 
-    public static open(player: any, shopId: number, resetScroll = true): boolean {
+    public static open(
+        player: any,
+        shopId: number,
+        resetScroll = true,
+        targetUid = (161 << 16) | 16
+    ): boolean {
         const shop = this.shopsById.get(shopId);
         if (!player || !shop) {
             return false;
@@ -111,8 +117,8 @@ export class ShopManager {
             return true;
         }
 
-        this.setActiveShop(player, shopId);
-        return this.openInterface(player, shop, resetScroll);
+        this.setActiveShop(player, shopId, targetUid);
+        return this.openInterface(player, shop, resetScroll, targetUid);
     }
 
     public static close(player: any): void {
@@ -129,6 +135,7 @@ export class ShopManager {
             this.viewersByShopId.delete(shopId!);
         }
         this.activeShopByPlayer.delete(player);
+        this.activeTargetByPlayer.delete(player);
         player.getSession?.().sendClientPacket?.(encodeShopClose());
     }
 
@@ -233,7 +240,7 @@ export class ShopManager {
             if (!item) return true;
             if (examine) {
                 const definition = ItemDefinition.forId(item.itemId);
-                player.getPacketSender().sendMessage(definition.getExamine() || definition.getName());
+                player.sendMessage(definition.getExamine() || definition.getName());
             } else {
                 this.handleItemContainerAction(player, {
                     kind: amount != null ? "buy_sell" : "value",
@@ -251,7 +258,7 @@ export class ShopManager {
             if (!item || item.getId() < 0) return true;
             if (examine) {
                 const definition = ItemDefinition.forId(item.getId());
-                player.getPacketSender().sendMessage(definition.getExamine() || definition.getName());
+                player.sendMessage(definition.getExamine() || definition.getName());
             } else {
                 this.handleItemContainerAction(player, {
                     kind: amount != null ? "buy_sell" : "value",
@@ -340,9 +347,10 @@ export class ShopManager {
                 player?.getInterfaceId?.() === this.MAIN_INTERFACE_ID);
     }
 
-    private static setActiveShop(player: any, shopId: number): void {
+    private static setActiveShop(player: any, shopId: number, targetUid: number): void {
         this.close(player);
         this.activeShopByPlayer.set(player, shopId);
+        this.activeTargetByPlayer.set(player, targetUid);
         const viewers = this.viewersByShopId.get(shopId) ?? new Set<any>();
         viewers.add(player);
         this.viewersByShopId.set(shopId, viewers);
@@ -351,7 +359,8 @@ export class ShopManager {
     private static openInterface(
         player: any,
         shop: RuntimeShop,
-        _resetScroll: boolean
+        _resetScroll: boolean,
+        targetUid = (161 << 16) | 16
     ): boolean {
         const sender = player.getPacketSender();
         const opening =
@@ -368,10 +377,10 @@ export class ShopManager {
         });
         player.setInterfaceId(this.MAIN_INTERFACE_ID);
         player.setStatus(PlayerStatus.SHOPPING);
-        sender.sendSubInterface((161 << 16) | 16, this.MAIN_INTERFACE_ID, 0)
+        sender.sendSubInterface(targetUid, this.MAIN_INTERFACE_ID, 0)
             .sendSubInterface((161 << 16) | 79, this.SIDE_INTERFACE_ID, 1)
             .sendInterfaceScript(1074, [516, shop.definition.getName(), this.currencyItemId(shop.definition.getCurrency()), 0, 1])
-            .sendInterfaceFlagsRange((this.MAIN_INTERFACE_ID << 16) | 16, 0, 39, 1662)
+            .sendInterfaceFlagsRange((this.MAIN_INTERFACE_ID << 16) | 16, 0, 299, 1662)
             .sendInterfaceScript(149, [this.SIDE_INTERFACE_ID << 16, 93, 4, 7, 0, -1, "Value", "Sell 1", "Sell 5", "Sell 10", "Sell 50"])
             .sendInterfaceFlagsRange(this.SIDE_INTERFACE_ID << 16, 0, 27, 1086)
             .sendItemContainer(player.getInventory(), this.INVENTORY_INTERFACE_ID);
@@ -397,7 +406,12 @@ export class ShopManager {
                 this.close(player);
                 continue;
             }
-            this.openInterface(player, shop, false);
+            this.openInterface(
+                player,
+                shop,
+                false,
+                this.activeTargetByPlayer.get(player) ?? ((161 << 16) | 16)
+            );
         }
     }
 
@@ -428,7 +442,7 @@ export class ShopManager {
         fromShop: boolean
     ): void {
         if (!fromShop && !this.buysItem(shop, itemId)) {
-            player.getPacketSender().sendMessage(
+            player.sendMessage(
                 "You cannot sell this item to this shop."
             );
             return;
@@ -437,7 +451,7 @@ export class ShopManager {
         let price = this.itemPrice(shop, definition);
         if (!fromShop) {
             if (!definition.isSellable?.()) {
-                player.getPacketSender().sendMessage(
+                player.sendMessage(
                     "This item cannot be sold to a shop."
                 );
                 return;
@@ -447,10 +461,10 @@ export class ShopManager {
             }
         }
         if (price <= 0) {
-            player.getPacketSender().sendMessage("This item has no value.");
+            player.sendMessage("This item has no value.");
             return;
         }
-        player.getPacketSender().sendMessage(
+        player.sendMessage(
             `${definition.getName()}${fromShop ? " currently costs " : ": shop will buy for "}` +
             `${Misc.insertCommasToNumber(String(price))} x ` +
             `${this.currencyName(shop.definition.getCurrency())}.`
@@ -476,7 +490,7 @@ export class ShopManager {
         const stock = shop.stock.get(itemId) ?? 0;
         const available = Math.max(0, stock - (this.deletesItems(shop) ? 0 : 1));
         if (available <= 0) {
-            player.getPacketSender().sendMessage(
+            player.sendMessage(
                 "This item is currently out of stock. Come back later."
             );
             return;
@@ -489,7 +503,7 @@ export class ShopManager {
             available
         );
         if (quantity <= 0) {
-            player.getPacketSender().sendMessage("You can't afford that.");
+            player.sendMessage("You can't afford that.");
             return;
         }
 
@@ -529,14 +543,14 @@ export class ShopManager {
         amount: number
     ): void {
         if (!this.buysItem(shop, itemId)) {
-            player.getPacketSender().sendMessage(
+            player.sendMessage(
                 "You cannot sell this item to this shop."
             );
             return;
         }
         const definition = ItemDefinition.forId(itemId);
         if (!definition.isSellable?.()) {
-            player.getPacketSender().sendMessage("This item cannot be sold.");
+            player.sendMessage("This item cannot be sold.");
             return;
         }
 
@@ -550,11 +564,11 @@ export class ShopManager {
             price = Math.floor(price * this.SALES_TAX);
         }
         if (price <= 0) {
-            player.getPacketSender().sendMessage("This item has no value.");
+            player.sendMessage("This item has no value.");
             return;
         }
         if ((shop.stock.get(itemId) ?? 0) <= 0 && shop.order.length >= this.MAX_SHOP_ITEMS) {
-            player.getPacketSender().sendMessage("The shop is currently full.");
+            player.sendMessage("The shop is currently full.");
             return;
         }
 

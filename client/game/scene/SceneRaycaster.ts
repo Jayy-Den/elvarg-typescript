@@ -2,6 +2,7 @@ import { mat4, vec3 } from "gl-matrix";
 
 import { LocModelLoader } from "../../rs/config/loctype/LocModelLoader";
 import { LocModelType } from "../../rs/config/loctype/LocModelType";
+import type { NpcType } from "../../rs/config/npctype/NpcType";
 import type { LocType } from "../../rs/config/loctype/LocType";
 import { getMapIndexFromTile, getMapSquareId } from "../../rs/map/MapFileIndex";
 import type { Model } from "../../rs/model/Model";
@@ -567,8 +568,18 @@ export class SceneRaycaster {
                         const centerX = anchorWorldX + sizeX * 0.5;
                         const centerZ = anchorWorldY + sizeY * 0.5;
                         const groundY = this.sampleHeightAt(centerX, centerZ, level | 0);
-                        const entityX = (anchorWorldX << 7) + (sizeX << 6);
-                        const entityZ = (anchorWorldY << 7) + (sizeY << 6);
+                        let entityX = (anchorWorldX << 7) + (sizeX << 6);
+                        let entityZ = (anchorWorldY << 7) + (sizeY << 6);
+                        if ((packedTypeRot & 0x3f) === LocModelType.WALL_DECORATION_OUTSIDE) {
+                            // Match SceneBuilder's wall decoration placement.
+                            let displacement = 16;
+                            const wallIndex = locTypeRots.findIndex((packed) => (packed & 0x3f) <= LocModelType.WALL_RECT_CORNER);
+                            if (wallIndex >= 0) {
+                                displacement = this.osrsClient.locTypeLoader.load(locIds[wallIndex]).decorDisplacement;
+                            }
+                            entityX += displacement * [1, 0, -1, 0][rawRotation];
+                            entityZ += displacement * [0, -1, 0, 1][rawRotation];
+                        }
 
                         const tHit = this.intersectLocModel(
                             ray,
@@ -630,7 +641,12 @@ export class SceneRaycaster {
             let resizeY = 1.0;
             let resizeZ = 1.0;
             try {
-                const npcType = this.osrsClient.npcTypeLoader?.load?.(interactId | 0);
+                let npcType: NpcType | undefined = this.osrsClient.npcTypeLoader.load(interactId);
+                while (npcType?.transforms) {
+                    npcType = npcType.transform(this.osrsClient.varManager, this.osrsClient.npcTypeLoader);
+                }
+                // Model-less NPC spawns must not intercept objects behind their bounding box.
+                if (!npcType?.modelIds?.length) continue;
                 if (npcType) {
                     if (typeof npcType.widthScale === "number") {
                         resizeX = Math.max(0.25, npcType.widthScale / 128);
@@ -642,7 +658,10 @@ export class SceneRaycaster {
                         resizeZ = Math.max(0.25, npcType.heightScale / 128);
                     }
                 }
-            } catch {}
+            } catch {
+                // Retry after streamed definitions become available.
+                continue;
+            }
             const horizScale = Math.max(resizeX, resizeY);
             const half = Math.max(0.32, size * 0.42 * horizScale);
             const groundY = this.sampleHeightAt(worldX, worldZ, npcPlane | 0);
@@ -816,6 +835,9 @@ export class SceneRaycaster {
         if (modelType === LocModelType.NORMAL_DIAGIONAL) {
             modelType = LocModelType.NORMAL;
             modelRotation = (rawRotation + 4) & 0x7;
+        }
+        if (modelType === LocModelType.WALL_DECORATION_OUTSIDE) {
+            modelType = LocModelType.WALL_DECORATION_INSIDE;
         }
         return { modelType, rawRotation, modelRotation };
     }
