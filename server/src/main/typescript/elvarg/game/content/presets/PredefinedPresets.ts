@@ -16,11 +16,11 @@ export class PredefinedPresets {
             new Item(ItemIdentifiers.DEATH_RUNE, 1000), new Item(ItemIdentifiers.EARTH_RUNE, 1000), new Item(ItemIdentifiers.ASTRAL_RUNE, 1000), new Item(ItemIdentifiers.SHARK),
         ],
             [
-                new Item(ItemIdentifiers.WARRIOR_HELM),
+                new Item(ItemIdentifiers.BERSERKER_HELM),
                 new Item(ItemIdentifiers.STRENGTH_CAPE_T_),
                 new Item(ItemIdentifiers.DRAGON_SCIMITAR),
                 new Item(ItemIdentifiers.AMULET_OF_GLORY),
-                new Item(ItemIdentifiers.RUNE_PLATEBODY),
+                new Item(ItemIdentifiers.FIGHTER_TORSO),
                 new Item(ItemIdentifiers.RUNE_DEFENDER),
                 new Item(ItemIdentifiers.RUNE_PLATELEGS),
                 new Item(ItemIdentifiers.BARROWS_GLOVES),
@@ -45,11 +45,11 @@ export class PredefinedPresets {
         new Item(ItemIdentifiers.DEATH_RUNE, 1000), new Item(ItemIdentifiers.EARTH_RUNE, 1000), new Item(ItemIdentifiers.ASTRAL_RUNE, 1000), new Item(ItemIdentifiers.SHARK),
     ],
         [    
-            new Item(ItemIdentifiers.WARRIOR_HELM),
+            new Item(ItemIdentifiers.BERSERKER_HELM),
             new Item(ItemIdentifiers.STRENGTH_CAPE_T_),
             new Item(ItemIdentifiers.ABYSSAL_WHIP),
             new Item(ItemIdentifiers.AMULET_OF_GLORY),
-            new Item(ItemIdentifiers.RUNE_PLATEBODY),
+            new Item(ItemIdentifiers.FIGHTER_TORSO),
             new Item(ItemIdentifiers.RUNE_DEFENDER),
             new Item(ItemIdentifiers.RUNE_PLATELEGS),
             new Item(ItemIdentifiers.BARROWS_GLOVES),
@@ -190,7 +190,7 @@ export class PredefinedPresets {
             new Item(ItemIdentifiers.AMULET_OF_FURY),
             new Item(ItemIdentifiers.FIGHTER_TORSO),
             new Item(ItemIdentifiers.RUNE_DEFENDER),
-            new Item(ItemIdentifiers.BANDOS_TASSETS),
+            new Item(ItemIdentifiers.RUNE_PLATELEGS),
             new Item(ItemIdentifiers.BARROWS_GLOVES),
             new Item(ItemIdentifiers.DRAGON_BOOTS),
             new Item(ItemIdentifiers.RING_OF_RECOIL),
@@ -201,7 +201,7 @@ export class PredefinedPresets {
         true
     );
 
-    public static MAIN_MELEE_126: Presetable = new Presetable("Main Melee", [
+    public static MAIN_MELEE_126: Presetable = new Presetable("Main AGS", [
         new Item(ItemIdentifiers.ARMADYL_GODSWORD), new Item(ItemIdentifiers.SARADOMIN_BREW_4_), new Item(ItemIdentifiers.SUPER_RESTORE_4_), new Item(ItemIdentifiers.SUPER_RESTORE_4_),
         new Item(ItemIdentifiers.DRAGON_DAGGER_P_PLUS_PLUS_), new Item(ItemIdentifiers.ASTRAL_RUNE, 1000), new Item(ItemIdentifiers.EARTH_RUNE, 1000), new Item(ItemIdentifiers.DEATH_RUNE, 1000),
         new Item(ItemIdentifiers.SUPER_ATTACK_4_), new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN),
@@ -213,11 +213,11 @@ export class PredefinedPresets {
         [
             new Item(ItemIdentifiers.HELM_OF_NEITIZNOT),
             new Item(ItemIdentifiers.FIRE_CAPE),
-            new Item(ItemIdentifiers.ABYSSAL_TENTACLE),
+            new Item(ItemIdentifiers.ABYSSAL_WHIP),
             new Item(ItemIdentifiers.AMULET_OF_FURY),
-            new Item(ItemIdentifiers.BANDOS_CHESTPLATE),
+            new Item(ItemIdentifiers.FIGHTER_TORSO),
             new Item(ItemIdentifiers.RUNE_DEFENDER),
-            new Item(ItemIdentifiers.BANDOS_TASSETS),
+            new Item(ItemIdentifiers.RUNE_PLATELEGS),
             new Item(ItemIdentifiers.BARROWS_GLOVES),
             new Item(ItemIdentifiers.DRAGON_BOOTS),
             new Item(ItemIdentifiers.RING_OF_RECOIL),
@@ -358,7 +358,7 @@ export class PredefinedPresets {
         [
             new Item(ItemIdentifiers.VOID_MELEE_HELM),
             new Item(ItemIdentifiers.FIRE_CAPE),
-            new Item(ItemIdentifiers.ABYSSAL_TENTACLE),
+            new Item(ItemIdentifiers.ABYSSAL_WHIP),
             new Item(ItemIdentifiers.AMULET_OF_FURY),
             new Item(ItemIdentifiers.ELITE_VOID_TOP),
             new Item(ItemIdentifiers.DRAGON_DEFENDER),
@@ -434,7 +434,7 @@ export class PredefinedPresets {
             new Item(ItemIdentifiers.SUPER_STRENGTH_4_), new Item(ItemIdentifiers.RANGING_POTION_4_), new Item(ItemIdentifiers.SUPER_RESTORE_4_), new Item(ItemIdentifiers.RING_OF_RECOIL),
             new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN),
             new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN), new Item(ItemIdentifiers.COOKED_KARAMBWAN),
-            new Item(ItemIdentifiers.TZHAAR_KET_OM), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK),
+            new Item(ItemIdentifiers.TZHAAR_KET_OM), new Item(ItemIdentifiers.MAGIC_SHORTBOW), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK),
             new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK),
             new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK),
             new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK), new Item(ItemIdentifiers.SHARK),
@@ -449,7 +449,8 @@ export class PredefinedPresets {
             new Item(ItemIdentifiers.BLACK_DHIDE_CHAPS),
             new Item(ItemIdentifiers.MITHRIL_GLOVES),
             new Item(ItemIdentifiers.CLIMBING_BOOTS),
-            new Item(ItemIdentifiers.RING_OF_RECOIL)
+            new Item(ItemIdentifiers.RING_OF_RECOIL),
+            new Item(ItemIdentifiers.RUNE_ARROW, 75),
         ],
         /* atk, def, str, hp, range, pray, mage */
         [1, 1, 99, 80, 60, 31, 1],

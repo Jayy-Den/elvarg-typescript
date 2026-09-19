@@ -176,6 +176,7 @@ export class Player extends Mobile {
     private static readonly PREFERRED_LOCAL_PLAYERS = 250;
     private static readonly VIEW_DISTANCE_REGROW_CYCLES = 10;
     public skullType: SkullType;
+    private skullIconOverride: number | null = null;
     public combatSpecial: CombatSpecial;
     private recoilDamage: number;
     private vengeanceTimer = new SecondsTimer();
@@ -492,7 +493,7 @@ export class Player extends Mobile {
         // PlayerBot-specific processing skipped in this runtime.
         // Decrease boosted stats Increase lowered stats
         if (this.getHitpoints() > 0) {
-            if (this.increaseStats.finished() || this.decreaseStats.secondsElapsed() >= (PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 72 : 60)) {
+            if (this.increaseStats.finished() || this.decreaseStats.secondsElapsed() >= (PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 90 : 60)) {
                 timed("stats", () => {
                     for (let skill of Skill.values()) {
                         let current = this.getSkillManager().getCurrentLevel(skill);
@@ -520,7 +521,7 @@ export class Player extends Mobile {
                         } else if (current > max) {
 
                             // Should boosted stats be decreased?
-                            if (this.decreaseStats.secondsElapsed() >= (PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 72 : 60)) {
+                            if (this.decreaseStats.secondsElapsed() >= (PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 90 : 60)) {
 
                                 // Never decrease Hitpoints / Prayer, and keep player-bot boosts static.
                                 if (!isBot && skill != Skill.HITPOINTS && skill != Skill.PRAYER) {
@@ -535,8 +536,8 @@ export class Player extends Mobile {
                         this.increaseStats.start(60);
                     }
                     if (this.decreaseStats
-                        .secondsElapsed() >= (PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 72 : 60)) {
-                        this.decreaseStats.start((PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 72 : 60));
+                        .secondsElapsed() >= (PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 90 : 60)) {
+                        this.decreaseStats.start((PrayerHandler.isActivated(this, PrayerHandler.PRESERVE) ? 90 : 60));
                     }
                 });
             }
@@ -1341,6 +1342,20 @@ export class Player extends Mobile {
 
     public getSkullType(): SkullType {
         return this.skullType;
+    }
+
+    public getSkullIconId(): number {
+        return this.skullIconOverride ?? this.skullType.getIconId();
+    }
+
+    public setSkullIconOverride(iconId: number | null): void {
+        const normalizedIconId = Number.isInteger(iconId) && iconId >= 0 ? iconId : null;
+        if (this.skullIconOverride === normalizedIconId) {
+            return;
+        }
+
+        this.skullIconOverride = normalizedIconId;
+        this.getUpdateFlag().flag(Flag.APPEARANCE);
     }
 
     public setSkullType(skullType: SkullType) {
