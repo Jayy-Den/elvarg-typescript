@@ -429,6 +429,18 @@ export enum Opcodes {
     MUSIC_STOP = 3220, // Stop/fade current music
     MUSIC_DUAL = 3221, // Play two tracks simultaneously
     MUSIC_CROSSFADE = 3222, // Crossfade between two playing tracks
+    // 3223-3229: newer sound/music controls, unimplemented (no audio pipeline
+    // for these yet). The combat-tab cs2 chain (876<-9790) calls them before
+    // finishing its interface setup — an abort there leaves the mobile side
+    // panel container hidden, so they must at least be stack-safe no-ops:
+    // each pops its arguments (verified against script_876 call sites).
+    SOUND_EFFECT_COORD = 3223, // pops area sound args (id, coords/radius...)
+    SOUND_JINGLE_TEMPORARY = 3224, // pops jingleId
+    MIDI_TEMPORARY = 3225, // pops midiId
+    SOUND_AREA_TEMPORARY = 3226, // pops area sound id
+    MUSIC_NAME_TEMPORARY = 3227, // pops track name string
+    SONG_SHIFT_TEMPORARY = 3228, // pops shift/transpose amount
+    SONG_TEMPORARY = 3229, // pops songId
     CLIENTCLOCK = 3300,
     INV_GETOBJ = 3301,
     INV_GETNUM = 3302,

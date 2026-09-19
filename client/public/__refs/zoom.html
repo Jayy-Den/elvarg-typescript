@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>refs zoom</title>
+<style>
+  body { background:#111; color:#ddd; font:12px monospace; margin:0; padding:8px; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  figure { margin:0; }
+  figcaption { color:#9f9; padding:2px 0; }
+  img { width:100%; image-rendering:pixelated; display:block; }
+</style>
+</head>
+<body>
+<div class="grid" id="grid"></div>
+<script>
+const names = [
+ "Screenshot_20260914_142301.jpg","Screenshot_20260914_142305.jpg","Screenshot_20260914_142307.jpg","Screenshot_20260914_142310.jpg",
+ "Screenshot_20260914_142312.jpg","Screenshot_20260914_142315.jpg","Screenshot_20260914_142318.jpg","Screenshot_20260914_142320.jpg",
+ "Screenshot_20260914_142323.jpg","Screenshot_20260914_142325.jpg","Screenshot_20260914_142328.jpg","Screenshot_20260914_142335.jpg",
+ "Screenshot_20260914_142340.jpg","Screenshot_20260914_142343.jpg","Screenshot_20260914_142347.jpg","Screenshot_20260914_142352.jpg",
+ "Screenshot_20260914_142403.jpg","Screenshot_20260914_142405.jpg","Screenshot_20260914_142412.jpg","Screenshot_20260914_142415.jpg",
+ "Screenshot_20260914_142417.jpg","Screenshot_20260914_142429.jpg"
+];
+const grid = document.getElementById('grid');
+for (const n of names) {
+  const fig = document.createElement('figure');
+  const cap = document.createElement('figcaption');
+  cap.textContent = n.replace('Screenshot_20260914_','').replace('.jpg','');
+  const img = document.createElement('img');
+  img.src = '/__refs/' + n;
+  fig.appendChild(cap); fig.appendChild(img);
+  grid.appendChild(fig);
+}
+</script>
+</body>
+</html>

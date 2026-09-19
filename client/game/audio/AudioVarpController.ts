@@ -58,7 +58,17 @@ export class AudioVarpController {
     }
 
     applyInterfaceScalingPercentDeviceOption(value: number): void {
-        setOsrsInterfaceScalingPercent(value | 0);
+        // The rev-240 login-init script (4618→7455) unconditionally requests
+        // 400% interface scaling on every login. That matches real phones
+        // (tiny canvas, chunky UI) but on desktop/preview canvases rendered
+        // at design resolution it makes the gameframe four times too large.
+        // Cap the applied scale so the layout keeps matching the mobile refs;
+        // the raw value is still stored for getDeviceOption parity.
+        // Cap at 100%: the refs' proportions (panel ≈16% of frame width)
+        // are the 100% layout at any canvas size, and 100% also clears the
+        // persisted override so no stale zoom survives a reload.
+        const percent = Math.min(Math.max(value | 0, 100), 100);
+        setOsrsInterfaceScalingPercent(percent);
         this.refreshUiScalingLayout();
     }
 

@@ -99,7 +99,10 @@ export class HdPlugin implements ClientPlugin {
         const yaw = environment.lightYaw * Math.PI / 180;
         const direction = vec3.fromValues(Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw));
         set("u_hdLightDirection", direction);
-        set("u_hdAmbient", environment.ambientColor.map(c => c * environment.ambient * 0.74));
+        // Ambient raised ~12% over the ported 0.74 factor: our geometric-normal
+        // lighting samples darker than the source client, leaving grass ~25%
+        // under the real OSRS mobile reference (measured avg 48,57,3 vs 65,76,22).
+        set("u_hdAmbient", environment.ambientColor.map(c => c * environment.ambient * 0.83));
         set("u_hdDirectional", environment.directionalColor.map(c => c * environment.lightStrength * 0.9));
         set("u_hdFogColor", environment.fogColor);
         const fogEnd = Math.max(1, renderer.getFrameRenderDistanceTiles());

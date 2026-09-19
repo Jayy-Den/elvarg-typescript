@@ -160,8 +160,11 @@ export class WidgetTransmitProcessor {
             if (uid === 0 || visited.has(uid)) continue;
             visited.add(uid);
 
-            if (node.hidden || node.isHidden) continue;
-            visibleNodes.push(node);
+            // PARITY: native OSRS traverses the full widget tree regardless of hidden
+            // state — hidden templates (e.g. group 149 skill slots) still receive
+            // transmit events while invisible so their onLoad-built listeners fire.
+            // Only visible nodes feed the var-transmit group-refresh pass below.
+            if (!(node.hidden || node.isHidden)) visibleNodes.push(node);
 
             const lastCycle = node.lastTransmitCycle ?? -1;
 

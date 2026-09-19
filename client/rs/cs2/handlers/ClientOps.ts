@@ -1744,6 +1744,35 @@ export function registerClientOps(handlers: HandlerMap): void {
         ctx.intStackSize -= 2; // pop delay, animId
     });
 
+    // 3223-3229 (temporary sound/music family): audio is not wired for these
+    // opcodes yet, but combat-tab cs2 (876<-9790) calls them before finishing
+    // its interface setup — an abort there leaves the mobile side panel
+    // container hidden. Register stack-balanced no-ops so the script continues.
+    // Bytecode signatures from script_9790 (the hot call site):
+    //   op_3229 — pops 1 int (songId)
+    //   op_3228 — follows two sconst pushes (name+value) → pops 2 strings
+    // Other 322x ops aren't reached by current cache scripts; keep them as
+    // single-int pops as a conservative default.
+    for (const op of [
+        Opcodes.SOUND_EFFECT_COORD,
+        Opcodes.SOUND_JINGLE_TEMPORARY,
+        Opcodes.MIDI_TEMPORARY,
+        Opcodes.SOUND_AREA_TEMPORARY,
+        Opcodes.SONG_TEMPORARY,
+    ]) {
+        handlers.set(op, (ctx) => {
+            ctx.intStackSize -= 1;
+        });
+    }
+    // SONG_SHIFT_TEMPORARY (3228): pops 2 strings (name, value) per script_9790.
+    handlers.set(Opcodes.SONG_SHIFT_TEMPORARY, (ctx) => {
+        ctx.stringStackSize -= 2;
+    });
+    // MUSIC_NAME_TEMPORARY (3227): pops a string.
+    handlers.set(Opcodes.MUSIC_NAME_TEMPORARY, (ctx) => {
+        ctx.stringStackSize -= 1;
+    });
+
     handlers.set(Opcodes.IF_CLOSE, (ctx) => {
         // defer close until script return.
         ctx.deferIfClose();

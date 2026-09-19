@@ -160,6 +160,14 @@
             if ((isDragActive || isClickedWidget) && !w.isScrollBar) {
                 trans = 128;
             }
+            // Mobile sidebar panel (601:113, stone tile sprite 1040): some cache
+            // script sets cc_settrans(150) on it during combat-tab layout, leaving
+            // it ~40% ghost-transparent — the official mobile panel is opaque (and
+            // so was the desktop 161:38 twin, trans=0). Parity override:
+            // sidebar backdrop tiles always draw fully opaque.
+            if (MOBILE_SIDEBAR_BACKDROP_SPRITE_IDS.has(effectiveSpriteId) && trans > 0) {
+                trans = 0;
+            }
             const alpha = (255 - trans) / 255;
             const itemId = typeof w.itemId === "number" ? (w.itemId as number) | 0 : -1;
             const renderItemSprite = isIf3 && itemId >= 0;

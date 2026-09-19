@@ -1,0 +1,20 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>zoom</title>
+<style>html,body{background:#000;margin:0;overflow:hidden}canvas{image-rendering:pixelated;display:block;width:100vw;height:100vh}</style></head><body>
+<canvas id="c"></canvas>
+<script>
+const p = new URLSearchParams(location.search);
+const f = p.get('f') || 'Screenshot_20260914_142305.jpg';
+let x = Number(p.get('x') || 0), y = Number(p.get('y') || 0);
+let w = Number(p.get('w') || 0), h = Number(p.get('h') || 0);
+const img = new Image();
+img.onload = () => {
+  if (!w) w = img.width; if (!h) h = img.height;
+  const c = document.getElementById('c');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+};
+img.src = f;
+</script>
+</body></html>

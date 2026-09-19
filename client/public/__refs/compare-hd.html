@@ -1,0 +1,171 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OSRS Refs vs Ours — HD vs Vanilla</title>
+<style>
+  body { background: #1a1a1a; color: #ddd; font-family: monospace; margin: 12px; }
+  h1 { font-size: 18px; } h2 { font-size: 14px; margin: 14px 0 6px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .cell { background: #111; border: 1px solid #444; padding: 6px; text-align: center; }
+  .cell img, .cell canvas { image-rendering: pixelated; display: block; margin: 0 auto; max-width: 380px; }
+  .lbl { font-size: 11px; color: #9c9; margin-top: 4px; }
+  .sample { font-size: 11px; color: #fc6; min-height: 14px; }
+  button { background: #333; color: #eee; border: 1px solid #666; padding: 6px 10px; margin: 4px 6px 12px 0; cursor: pointer; font-family: monospace; }
+  button:hover { background: #444; }
+  #status { color: #f88; }
+  .swatches { display: flex; gap: 4px; justify-content: center; margin-top: 4px; }
+  .sw { width: 22px; height: 14px; border: 1px solid #000; }
+</style>
+</head>
+<body>
+<h1>Side-by-side: REAL OSRS mobile refs (left) vs our client (middle: HD on, right: vanilla)</h1>
+<div>
+  <button onclick="setHd(true)">Enable HD</button>
+  <button onclick="setHd(false)">Disable HD</button>
+  <button onclick="snapBoth()">Re-capture both modes</button>
+  <span id="status"></span>
+</div>
+
+<h2>Reference gallery vs live captures</h2>
+<div class="grid" id="rows"></div>
+
+<h2>Average green (grass) swatches — ref vs HD vs vanilla</h2>
+<div class="grid" id="swatchRows"></div>
+
+<script>
+const REFS = [
+  'Screenshot_20260914_142301.jpg','Screenshot_20260914_142305.jpg',
+  'Screenshot_20260914_142310.jpg','Screenshot_20260914_142318.jpg',
+  'Screenshot_20260914_142325.jpg','Screenshot_20260914_142335.jpg',
+  'Screenshot_20260914_142343.jpg','Screenshot_20260914_142352.jpg',
+  'Screenshot_20260914_142403.jpg','Screenshot_20260914_142412.jpg',
+  'Screenshot_20260914_142417.jpg','Screenshot_20260914_142429.jpg'
+];
+const status = (t, err) => { document.getElementById('status').textContent = t; if (err) console.error(err); };
+const client = () => window.__osrsClient;
+
+async function setHd(on) {
+  const c = client(); if (!c) return status('no client');
+  c.hdPlugin.setEnabled(on);
+  await new Promise(r => setTimeout(r, 600));   // let the plugin swap programs
+  status('HD ' + (on ? 'ON' : 'OFF'));
+}
+
+// Grab the world canvas through the renderer, preserving alpha correctly.
+function worldCanvas() {
+  const c = client(); if (!c || !c.renderer) return null;
+  return c.renderer.renderCanvas || c.renderer.canvas || (c.renderer.gl && c.renderer.gl.canvas) || null;
+}
+
+async function snap(mode) {
+  const src = worldCanvas(); if (!src) return null;
+  // drawImage of a WebGL canvas must happen inside a frame where content exists;
+  // to preservePattern alpha, clear with opaque black first.
+  const cv = document.createElement('canvas');
+  cv.width = src.width; cv.height = src.height;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
+  g.drawImage(src, 0, 0);
+  return cv;
+}
+
+function avgGreen(cv) {
+  const g = cv.getContext('2d');
+  const d = g.getImageData(0, 0, cv.width, cv.height).data;
+  let r = 0, gg = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 64) {
+    const R = d[i], G = d[i+1], B = d[i+2];
+    if (G > R + 4 && G > B + 4 && G > 30 && G < 220) { r += R; gg += G; b += B; n++; }
+  }
+  if (!n) return null;
+  return [Math.round(r/n), Math.round(gg/n), Math.round(b/n), n];
+}
+
+function refAvgGreen(img) {
+  const cv = document.createElement('canvas');
+  cv.width = img.width; cv.height = img.height;
+  const g = cv.getContext('2d');
+  g.drawImage(img, 0, 0);
+  return avgGreen(cv);
+}
+
+function swatchEl(rgb, label) {
+  if (!rgb) return '<span class="sample">' + label + ': n/a</span>';
+  const [r,g,b] = rgb;
+  return '<div class="swatches"><span class="sw" style="background:rgb(' + r + ',' + g + ',' + b + ')"></span></div>' +
+         '<div class="sample">' + label + ': ' + rgb.slice(0,3).join(',') + '</div>';
+}
+
+async function build() {  const rows = document.getElementById('rows');
+  const swatches = document.getElementById('swatchRows');
+  rows.innerHTML = ''; swatches.innerHTML = '';
+
+  // refs
+  const refImgs = [];
+  for (const f of REFS) {
+    const img = new Image();
+    img.src = '/__refs/' + f;
+    try { await img.decode(); } catch { continue; }
+    refImgs.push(img);
+  }
+
+
+  // live captures were exported by the game page into localStorage
+  const caps = { hd: localStorage.getItem('__capHd'), van: localStorage.getItem('__capVan') };
+  if (!caps.hd || !caps.van) {
+    rows.innerHTML = '<div class="cell"><div class="sample">No captures found. Open the game page, run the capture snippet (exports __capVan/__capHd to localStorage), then reload this sheet — same origin, so localStorage is shared.</div></div>';
+    return;
+  }
+
+  const mkCell = (src, label) => '<div class="cell"><img src="' + src + '" width="380"><div class="lbl">' + label + '</div></div>';
+  rows.innerHTML =
+    '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+    '<div class="cell"><img src="/' + '__refs/' + REFS[0] + '" width="300"><div class="lbl">REF · real OSRS mobile</div></div>' +
+    mkCell(caps.hd, 'OURS · HD on') +
+    mkCell(caps.van, 'OURS · vanilla') +
+    '</div>';
+
+  // average-green swatches from the captures
+  const swatchFromDataUrl = (du) => new Promise(res => { const im = new Image(); im.onload = () => { const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height; const g = cv.getContext('2d'); g.drawImage(im, 0, 0); res(avgGreen(cv)); }; im.src = du; });
+  const sHd = await swatchFromDataUrl(caps.hd);
+  const sVan = await swatchFromDataUrl(caps.van);
+  const refAvg = refAvgGreen(refImgs[0]);
+  swatches.innerHTML =
+    '<div class="cell">' + swatchEl(refAvg, 'REF grass') + '</div>' +
+    '<div class="cell">' + swatchEl(sHd, 'HD grass') + '</div>' +
+    '<div class="cell">' + swatchEl(sVan, 'vanilla grass') + '</div>';
+}
+
+let hdCanvas = null, vanCanvas = null;
+
+async function snapBoth() {
+  await setHd(true);
+  hdCanvas = await snap();
+  await setHd(false);
+  vanCanvas = await snap();
+  renderCaps();
+  status('captured both');
+}
+
+function renderCaps() {
+  const box = document.getElementById('ourBox'); if (!box) return;
+  let html = '';
+  if (hdCanvas) html += '<canvas id="cHd"></canvas><div class="lbl">OURS · HD</div><div id="swHd"></div>';
+  if (vanCanvas) html += '<canvas id="cVan"></canvas><div class="lbl">OURS · vanilla</div><div id="swVan"></div>';
+  box.innerHTML = html;
+  const put = (id, cv) => {
+    const el = document.getElementById(id); if (!el || !cv) return;
+    el.width = cv.width / 2; el.height = cv.height / 2;
+    el.getContext('2d').drawImage(cv, 0, 0, el.width, el.height);
+  };
+  put('cHd', hdCanvas); put('cVan', vanCanvas);
+  const sHd = document.getElementById('swHd'), sVan = document.getElementById('swVan');
+  if (sHd && hdCanvas) sHd.innerHTML = swatchEl(avgGreen(hdCanvas), 'avg green');
+  if (sVan && vanCanvas) sVan.innerHTML = swatchEl(avgGreen(vanCanvas), 'avg green');
+}
+
+build();
+</script>
+</body>
+</html>
