@@ -358,7 +358,7 @@ export class PredefinedPresets {
         [
             new Item(ItemIdentifiers.VOID_MELEE_HELM),
             new Item(ItemIdentifiers.FIRE_CAPE),
-            new Item(ItemIdentifiers.ABYSSAL_TENTACLE),
+            new Item(ItemIdentifiers.ABYSSAL_WHIP),
             new Item(ItemIdentifiers.AMULET_OF_FURY),
             new Item(ItemIdentifiers.ELITE_VOID_TOP),
             new Item(ItemIdentifiers.DRAGON_DEFENDER),
