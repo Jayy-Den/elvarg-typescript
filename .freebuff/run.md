@@ -86,3 +86,23 @@
 - 162:135 marker mirror lives in two call sites (mount + pre-tap); could fold
   into one invalidate hook if it grows.
 - `client-dev.log`, `.freebuff/bundle*.js` snapshots are stale artifacts.
+
+## Group-149 (skills/backpack) dynamic slots — solved 2026-09-19
+- Rev-240 interface 149 is a 1-widget stub; onLoad script 6007 builds 28 slot
+  templates (cc_create), then registers inv-transmit listener 6009 on 149:0
+  with triggers [93]. 6009 → 6010 (grid layout) → 6011 (per-slot visuals).
+- 6011 hides EMPTY slots (cc_sethide(1) after cc_setobject(6512,1) placeholder);
+  only slots with a real inv93 item become visible. An empty backpack showing
+  no slots in the backpack tab is CORRECT cache behavior.
+- Root cause of "slots never appear": WidgetTransmitProcessor skipped hidden
+  nodes, so the hidden templates never received the inv-transmit that runs
+  6009. Fixed to traverse all nodes (parity with native); visible-only list
+  kept for the var-transmit group-refresh pass.
+- Verify via `c.handleInventoryServerUpdate({kind:'snapshot',slots:[...]})` —
+  bare `c.inventory.setSlot` bypasses markInvTransmit(93) and won't rebuild.
+- cs2 876 (tab open) needs opcodes 3223–3229; they push/pop strings+ints —
+  keep signatures balanced (3228 pops 2 strings, pushes 1 int).
+- Login-init 4618→7455 sets device-option 27 = 400% scaling every login;
+  AudioVarpController caps applied scale at 100% (refs are the 100% layout).
+- Transmits also need `isTransmitProcessingNeeded()`; hidden slot listeners
+  stamp `lastChangedInvCount` even while hidden (counter-based dedupe).
